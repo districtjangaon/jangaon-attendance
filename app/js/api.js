@@ -1,0 +1,86 @@
+'use strict';
+/**
+ * Server API. POST body is JSON sent as text/plain — a CORS "simple request",
+ * so the browser never preflights (Apps Script cannot answer OPTIONS).
+ * DEMO mode fakes the whole backend locally so the app can be exercised
+ * end-to-end (offline queue, shared-phone user picker included) with no
+ * server at all.
+ */
+const Api = (() => {
+
+  async function post(body) {
+    if (window.APP_CONFIG.DEMO) return demo(body);
+    const res = await fetch(window.APP_CONFIG.ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+
+  // ---------- demo backend ----------
+  // One shared centre phone with two workers, like ~190 real AWCs.
+  const demoUsers = {
+    U0001: { name: 'Demo Teacher', cadre: 'AWT', pin: null },
+    U0002: { name: 'Demo Helper', cadre: 'AWH', pin: null }
+  };
+
+  async function demo(body) {
+    await new Promise(r => setTimeout(r, 350)); // simulate network
+    switch (body.action) {
+      case 'login': {
+        if (!/^\d{10}$/.test(String(body.phone || ''))) return { ok: false, code: 'BAD_PHONE' };
+        const uid = String(body.userId || '');
+        if (!demoUsers[uid]) {
+          return {
+            ok: false, code: 'CHOOSE_USER',
+            users: Object.keys(demoUsers).map(id =>
+              ({ id: id, name: demoUsers[id].name, cadre: demoUsers[id].cadre }))
+          };
+        }
+        const u = demoUsers[uid];
+        if (body.newPin) {
+          if (!/^\d{4}$/.test(String(body.newPin))) return { ok: false, code: 'BAD_PIN_FORMAT' };
+          u.pin = String(body.newPin);
+        } else if (u.pin == null) {
+          return { ok: false, code: 'SET_PIN_REQUIRED', userId: uid };
+        } else if (String(body.pin) !== u.pin) {
+          return { ok: false, code: 'WRONG_PIN', left: 4 };
+        }
+        return { ok: true, token: 'demo-token-' + uid, config: demoConfig(uid) };
+      }
+      case 'sync':
+        return {
+          ok: true,
+          serverTs: new Date().toISOString(),
+          acks: (body.records || []).map(r => ({ key: r.key, status: 'OK' }))
+        };
+      case 'config': {
+        const uid = String(body.token || '').replace('demo-token-', '');
+        return { ok: true, config: demoConfig(demoUsers[uid] ? uid : 'U0001') };
+      }
+      case 'myHistory':
+        return { ok: true, marks: [] };
+      default:
+        return { ok: true };
+    }
+  }
+
+  function demoConfig(uid) {
+    const u = demoUsers[uid];
+    return {
+      user: { id: uid, name: u.name, cadre: u.cadre, project: 'JGN', sector: 'S01',
+        awcId: 'A0001', awcName: 'Demo AWC Alipur-I', role: 'FIELD' },
+      locations: [{ awc_id: 'A0001', name: 'Demo AWC Alipur-I', lat: null, lng: null, radius_m: 200 }],
+      schedule: { project_code: 'ALL', cadre: 'ALL', in_start: '08:30', in_end: '10:30',
+        late_after: '09:30', out_start: '15:30', out_end: '17:30' },
+      sync: { jitterMaxSec: 5, batchMax: 10 }, // short jitter so demo feels snappy
+      photoMaxKB: 60,
+      privacyVersion: 1,
+      serverTs: new Date().toISOString()
+    };
+  }
+
+  return { post };
+})();

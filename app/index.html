@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#006437">
+  <title>AWC Attendance</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="gov-header">
+    <div class="gov-line">Government of Telangana — WD&amp;CW, Jangaon</div>
+    <div class="app-title">AWC Attendance</div>
+    <button id="btn-menu" class="menu-btn" hidden>&#9776;</button>
+  </header>
+
+  <div id="offline-banner" class="banner banner-offline" hidden>
+    You are offline — your attendance will be saved on this phone and sent automatically.
+  </div>
+
+  <!-- ============ LOGIN ============ -->
+  <section id="screen-login" class="screen">
+    <h2>Login</h2>
+    <label for="in-phone">Mobile number</label>
+    <input id="in-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="tel">
+
+    <!-- Shown when this number belongs to more than one worker (AWT + AWH
+         sharing the centre phone). Tap your own name. -->
+    <div id="whoami-block" hidden>
+      <p class="info">This number is used by more than one worker. Tap your name:</p>
+      <div id="whoami-list" class="whoami-list"></div>
+    </div>
+
+    <div id="pin-block">
+      <label for="in-pin">PIN</label>
+      <input id="in-pin" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit PIN">
+    </div>
+    <div id="newpin-block" hidden>
+      <p class="info">First login — choose your own 4-digit PIN. You will use it every time.</p>
+      <label for="in-newpin">New PIN</label>
+      <input id="in-newpin" type="password" inputmode="numeric" maxlength="4" placeholder="Choose 4-digit PIN">
+      <label for="in-newpin2">Repeat new PIN</label>
+      <input id="in-newpin2" type="password" inputmode="numeric" maxlength="4" placeholder="Repeat PIN">
+      <p class="privacy-note">This app records your attendance photo, location and time,
+        and shows them to your supervisors in the Women Development &amp; Child Welfare
+        department. Photos are deleted after 45 days. Attendance records are kept for
+        official use. By setting a PIN you agree to this.</p>
+    </div>
+    <button id="btn-login" class="btn btn-primary">LOGIN</button>
+    <p id="login-msg" class="msg"></p>
+    <p class="hint">Forgot PIN? Ask your supervisor to reset it, then login again and set a new PIN.</p>
+  </section>
+
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen" hidden>
+    <div id="home-name" class="user-name"></div>
+    <div id="home-awc" class="user-awc"></div>
+    <div id="home-date" class="today-date"></div>
+
+    <button id="btn-mark" class="bigbtn">IN</button>
+    <div id="mark-done" class="done-note" hidden>
+      <div class="done-tick">&#10003;</div>
+      <div>Attendance complete for today</div>
+    </div>
+
+    <div class="statusbar">
+      <div id="st-net" class="st"></div>
+      <div id="st-pending" class="st"></div>
+      <div id="st-lastsync" class="st"></div>
+    </div>
+    <div class="homerow">
+      <button id="btn-syncnow" class="btn btn-small">Sync now</button>
+      <button id="btn-history" class="btn btn-small">My record</button>
+      <button id="btn-users" class="btn btn-small">Switch user</button>
+    </div>
+  </section>
+
+  <!-- ============ SWITCH USER ============ -->
+  <section id="screen-users" class="screen" hidden>
+    <h2>Who is marking?</h2>
+    <p class="info">Both workers of this centre can use this phone. Each has their own PIN.</p>
+    <div id="users-list" class="whoami-list"></div>
+    <button id="btn-adduser" class="btn btn-plain">+ Add another user</button>
+    <button id="btn-users-back" class="btn btn-plain">Back</button>
+  </section>
+
+  <!-- ============ CAMERA ============ -->
+  <section id="screen-camera" class="screen" hidden>
+    <h2 id="cam-title">Take your photo</h2>
+    <div class="cam-wrap">
+      <video id="cam-video" autoplay playsinline muted></video>
+    </div>
+    <div id="cam-gps" class="gps-line">Getting GPS&hellip;</div>
+    <button id="btn-capture" class="btn btn-primary btn-capture">&#128247; CAPTURE</button>
+    <button id="btn-cam-cancel" class="btn btn-plain">Cancel</button>
+    <p id="cam-msg" class="msg"></p>
+  </section>
+
+  <!-- ============ SUCCESS ============ -->
+  <section id="screen-success" class="screen success-screen" hidden>
+    <div class="success-tick">&#10003;</div>
+    <div id="success-text" class="success-text">Attendance saved</div>
+    <div id="success-sub" class="success-sub"></div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section id="screen-history" class="screen" hidden>
+    <h2>My record</h2>
+    <ul id="history-list" class="history-list"></ul>
+    <button id="btn-history-back" class="btn btn-plain">Back</button>
+  </section>
+
+  <!-- ============ MENU ============ -->
+  <section id="screen-menu" class="screen" hidden>
+    <h2>Menu</h2>
+    <div id="menu-user" class="info"></div>
+    <div id="menu-version" class="info"></div>
+    <button id="btn-logout" class="btn btn-danger">Logout this user</button>
+    <button id="btn-menu-back" class="btn btn-plain">Back</button>
+  </section>
+
+  <footer class="build-tag">BUILD: v1.0-20260807-1900</footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
