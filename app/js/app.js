@@ -93,6 +93,22 @@ const App = (() => {
     $('btn-menu').onclick = showMenu;
     $('btn-menu-back').onclick = goHome;
     $('btn-logout').onclick = doLogout;
+    $('btn-demo-reset').onclick = demoReset;
+  }
+
+  /** DEMO only: wipe everything on this device and start over. */
+  async function demoReset() {
+    if (!window.APP_CONFIG.DEMO) return;
+    if (!confirm('Delete ALL demo data on this device (accounts, marks, queue) and start fresh?')) return;
+    accounts = {};
+    activeUid = null;
+    await Promise.all([
+      DB.kvDel('accounts'), DB.kvDel('activeUid'), DB.kvDel('lastSync')
+    ]);
+    const wipe = store => DB.all(store).then(rows =>
+      Promise.all(rows.map(r => DB.del(store, r.key))));
+    await Promise.all([wipe('queue'), wipe('history')]);
+    location.reload();
   }
 
   // ---------- login ----------
@@ -404,6 +420,7 @@ const App = (() => {
       acc.user.cadre + ', ' + (acc.user.awcName || acc.user.sector);
     $('menu-version').textContent = 'App version ' + window.APP_CONFIG.VERSION +
       (window.APP_CONFIG.DEMO ? ' — DEMO MODE (no server)' : '');
+    $('btn-demo-reset').hidden = !window.APP_CONFIG.DEMO;
     show('screen-menu');
   }
 
