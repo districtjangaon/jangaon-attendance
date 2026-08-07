@@ -1,0 +1,13 @@
+# Real personal data — never commit (DPDP). The xlsx and everything derived
+# from it contain names, phone numbers and workplace GPS of real employees.
+input/*.xlsx
+master-data/
+
+# Deployment secrets / instance config
+app/js/config.js
+console/js/config.js
+.clasp.json
+
+# Local clutter
+node_modules/
+*.log
