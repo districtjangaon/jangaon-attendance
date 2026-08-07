@@ -11,3 +11,6 @@ console/js/config.js
 # Local clutter
 node_modules/
 *.log
+
+# Local debug screenshots (may contain personal browser info)
+Error Snap/

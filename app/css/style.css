@@ -11,6 +11,10 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+/* The hidden attribute must beat any display rule below (the browser's own
+   [hidden] rule is NOT !important, so `display:flex` on a class would
+   otherwise force hidden overlays visible and block every tap). */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

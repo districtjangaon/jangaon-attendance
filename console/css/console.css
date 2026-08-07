@@ -12,6 +12,10 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* The hidden attribute must beat any display rule below (the browser's own
+   [hidden] rule is NOT !important, so `display:flex` on .lightbox would
+   otherwise keep the overlay visible on the login page). */
+[hidden] { display: none !important; }
 body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--ink); background: #f6f6f4;
