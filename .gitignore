@@ -14,3 +14,6 @@ node_modules/
 
 # Local debug screenshots (may contain personal browser info)
 Error Snap/
+
+# Unrelated project files kept locally
+/RUNBOOK.md
