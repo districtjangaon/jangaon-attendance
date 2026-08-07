@@ -78,6 +78,9 @@ const App = (() => {
 
   function bindEvents() {
     $('btn-login').onclick = doLogin;
+    ['in-phone', 'in-pin', 'in-newpin2'].forEach(id => {
+      $(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+    });
     $('btn-mark').onclick = () => startMark();
     $('btn-capture').onclick = doCapture;
     $('btn-cam-cancel').onclick = () => { Camera.stop(); goHome(); };
@@ -140,10 +143,13 @@ const App = (() => {
       if (!/^\d{4}$/.test(p1)) { msg.textContent = 'PIN must be exactly 4 digits.'; return; }
       if (p1 !== p2) { msg.textContent = 'The two PINs do not match.'; return; }
       body.newPin = p1;
-    } else {
-      if (!/^\d{4}$/.test(pin)) { msg.textContent = 'Enter your 4-digit PIN.'; return; }
+    } else if (pin) {
+      if (!/^\d{4}$/.test(pin)) { msg.textContent = 'PIN must be exactly 4 digits.'; return; }
       body.pin = pin;
     }
+    // No PIN typed? Submit anyway — only the server knows whether this account
+    // is on first login (SET_PIN_REQUIRED), shared (CHOOSE_USER) or needs its
+    // PIN (PIN_REQUIRED). Demanding a PIN first deadlocks brand-new users.
 
     $('btn-login').disabled = true;
     try {
@@ -161,6 +167,7 @@ const App = (() => {
       const texts = {
         NO_USER: 'This number is not registered. Contact your supervisor.',
         INACTIVE: 'This account is deactivated. Contact your supervisor.',
+        PIN_REQUIRED: 'Enter your 4-digit PIN.',
         WRONG_PIN: 'Wrong PIN.' + (res.left ? ' Attempts left: ' + res.left : ''),
         LOCKED: 'Too many wrong attempts. Try again after 15 minutes.',
         DEVICE_MISMATCH: 'This account is active on another phone. Ask your supervisor to approve this phone.',
@@ -296,6 +303,7 @@ const App = (() => {
 
   // ---------- marking ----------
   async function startMark() {
+    if (!active()) { resetLogin(); show('screen-login'); return; }
     markType = await nextAction();
     if (!markType) return;
     $('cam-title').textContent = markType === 'IN' ? 'IN — take your photo' : 'OUT — take your photo';
@@ -327,9 +335,10 @@ const App = (() => {
   }
 
   async function doCapture() {
+    const acc = active();
+    if (!acc) { Camera.stop(); resetLogin(); show('screen-login'); return; }
     $('btn-capture').disabled = true;
     try {
-      const acc = active();
       const clientTs = localIso();
       const g = geoResult || (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
       let photoBlob = null;

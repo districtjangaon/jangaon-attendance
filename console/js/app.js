@@ -56,8 +56,10 @@ const App = (() => {
       body.newPin = p1;
     } else {
       const pin = $('in-pin').value.trim();
-      if (!/^\d{4}$/.test(pin)) { msg.textContent = 'Enter your 4-digit PIN.'; return; }
-      body.pin = pin;
+      if (pin && !/^\d{4}$/.test(pin)) { msg.textContent = 'PIN must be exactly 4 digits.'; return; }
+      if (pin) body.pin = pin;
+      // Empty PIN still submits: the server decides between CHOOSE_USER,
+      // SET_PIN_REQUIRED (first login) and PIN_REQUIRED.
     }
 
     $('btn-login').disabled = true;
@@ -86,7 +88,8 @@ const App = (() => {
         msg.textContent = 'First login: set your PIN.';
       } else {
         msg.textContent = {
-          NO_USER: 'Number not registered.', WRONG_PIN: 'Wrong PIN.' + (res.left ? ' Attempts left: ' + res.left : ''),
+          NO_USER: 'Number not registered.', PIN_REQUIRED: 'Enter your 4-digit PIN.',
+          WRONG_PIN: 'Wrong PIN.' + (res.left ? ' Attempts left: ' + res.left : ''),
           LOCKED: 'Locked after failed attempts. Try again in 15 minutes.',
           RATE_LIMIT: 'Too many attempts, wait an hour.', INACTIVE: 'Account deactivated.',
           DEVICE_MISMATCH: 'Account bound to another device — ask admin to unbind.'
@@ -441,6 +444,7 @@ const App = (() => {
 
   // ---------------- Admin ----------------
   function renderAdmin() {
+    if (!names) return;
     const q = $('admin-search').value.trim().toLowerCase();
     const uids = Object.keys(names.users).filter(uid => {
       const u = names.users[uid];
@@ -540,6 +544,9 @@ const App = (() => {
 
   function bind() {
     $('btn-login').onclick = doLogin;
+    ['in-phone', 'in-pin', 'in-newpin2'].forEach(id => {
+      $(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+    });
     $('btn-logout').onclick = doLogout;
     $('btn-refresh').onclick = refreshAll;
     $('btn-today-csv').onclick = todayCsv;

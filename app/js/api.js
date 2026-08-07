@@ -45,6 +45,8 @@ const Api = (() => {
           u.pin = String(body.newPin);
         } else if (u.pin == null) {
           return { ok: false, code: 'SET_PIN_REQUIRED', userId: uid };
+        } else if (!body.pin) {
+          return { ok: false, code: 'PIN_REQUIRED' };
         } else if (String(body.pin) !== u.pin) {
           return { ok: false, code: 'WRONG_PIN', left: 4 };
         }
