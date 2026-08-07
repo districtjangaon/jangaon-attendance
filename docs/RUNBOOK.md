@@ -40,8 +40,9 @@ never upload them anywhere, never commit them to GitHub.** The project's
 2. Copy each file from `backend/` into the project (File → New → Script for
    each `.gs`; paste `appsscript.json` via Project Settings → tick "Show
    appsscript.json manifest").
-3. In `Maintenance.gs`, edit `BOOTSTRAP_ADMIN` at the top: the admin's
-   10-digit mobile and name.
+3. Project Settings → Script properties → add `ADMIN_PHONE` (the admin's
+   10-digit mobile) and `ADMIN_NAME`. These stay in the project, never in
+   the public code repository.
 4. Services (left panel “+”) → add **Drive API** (this enables the photo
    auto-delete).
 5. Run `setupAll()` once (Run button; approve the permission prompts). It

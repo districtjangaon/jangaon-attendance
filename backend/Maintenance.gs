@@ -2,20 +2,21 @@
  * Maintenance.gs — one-time setup, triggers, photo reaper, month pre-creation,
  * and the owner-run bulk import of the AWC master data.
  *
- * FIRST RUN: edit BOOTSTRAP_ADMIN below, then run setupAll() from the editor.
+ * FIRST RUN: set Script Properties ADMIN_PHONE (10 digits) and ADMIN_NAME
+ * (Project Settings > Script properties), then run setupAll() from the
+ * editor. They live in properties, not code, so no real phone number is
+ * ever committed to the (public) Pages repository.
  * IMPORT: paste the five tools/import-awc.py output CSVs into tabs named
  * IMPORT_PROJECTS / IMPORT_SECTORS / IMPORT_AWCS / IMPORT_USERS /
  * IMPORT_SCHEDULES in ATTENDANCE_MASTER (header rows included), run
  * importFromSheets(), then publishOrg().
  */
 
-// EDIT BEFORE RUNNING setupAll — this becomes the first ADMIN login.
-const BOOTSTRAP_ADMIN = {
-  phone: '9999999999',
-  name: 'District Admin'
-};
-
 function setupAll() {
+  const adminPhone = String(PROPS.getProperty('ADMIN_PHONE') || '').replace(/\D/g, '');
+  if (!/^\d{10}$/.test(adminPhone)) {
+    throw new Error('Set Script Property ADMIN_PHONE (10-digit mobile of the first admin) before running setupAll.');
+  }
   if (!PROPS.getProperty('HMAC_SECRET')) {
     PROPS.setProperty('HMAC_SECRET', Utilities.getUuid() + Utilities.getUuid());
   }
@@ -53,9 +54,10 @@ function createMaster_() {
 }
 
 function bootstrapAdmin_() {
-  if (getUsersByPhone_(BOOTSTRAP_ADMIN.phone).length) return;
+  const phone = String(PROPS.getProperty('ADMIN_PHONE')).replace(/\D/g, '');
+  if (getUsersByPhone_(phone).length) return;
   upsertUser_({
-    phone: BOOTSTRAP_ADMIN.phone, name: BOOTSTRAP_ADMIN.name,
+    phone: phone, name: String(PROPS.getProperty('ADMIN_NAME') || 'District Admin'),
     cadre: 'OTHER', role: 'ADMIN'
   }, 'SETUP');
 }
