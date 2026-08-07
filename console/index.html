@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#006437">
+  <title>AWC Attendance — Monitoring Console</title>
+  <link rel="icon" href="../app/icons/icon-192.png">
+  <link rel="stylesheet" href="css/console.css">
+</head>
+<body>
+  <header class="gov-header">
+    <div>
+      <div class="gov-line">Government of Telangana — WD&amp;CW, Jangaon District</div>
+      <div class="app-title">Attendance Monitoring Console</div>
+    </div>
+    <div class="head-right">
+      <span id="head-user" class="head-user"></span>
+      <button id="btn-logout" class="btn btn-plain btn-inline" hidden>Logout</button>
+    </div>
+  </header>
+
+  <div id="stale-banner" class="banner" hidden></div>
+
+  <!-- ============ LOGIN ============ -->
+  <section id="screen-login" class="screen login-card">
+    <h2>Sign in</h2>
+    <p class="info">For supervisors, CDPOs and district admin. Field users mark attendance in the phone app.</p>
+    <label for="in-phone">Mobile number</label>
+    <input id="in-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number">
+    <div id="whoami-block" hidden>
+      <p class="info">This number has more than one account. Choose:</p>
+      <div id="whoami-list"></div>
+    </div>
+    <div id="pin-block">
+      <label for="in-pin">PIN</label>
+      <input id="in-pin" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit PIN">
+    </div>
+    <div id="newpin-block" hidden>
+      <p class="info">First login — choose your 4-digit PIN.</p>
+      <label for="in-newpin">New PIN</label>
+      <input id="in-newpin" type="password" inputmode="numeric" maxlength="4">
+      <label for="in-newpin2">Repeat new PIN</label>
+      <input id="in-newpin2" type="password" inputmode="numeric" maxlength="4">
+    </div>
+    <button id="btn-login" class="btn btn-primary">SIGN IN</button>
+    <p id="login-msg" class="msg"></p>
+  </section>
+
+  <!-- ============ MAIN ============ -->
+  <main id="main" hidden>
+    <nav class="tabs">
+      <button id="tab-today" class="tab sel">Today</button>
+      <button id="tab-exceptions" class="tab">Exceptions <span id="exc-count" class="pill" hidden></span></button>
+      <button id="tab-monthly" class="tab">Monthly</button>
+      <button id="tab-admin" class="tab" hidden>Users &amp; Admin</button>
+    </nav>
+
+    <!-- Today -->
+    <section id="view-today" class="view">
+      <div id="today-cards" class="cards"></div>
+      <div class="toolbar">
+        <span id="today-crumb" class="crumb"></span>
+        <input id="today-search" type="search" placeholder="Search name / AWC…">
+        <select id="today-filter">
+          <option value="">All statuses</option>
+          <option value="NOT_MARKED">Not marked</option>
+          <option value="LATE">Late</option>
+          <option value="PRESENT">Present</option>
+          <option value="OUTSIDE">Outside geofence</option>
+          <option value="UNVERIFIED">GPS unverified</option>
+        </select>
+        <button id="btn-today-csv" class="btn btn-plain btn-inline">Export CSV</button>
+        <button id="btn-refresh" class="btn btn-plain btn-inline">Refresh</button>
+      </div>
+      <div id="today-table" class="tablewrap"></div>
+    </section>
+
+    <!-- Exceptions -->
+    <section id="view-exceptions" class="view" hidden>
+      <p class="info">Marks needing review: outside geofence, GPS unverified, flagged, plus nightly
+        anomalies. Decisions are appended as corrections — the original record is never changed.</p>
+      <div id="exc-list" class="tablewrap"></div>
+    </section>
+
+    <!-- Monthly -->
+    <section id="view-monthly" class="view" hidden>
+      <div class="toolbar">
+        <select id="month-sector"></select>
+        <input id="month-ym" type="month">
+        <button id="btn-month-load" class="btn btn-plain btn-inline">Load</button>
+        <button id="btn-month-csv" class="btn btn-plain btn-inline">Export CSV</button>
+      </div>
+      <div id="month-table" class="tablewrap"></div>
+    </section>
+
+    <!-- Admin -->
+    <section id="view-admin" class="view" hidden>
+      <div class="toolbar">
+        <input id="admin-search" type="search" placeholder="Search users by name / phone / AWC…">
+      </div>
+      <div id="admin-table" class="tablewrap"></div>
+      <div id="admin-awc" class="admin-block">
+        <h3>Fix an AWC's geofence</h3>
+        <p class="info">Stand at the centre, pick it, press capture. Fixes the coordinates that were
+          blank or wrong in the imported register.</p>
+        <div class="toolbar">
+          <select id="awc-pick"></select>
+          <button id="btn-awc-capture" class="btn btn-plain btn-inline">Capture my GPS as this AWC's location</button>
+        </div>
+        <p id="awc-msg" class="msg"></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- photo lightbox -->
+  <div id="lightbox" class="lightbox" hidden>
+    <img id="lightbox-img" alt="attendance photo">
+    <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
+  </div>
+
+  <footer class="build-tag">BUILD: v1.0-20260807-1900</footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
