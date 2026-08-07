@@ -1,8 +1,9 @@
 # Monitoring console — static web app
 
-For supervisors (own sector), CDPOs (own project) and district admin.
-English-only, Government of Telangana theme, desktop-first but readable on a
-6-inch phone.
+For the district admin team and the Collector (both role ADMIN, full
+district view). The code also supports scoped SUPERVISOR (own sector) and
+CDPO (own project) roles if the department adds them later. English-only,
+Government of Telangana theme, desktop-first but readable on a 6-inch phone.
 
 ## Data path — why it scales
 

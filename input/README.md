@@ -20,10 +20,10 @@ or share): five `IMPORT_*.csv` files to paste into the ATTENDANCE_MASTER
 import tabs, plus `ISSUES.md` listing everything the department must fix
 (invalid mobiles, out-of-district GPS, duplicate AWC names, vacancies).
 
-Before importing, fill in what the register does not contain:
-- `IMPORT_SECTORS.csv` → each sector supervisor's mobile
-- `IMPORT_USERS.csv` → one row per supervisor (role `SUPERVISOR`) and CDPO
-  (role `CDPO`), ids continuing from U2001
+Before importing, add the two console accounts to `IMPORT_USERS.csv`
+(ids from U2001, cadre `OTHER`, role `ADMIN`): the technical admin and the
+Collector. Everyone from the register stays a plain field user;
+`supervisor_phone` in `IMPORT_SECTORS.csv` stays empty.
 
 When a new register version arrives, drop it in this folder, re-run the
 importer, re-paste, and re-run `importFromSheets()` — the import is

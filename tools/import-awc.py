@@ -189,10 +189,11 @@ def main():
         f.write(f'Imported: {len(awcs)} AWCs, {len(sectors)} sectors, {len(projects)} projects, '
                 f'{len(users)} staff ({sum(1 for u in users if u["cadre"] == "AWT")} AWT, '
                 f'{sum(1 for u in users if u["cadre"] == "AWH")} AWH).\n\n')
-        f.write('Supervisor and CDPO names/phones are NOT in the source file. '
-                'Fill `supervisor_phone` in IMPORT_SECTORS.csv and add supervisor/CDPO rows '
-                'to IMPORT_USERS.csv (role SUPERVISOR with a sector_code, role CDPO with a '
-                'project_code) before running the import.\n\n')
+        f.write('Staffing model: every person in the sheet is a plain field user. There are '
+                'no sector supervisors or CDPOs. Add the console accounts as rows in '
+                'IMPORT_USERS.csv before importing (ids from U2001): the technical '
+                'admin and the Collector, each with cadre OTHER and role ADMIN. '
+                'Leave `supervisor_phone` in IMPORT_SECTORS.csv empty.\n\n')
         titles = {
             'bad_coords': 'Coordinates outside the district (blanked — geofence UNVERIFIED until re-captured on site)',
             'dup_awc': 'Duplicate AWC names (auto-renamed)',

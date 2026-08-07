@@ -8,7 +8,7 @@ Time needed: about 2 hours the first time.
 - A Google account **owned by the department** (not anyone's personal Gmail —
   if that person leaves or loses the account, all attendance data and photos
   go with them). Recommended: create `wdcw.jangaon.attendance@gmail.com`,
-  store the password with the CDPO and one more officer.
+  store the password with the technical admin and one more officer.
 - A GitHub account (free) for hosting the app pages.
 - The file `AWC DATA-31.07.2026.xlsx` (or newer) from the district office.
 - A Windows/any PC with Python 3 installed (for the one-time data conversion).
@@ -20,14 +20,12 @@ Time needed: about 2 hours the first time.
 3. It writes 5 files into `master-data/` plus **`ISSUES.md` — open it and
    read it.** It lists wrong phone numbers, missing GPS coordinates and vacant
    posts that the sectors should fix. Nothing in it blocks go-live.
-4. Open `master-data/IMPORT_SECTORS.csv` and type each sector supervisor's
-   mobile number in the `supervisor_phone` column. Add one row per supervisor
-   and CDPO to `IMPORT_USERS.csv`:
-   - supervisor: `user_id` U2001…, their phone, name, cadre `SUPERVISOR`,
-     role `SUPERVISOR`, their `project_code` and `sector_code`, empty `awc_id`
-   - CDPO: cadre `CDPO`, role `CDPO`, only `project_code`
-   (IDs must be unique — continue numbering from U2001 so they never collide
-   with the imported staff, which ends around U1161.)
+4. Add the two console accounts as rows in `IMPORT_USERS.csv` (ids from
+   U2001 so they never collide with the imported staff, which ends around
+   U1161): the **technical admin** and the **Collector** — each with their
+   phone, name, cadre `OTHER`, role `ADMIN`, other columns empty. Everyone
+   from the register stays a plain field user; leave `supervisor_phone` in
+   `IMPORT_SECTORS.csv` empty.
 
 **These files contain real names and phone numbers. Never email them around,
 never upload them anywhere, never commit them to GitHub.** The project's
@@ -94,7 +92,7 @@ never upload them anywhere, never commit them to GitHub.** The project's
 
 ## 7. Onboard the first 10 users (pilot sector)
 
-1. Sit with the supervisor. On each worker's centre phone, open the app URL
+1. The technical admin visits the pilot sector. On each worker's centre phone, open the app URL
    in Chrome → menu → **Add to Home screen**.
 2. The worker types the centre phone number. If two names appear (teacher and
    helper share the phone) each taps their own name and sets **their own**
@@ -102,17 +100,18 @@ never upload them anywhere, never commit them to GitHub.** The project's
 3. Mark IN together the first time: IN → photo → done. Check the mark appears
    in the console within 10 minutes.
 4. Teach the two rules: *always the same phone* (it is bound to your account;
-   changing phones needs the supervisor), and *airplane mode is fine* — the
+   changing phones needs the district office), and *airplane mode is fine* — the
    app says "saved on phone, will send later" and sends by itself.
 
 ## 8. Daily operations
 
-- **Supervisor**: open console → Exceptions each afternoon; Accept/Reject
+- **Technical admin**: open console → Exceptions each afternoon; Accept/Reject
   with a reason. Fix AWCs marked "NO GPS SET" (Users & Admin → capture GPS
-  standing at the centre).
-- **Admin**: watch the staleness banner (green = healthy). Monthly CSV
-  export for salary/honorarium processing is on the Monthly tab.
-- **Forgot PIN**: supervisor → Users & Admin → Reset PIN → worker sets a new
+  standing at the centre, during field visits). Watch the staleness banner
+  (green = healthy).
+- **Collector**: same console login, full district view; Monthly CSV export
+  for honorarium processing is on the Monthly tab.
+- **Forgot PIN**: admin → Users & Admin → Reset PIN → worker sets a new
   one at next login. **New phone**: Unbind phone, then login binds the new one.
 - **Trigger failure emails** from Google land in the department inbox — read
   them; the capacity doc's "what breaks first" section says what to do.

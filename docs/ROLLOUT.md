@@ -5,11 +5,11 @@ average sector ≈ 26 AWCs, ≈ 43 staff.
 
 ## Phase 1 — Pilot: one sector (~2 weeks)
 
-Pick one sector with a strong supervisor and decent network coverage
-(suggestion: Bachannapeta, JGN/S01). ~26 AWCs, ~43 staff.
+Pick one sector with decent network coverage (suggestion: Bachannapeta,
+JGN/S01). ~26 AWCs, ~43 staff.
 
-- Onboard in person over 2–3 days (runbook §7). Supervisor works the
-  Exceptions queue daily.
+- The technical admin onboards in person over 2–3 days (runbook §7) and
+  works the Exceptions queue daily.
 - Fix that sector's `ISSUES.md` items (bad phones, missing GPS) as a trial of
   the correction workflow.
 
@@ -17,14 +17,14 @@ Pick one sector with a strong supervisor and decent network coverage
 - ≥ 90% of active staff marking IN daily without helpdesk contact
 - 0 lost marks, 0 duplicate rows (spot-check the month sheet)
 - ≥ 80% of marks INSIDE geofence (rest adjudicated within 2 days)
-- Supervisor can run resets/unbinds/exceptions without IT help
+- Resets/unbinds/exceptions all handled routinely from the console
 
 ## Phase 2 — One full project (~4 weeks)
 
 Jangaon project: 257 AWCs, 10 sectors, ~430 staff. Onboard one sector per
-working day (supervisor-led, IT on phone support). CDPO starts using the
-console weekly. Run the 400-user load test against production config before
-starting (test plan §2).
+working day (technical admin on site, phone support after). The Collector
+starts reviewing the console weekly. Run the 400-user load test against
+production config before starting (test plan §2).
 
 **Gate to Phase 3:**
 - ≥ 85% daily IN-marking across the project for 10 consecutive working days
@@ -56,5 +56,5 @@ Drive usage ~6 GB and trigger minutes ~45/day, then declare steady operations.
 - **Vacant posts (17 AWCs both-vacant, 181 AWH-vacant)**: they depress the
   "expected" denominator — keep the register import current so reports stay
   honest.
-- **Device churn** (phone breaks): supervisor unbind + rebind is the routine;
+- **Device churn** (phone breaks): admin unbind + rebind is the routine;
   audit trail records every rebind.

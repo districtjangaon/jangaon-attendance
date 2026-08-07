@@ -16,8 +16,8 @@ Run on one real low-end Android (2 GB RAM class) in Chrome.
 | F8 | Camera denied | mark accepted, NO_PHOTO flag, appears in Exceptions |
 | F9 | Both users mark on one phone, offline, then sync | both rows land under the correct user_ids |
 | F10 | Logout user A with A's marks queued | warning; B unaffected; A's marks sync after A re-login |
-| F11 | Login on second phone | DEVICE_MISMATCH; after supervisor unbind, new phone binds |
-| F12 | Console supervisor login | sees only own sector in Today/Monthly/Users; another sector's user id in a photo URL → FORBIDDEN |
+| F11 | Login on second phone | DEVICE_MISMATCH; after admin unbind, new phone binds |
+| F12 | Console field-user login attempt | rejected with "use the phone app" message; a field user's token on nameMap/photo → FORBIDDEN |
 | F13 | Exception Accept/Reject | Corrections row appended (original Marks row untouched); shows after next summary run |
 | F14 | Old month archive | previous month's sector JSON loads under Monthly after the 1st |
 | F15 | Staleness banner | stop the `summaryTick` trigger → banner goes orange then red; restart → green |
@@ -50,7 +50,7 @@ test rows out of real reports either way.
 - [ ] `/app` and `/console` load with **zero console errors** on a cold cache
 - [ ] Service worker registered; offline reload works
 - [ ] F5 (airplane-mode exactly-once) re-verified on the production URL
-- [ ] `ISSUES.md` reviewed by the district office; supervisors filled in
+- [ ] `ISSUES.md` reviewed by the district office; admin accounts added
 - [ ] Photo reaper ran at least once (check AttendancePhotos has ≤45 day-folders)
 - [ ] GitHub token expiry reminder in someone's calendar
 - [ ] Backup download of ATTENDANCE_MASTER taken

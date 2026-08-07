@@ -181,12 +181,12 @@ const App = (() => {
         return;
       }
       const texts = {
-        NO_USER: 'This number is not registered. Contact your supervisor.',
-        INACTIVE: 'This account is deactivated. Contact your supervisor.',
+        NO_USER: 'This number is not registered. Contact the district office.',
+        INACTIVE: 'This account is deactivated. Contact the district office.',
         PIN_REQUIRED: 'Enter your 4-digit PIN.',
         WRONG_PIN: 'Wrong PIN.' + (res.left ? ' Attempts left: ' + res.left : ''),
         LOCKED: 'Too many wrong attempts. Try again after 15 minutes.',
-        DEVICE_MISMATCH: 'This account is active on another phone. Ask your supervisor to approve this phone.',
+        DEVICE_MISMATCH: 'This account is active on another phone. Ask the district office to approve this phone.',
         RATE_LIMIT: 'Too many attempts. Please wait an hour.',
         BAD_PIN_FORMAT: 'PIN must be exactly 4 digits.'
       };
@@ -234,7 +234,7 @@ const App = (() => {
     if (active()) { await goHome(); return; }
     resetLogin();
     $('login-msg').textContent = code === 'DEVICE_MISMATCH'
-      ? 'This account moved to another phone. Ask your supervisor if this is wrong.'
+      ? 'This account moved to another phone. Ask the district office if this is wrong.'
       : 'Session expired — please login again. Your saved records are safe.';
     show('screen-login');
   }
