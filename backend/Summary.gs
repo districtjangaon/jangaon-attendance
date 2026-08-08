@@ -33,6 +33,17 @@ function summaryTick() {
   if (CACHE.get('sumMarker') === marker) return;
   buildToday_();
   CACHE.put('sumMarker', marker, 21600);
+  // Something changed: also keep the Register tab reasonably fresh (at most
+  // once an hour — a full-month rebuild is too heavy for every tick; the
+  // nightly run remains the complete, authoritative build).
+  if (!CACHE.get('regBuilt')) {
+    CACHE.put('regBuilt', '1', 3600);
+    try {
+      buildRegister(ym);
+    } catch (err) {
+      console.error('hourly register rebuild failed: ' + err);
+    }
+  }
 }
 
 function buildToday_() {

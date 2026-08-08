@@ -285,8 +285,22 @@ function buildRegister(ymOpt) {
   const sectors = {};
   getSectors_().forEach(s => { sectors[s.code] = s.name; });
   const awcNames = {};
-  masterSheetRows_('AWCs', AWC_H).forEach(r => { awcNames[String(r[0])] = String(r[3]); });
+  const awcGeo = []; // gazetteer: nearest-centre naming for unverified marks
+  masterSheetRows_('AWCs', AWC_H).forEach(r => {
+    const a = awcFromRow_(r);
+    awcNames[a.awc_id] = a.name;
+    if (a.active && a.lat != null && a.lng != null) awcGeo.push(a);
+  });
   const photoUrl = id => id ? 'https://drive.google.com/file/d/' + id + '/view' : '';
+  const fmtM = d => d >= 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m';
+  const nearestAwc = (lat, lng) => {
+    let best = null, bestD = Infinity;
+    for (const a of awcGeo) {
+      const d = distM_(lat, lng, a.lat, a.lng);
+      if (d < bestD) { bestD = d; best = a; }
+    }
+    return best ? { name: best.name, d: bestD } : null;
+  };
 
   const sh = ss.getSheetByName('Marks');
   const last = sh.getLastRow();
@@ -322,15 +336,16 @@ function buildRegister(ymOpt) {
     const inM = days[dk].IN, outM = days[dk].OUT;
     const first = inM || outM;               // the day's first mark drives the familiar columns
     const flags = [inM && inM.flags, outM && outM.flags].filter(Boolean).join(',');
-    // Human location: the AWC the mark was verified against + how far away,
-    // instead of raw coordinates (those move to the audit columns at the end).
+    // Human location, never raw coordinates: the AWC the mark verified
+    // against, else the nearest known centre ("Near X"). Raw coordinates
+    // live only in the audit columns at the end.
     let location = 'GPS not available';
-    if (String(first.geofence) !== 'UNVERIFIED' && first.awc_id) {
+    if (String(first.geofence) !== 'UNVERIFIED' && first.awc_id && awcNames[String(first.awc_id)]) {
       const d = Number(first.distance_m);
-      location = (awcNames[String(first.awc_id)] || String(first.awc_id)) +
-        (isFinite(d) ? ' (' + (d >= 1000 ? (d / 1000).toFixed(1) + ' km' : d + ' m') + ')' : '');
+      location = awcNames[String(first.awc_id)] + (isFinite(d) ? ' (' + fmtM(d) + ')' : '');
     } else if (first.lat !== '' && first.lat != null) {
-      location = first.lat + ', ' + first.lng;
+      const nr = nearestAwc(Number(first.lat), Number(first.lng));
+      location = nr ? 'Near ' + nr.name + ' (' + fmtM(nr.d) + ')' : first.lat + ', ' + first.lng;
     }
     return [
       dk, date, String(u.phone || ''), String(u.name || ''), String(u.cadre || ''),
