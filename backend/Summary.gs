@@ -50,6 +50,10 @@ function buildToday_() {
   const sectorProject = {};
   getSectors_().forEach(s => { sectorProject[s.code] = s.project; });
 
+  // Sundays and state holidays: marks still recorded (voluntary duty), but
+  // nobody is LATE and the console shows "attendance not expected".
+  const holidayName = holidayFor_(today);
+
   const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) !== 'ADMIN');
   const sectors = {};
   const userEntries = [];
@@ -63,7 +67,7 @@ function buildToday_() {
 
     const recs = marksByUser[uid] || {};
     const sch = scheduleFor_(String(u.project_code), String(u.cadre));
-    const lateMin = sch ? hmToMin_(sch.late_after) : null;
+    const lateMin = holidayName ? null : (sch ? hmToMin_(sch.late_after) : null);
 
     let st = 'NOT_MARKED';
     const entry = { id: uid, s: sc, a: String(u.awc_id), st: st, in: null, out: null, gf: null, fl: '', ph: null };
@@ -117,7 +121,7 @@ function buildToday_() {
 
   const generatedAt = nowIso_();
   const todayJson = {
-    generatedAt: generatedAt, date: today, district: district,
+    generatedAt: generatedAt, date: today, holiday: holidayName || null, district: district,
     projects: Object.keys(projects).sort().map(pc => Object.assign({ code: pc }, projects[pc])),
     sectors: Object.keys(sectors).sort().map(sc =>
       Object.assign({ code: sc, project: sectorProject[sc] || '' }, sectors[sc])),
@@ -285,9 +289,18 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
     });
   }
 
+  // Holiday map for the month (incl. Sundays) — the console greys these days.
+  const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
+  const monthHolidays = {};
+  for (let d = 1; d <= dim; d++) {
+    const h = holidayFor_(ym + '-' + pad_(d, 2));
+    if (h) monthHolidays[pad_(d, 2)] = h;
+  }
+
   const files = Object.keys(bySector).sort().map(sc => ({
     path: basePath + sc + '.json',
-    content: JSON.stringify({ ym: ym, generatedAt: generatedAt, sector: sc, users: bySector[sc] })
+    content: JSON.stringify({ ym: ym, generatedAt: generatedAt, sector: sc,
+      holidays: monthHolidays, users: bySector[sc] })
   }));
   if (withExceptions) {
     files.push({

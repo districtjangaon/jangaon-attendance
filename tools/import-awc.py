@@ -184,6 +184,20 @@ def main():
               [dict(zip(['project_code', 'cadre', 'in_start', 'in_end', 'late_after',
                          'out_start', 'out_end'], row)) for row in SCHEDULE_ROWS])
 
+    # Optional: state-government holiday list (Sundays are computed by rule,
+    # they do not belong in this file). Columns: Date | Occasion.
+    hol_xlsx = ROOT / 'input' / 'holidays.xlsx'
+    if hol_xlsx.exists():
+        hws = openpyxl.load_workbook(hol_xlsx, data_only=True).worksheets[0]
+        hol_rows = []
+        for r in hws.iter_rows(min_row=2, values_only=True):
+            if r[0] is None:
+                continue
+            d = r[0].strftime('%Y-%m-%d') if hasattr(r[0], 'strftime') else str(r[0]).strip()
+            hol_rows.append({'date': d, 'name': str(r[1] or 'Holiday').strip()})
+        write_csv('IMPORT_HOLIDAYS.csv', ['date', 'name'], hol_rows)
+        print(f'holidays: {len(hol_rows)} from {hol_xlsx.name}')
+
     with open(OUT / 'ISSUES.md', 'w', encoding='utf-8') as f:
         f.write(f'# Data issues — {XLSX.name}\n\n')
         f.write(f'Imported: {len(awcs)} AWCs, {len(sectors)} sectors, {len(projects)} projects, '

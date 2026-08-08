@@ -157,7 +157,8 @@ const App = (() => {
     b.hidden = false;
     b.className = 'banner ' + (min <= 15 ? 'ok' : min <= 45 ? 'warn' : 'err');
     b.textContent = 'Dashboard data generated ' + (min < 1 ? 'just now' : min + ' min ago') +
-      ' (' + new Date(today.generatedAt).toLocaleTimeString() + '). It refreshes every 10 minutes in peak hours.';
+      ' (' + new Date(today.generatedAt).toLocaleTimeString() + '). It refreshes every 10 minutes in peak hours.' +
+      (today.holiday ? ' • Today is ' + today.holiday + ' — attendance is not expected.' : '');
   }
 
   // ---------------- helpers ----------------
@@ -396,16 +397,31 @@ const App = (() => {
       return;
     }
     const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
+    // Holidays from the summary (server list incl. Sundays); Sundays computed
+    // locally as a fallback for files published before the holiday feature.
+    const hols = {};
+    for (let d = 1; d <= dim; d++) {
+      const dd = String(d).padStart(2, '0');
+      const h = (monthData.holidays && monthData.holidays[dd]) ||
+        (new Date(ym + '-' + dd + 'T12:00:00').getDay() === 0 ? 'Sunday' : '');
+      if (h) hols[dd] = h;
+    }
     const uids = Object.keys(monthData.users).sort((a, b) => userName(a) < userName(b) ? -1 : 1);
     let html = '<table class="mgrid"><tr><th class="name-col">Name</th>';
-    for (let d = 1; d <= dim; d++) html += '<th>' + d + '</th>';
+    for (let d = 1; d <= dim; d++) {
+      const dd = String(d).padStart(2, '0');
+      html += hols[dd] ? '<th class="hol" title="' + esc(hols[dd]) + '">' + d + '</th>' : '<th>' + d + '</th>';
+    }
     html += '</tr>';
     for (const uid of uids) {
       html += '<tr><td class="name-col">' + esc(userName(uid)) + '</td>';
       for (let d = 1; d <= dim; d++) {
         const dd = String(d).padStart(2, '0');
         const cell = monthData.users[uid][dd];
-        if (!cell || (!cell.IN && !cell.OUT)) { html += '<td></td>'; continue; }
+        if (!cell || (!cell.IN && !cell.OUT)) {
+          html += hols[dd] ? '<td class="d-hol" title="' + esc(hols[dd]) + '"></td>' : '<td></td>';
+          continue;
+        }
         const inC = cell.IN, outC = cell.OUT;
         const rej = (inC && inC.x === 'REJ') || (outC && outC.x === 'REJ');
         const bad = (inC && inC.gf === 'OUTSIDE') || (outC && outC.gf === 'OUTSIDE');
@@ -419,7 +435,8 @@ const App = (() => {
       html += '</tr>';
     }
     html += '</table><p class="info">Cell: IN time over OUT time. Green = inside fence, orange = outside, ' +
-      'red = rejected, gold border = supervisor decision applied.</p>';
+      'red = rejected, gold border = admin decision applied. Grey columns = Sundays and holidays ' +
+      '(hover for the occasion) — attendance not expected.</p>';
     $('month-table').innerHTML = html;
   }
 

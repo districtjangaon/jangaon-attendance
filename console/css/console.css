@@ -122,6 +122,8 @@ tr.click:hover { background: #f4faf6; }
 .mgrid .d-err { background: #fde7e7; }
 .mgrid .d-cor { outline: 2px solid var(--ts-gold); outline-offset: -2px; }
 .mgrid th.name-col, .mgrid td.name-col { text-align: left; position: sticky; left: 0; background: #fff; }
+.mgrid th.hol { background: #ececec; color: #999; }
+.mgrid td.d-hol { background: #f4f4f4; }
 
 .lightbox {
   position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.8);

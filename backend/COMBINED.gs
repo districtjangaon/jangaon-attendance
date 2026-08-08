@@ -41,6 +41,7 @@ const AWC_H = ['awc_id', 'sector_code', 'project_code', 'name', 'lat', 'lng', 'r
 const PROJ_H = ['project_code', 'name'];
 const SECT_H = ['sector_code', 'project_code', 'name', 'supervisor_user_id'];
 const SCH_H = ['project_code', 'cadre', 'in_start', 'in_end', 'late_after', 'out_start', 'out_end'];
+const HOL_H = ['date', 'name'];
 const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', 'revoked'];
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
@@ -263,6 +264,29 @@ function getSchedules_() {
   }));
   CACHE.put('schedules', JSON.stringify(out), 600);
   return out;
+}
+
+// ---- holidays (state list in the Holidays tab; Sundays by rule) ----
+function getHolidays_() {
+  const c = CACHE.get('holidays');
+  if (c) return JSON.parse(c);
+  const sh = masterSS_().getSheetByName('Holidays');
+  const out = {};
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, HOL_H.length).getValues().forEach(r => {
+      const d = r[0] instanceof Date ? Utilities.formatDate(r[0], TZ, 'yyyy-MM-dd') : String(r[0]).trim();
+      if (d) out[d] = String(r[1] || 'Holiday').trim();
+    });
+  }
+  CACHE.put('holidays', JSON.stringify(out), 3600);
+  return out;
+}
+
+/** 'Sunday', the holiday name, or '' for a working day. dateStr = yyyy-MM-dd. */
+function holidayFor_(dateStr) {
+  const dow = Utilities.formatDate(new Date(dateStr + 'T12:00:00+05:30'), TZ, 'u');
+  if (dow === '7') return 'Sunday';
+  return getHolidays_()[dateStr] || '';
 }
 
 /** Most specific matching schedule row: project+cadre > project > cadre > ALL. */
@@ -1058,6 +1082,10 @@ function buildToday_() {
   const sectorProject = {};
   getSectors_().forEach(s => { sectorProject[s.code] = s.project; });
 
+  // Sundays and state holidays: marks still recorded (voluntary duty), but
+  // nobody is LATE and the console shows "attendance not expected".
+  const holidayName = holidayFor_(today);
+
   const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) !== 'ADMIN');
   const sectors = {};
   const userEntries = [];
@@ -1071,7 +1099,7 @@ function buildToday_() {
 
     const recs = marksByUser[uid] || {};
     const sch = scheduleFor_(String(u.project_code), String(u.cadre));
-    const lateMin = sch ? hmToMin_(sch.late_after) : null;
+    const lateMin = holidayName ? null : (sch ? hmToMin_(sch.late_after) : null);
 
     let st = 'NOT_MARKED';
     const entry = { id: uid, s: sc, a: String(u.awc_id), st: st, in: null, out: null, gf: null, fl: '', ph: null };
@@ -1125,7 +1153,7 @@ function buildToday_() {
 
   const generatedAt = nowIso_();
   const todayJson = {
-    generatedAt: generatedAt, date: today, district: district,
+    generatedAt: generatedAt, date: today, holiday: holidayName || null, district: district,
     projects: Object.keys(projects).sort().map(pc => Object.assign({ code: pc }, projects[pc])),
     sectors: Object.keys(sectors).sort().map(sc =>
       Object.assign({ code: sc, project: sectorProject[sc] || '' }, sectors[sc])),
@@ -1293,9 +1321,18 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
     });
   }
 
+  // Holiday map for the month (incl. Sundays) — the console greys these days.
+  const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
+  const monthHolidays = {};
+  for (let d = 1; d <= dim; d++) {
+    const h = holidayFor_(ym + '-' + pad_(d, 2));
+    if (h) monthHolidays[pad_(d, 2)] = h;
+  }
+
   const files = Object.keys(bySector).sort().map(sc => ({
     path: basePath + sc + '.json',
-    content: JSON.stringify({ ym: ym, generatedAt: generatedAt, sector: sc, users: bySector[sc] })
+    content: JSON.stringify({ ym: ym, generatedAt: generatedAt, sector: sc,
+      holidays: monthHolidays, users: bySector[sc] })
   }));
   if (withExceptions) {
     files.push({
@@ -1391,7 +1428,7 @@ function createMaster_() {
   ss.setSpreadsheetTimeZone(TZ);
   const tabs = [
     ['Users', USERS_H], ['AWCs', AWC_H], ['Projects', PROJ_H], ['Sectors', SECT_H],
-    ['Schedules', SCH_H], ['Sessions', SESS_H], ['Audit', AUD_H]
+    ['Schedules', SCH_H], ['Holidays', HOL_H], ['Sessions', SESS_H], ['Audit', AUD_H]
   ];
   tabs.forEach(t => {
     const sh = ss.insertSheet(t[0]);
@@ -1584,11 +1621,91 @@ function importFromSheets() {
     out.push('schedules: ' + JSON.stringify(res));
   }
 
+  // Holidays: date,name (Sundays are computed by rule, not listed).
+  const hol = readTab('IMPORT_HOLIDAYS', 2);
+  if (hol) {
+    let hsh = ss.getSheetByName('Holidays');
+    if (!hsh) {
+      hsh = ss.insertSheet('Holidays');
+      hsh.getRange(1, 1, 1, HOL_H.length).setValues([HOL_H]);
+      hsh.getRange(1, 1, hsh.getMaxRows(), HOL_H.length).setNumberFormat('@');
+    }
+    replaceTab('Holidays', HOL_H, hol.map(r => [
+      r[0] instanceof Date ? Utilities.formatDate(r[0], TZ, 'yyyy-MM-dd') : String(r[0]).trim(),
+      String(r[1] || 'Holiday').trim()
+    ]));
+    CACHE.remove('holidays');
+    out.push('holidays: ' + hol.length);
+  }
+
   resolveSectorSupervisors_();
 
   const summary = out.join('\n') || 'No IMPORT_* tabs found in ATTENDANCE_MASTER.';
   console.log(summary);
   return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Detailed attendance register — owner-run. buildRegister() (or
+// buildRegister('2026-07') for an older month) rebuilds a 'Register' tab in
+// that month's ATT spreadsheet: one row per mark with every detail joined in
+// (person, org unit, GPS, verification, photo link, timing, day type).
+// Open the spreadsheet and File > Download > Excel for offline use.
+// ---------------------------------------------------------------------------
+
+const REG_H = ['id', 'date', 'type', 'day_type', 'user_id', 'phone', 'name', 'cadre', 'role',
+  'project', 'sector', 'awc', 'marked_at', 'lat', 'lng', 'accuracy_m', 'verified', 'geofence',
+  'distance_m', 'flags', 'photo', 'received_at', 'sync_delay_sec', 'device_id'];
+
+function buildRegister(ymOpt) {
+  const ym = ymOpt || Utilities.formatDate(new Date(), TZ, 'yyyy-MM');
+  const ss = getMonthSS_(ym, true);
+  if (!ss) return 'No attendance spreadsheet for ' + ym;
+
+  const users = {};
+  getUsersAll_().forEach(u => { users[String(u.user_id)] = u; });
+  const sectors = {};
+  getSectors_().forEach(s => { sectors[s.code] = s.name; });
+  const projects = {};
+  getProjects_().forEach(p => { projects[p.code] = p.name; });
+  const awcNames = {};
+  masterSheetRows_('AWCs', AWC_H).forEach(r => { awcNames[String(r[0])] = String(r[3]); });
+
+  const sh = ss.getSheetByName('Marks');
+  const last = sh.getLastRow();
+  const rows = [];
+  if (last >= 2) {
+    sh.getRange(2, 1, last - 1, MARKS_H.length).getValues().forEach(v => {
+      const o = rowToObj_(MARKS_H, v);
+      const p = String(o.key).split('_');
+      const date = p[1] ? p[1].slice(0, 4) + '-' + p[1].slice(4, 6) + '-' + p[1].slice(6, 8) : '';
+      const u = users[String(o.user_id)] || {};
+      rows.push([
+        String(o.key), date, String(o.type), date ? (holidayFor_(date) || 'WORKING') : '',
+        String(o.user_id), String(u.phone || ''), String(u.name || ''), String(u.cadre || ''),
+        String(u.role || ''), projects[String(u.project_code)] || String(u.project_code || ''),
+        sectors[String(o.sector_code)] || String(o.sector_code), awcNames[String(o.awc_id)] || String(o.awc_id),
+        String(o.client_ts), o.lat, o.lng, o.accuracy_m,
+        String(o.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE', String(o.geofence),
+        o.distance_m, String(o.flags),
+        o.photo_id ? 'https://drive.google.com/file/d/' + o.photo_id + '/view' : '',
+        String(o.server_ts), o.sync_delay_sec, String(o.device_id)
+      ]);
+    });
+  }
+
+  let reg = ss.getSheetByName('Register');
+  if (!reg) reg = ss.insertSheet('Register');
+  reg.clearContents();
+  reg.getRange(1, 1, 1, REG_H.length).setNumberFormat('@');
+  reg.getRange(1, 1, 1, REG_H.length).setValues([REG_H]);
+  if (rows.length) {
+    reg.getRange(2, 1, rows.length, REG_H.length).setNumberFormat('@');
+    reg.getRange(2, 1, rows.length, REG_H.length).setValues(rows);
+  }
+  const msg = 'Register ' + ym + ': ' + rows.length + ' marks — ' + ss.getUrl();
+  console.log(msg);
+  return msg;
 }
 
 /**

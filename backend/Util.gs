@@ -30,6 +30,7 @@ const AWC_H = ['awc_id', 'sector_code', 'project_code', 'name', 'lat', 'lng', 'r
 const PROJ_H = ['project_code', 'name'];
 const SECT_H = ['sector_code', 'project_code', 'name', 'supervisor_user_id'];
 const SCH_H = ['project_code', 'cadre', 'in_start', 'in_end', 'late_after', 'out_start', 'out_end'];
+const HOL_H = ['date', 'name'];
 const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', 'revoked'];
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
@@ -252,6 +253,29 @@ function getSchedules_() {
   }));
   CACHE.put('schedules', JSON.stringify(out), 600);
   return out;
+}
+
+// ---- holidays (state list in the Holidays tab; Sundays by rule) ----
+function getHolidays_() {
+  const c = CACHE.get('holidays');
+  if (c) return JSON.parse(c);
+  const sh = masterSS_().getSheetByName('Holidays');
+  const out = {};
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, HOL_H.length).getValues().forEach(r => {
+      const d = r[0] instanceof Date ? Utilities.formatDate(r[0], TZ, 'yyyy-MM-dd') : String(r[0]).trim();
+      if (d) out[d] = String(r[1] || 'Holiday').trim();
+    });
+  }
+  CACHE.put('holidays', JSON.stringify(out), 3600);
+  return out;
+}
+
+/** 'Sunday', the holiday name, or '' for a working day. dateStr = yyyy-MM-dd. */
+function holidayFor_(dateStr) {
+  const dow = Utilities.formatDate(new Date(dateStr + 'T12:00:00+05:30'), TZ, 'u');
+  if (dow === '7') return 'Sunday';
+  return getHolidays_()[dateStr] || '';
 }
 
 /** Most specific matching schedule row: project+cadre > project > cadre > ALL. */

@@ -119,6 +119,17 @@ never upload them anywhere, never commit them to GitHub.** The project's
   for honorarium processing is on the Monthly tab.
 - **Forgot PIN**: admin → Users & Admin → Reset PIN → worker sets a new
   one at next login. **New phone**: Unbind phone, then login binds the new one.
+- **Holidays**: the state list lives in the `Holidays` tab (date, name);
+  Sundays are automatic. Update it yearly: drop the new `holidays.xlsx` in
+  `input/`, run `python tools/import-awc.py`, re-import the `IMPORT_HOLIDAYS`
+  tab, run `importFromSheets`. On holidays nobody is marked LATE, the console
+  says "attendance not expected", and the monthly grid greys the day.
+- **Detailed register (Excel)**: in the Apps Script editor run
+  **`buildRegister`** — it rebuilds a `Register` tab in the current month's
+  attendance spreadsheet: one row per mark with person, sector, AWC, GPS,
+  verification, photo link and timings. For an older month run it as
+  `buildRegister('2026-07')` from a temporary function or keep the tab from
+  month-end. File → Download → Excel for offline use.
 - **Trigger failure emails** from Google land in the department inbox — read
   them; the capacity doc's "what breaks first" section says what to do.
 
