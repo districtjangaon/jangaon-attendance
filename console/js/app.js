@@ -284,26 +284,46 @@ const App = (() => {
     $('chart-intime').innerHTML = donutSVG(buckets);
     $('chart-trend').innerHTML = trendSVG(inTimes);
 
-    // Sector Top-10 and per-project bars, per the district's BI sample.
-    const secBars = today.sectors.map(s => ({
-      label: sectorName(s.code).slice(0, 9),
+    // Sector Top-10 (horizontal — sector names stay readable) and project
+    // bars, per the district's BI sample. The '?' bucket (users with no
+    // sector — a master-data error) never charts.
+    const secBars = today.sectors.filter(s => s.code && s.code !== '?').map(s => ({
+      label: sectorName(s.code),
       title: sectorName(s.code) + ': ' + (s.in + s.late) + '/' + s.expected + ' marked',
       value: s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0,
       color: Charts.PAL[3]
     })).sort((a, b) => b.value - a.value).slice(0, 10);
     $('chart-sector').innerHTML = secBars.some(b => b.value > 0)
-      ? Charts.bar(secBars, { pct: true })
+      ? Charts.hbar(secBars, { pct: true })
       : '<p class="info">No sector has marks yet today.</p>';
 
-    const projBars = today.projects.map((p, i) => ({
-      label: projectName(p.code).slice(0, 12),
+    const projBars = today.projects.filter(p => p.code && p.code !== '?').map((p, i) => ({
+      label: projectName(p.code),
       title: projectName(p.code) + ': ' + (p.in + p.late) + ' of ' + p.expected + ' marked IN',
       value: p.in + p.late,
       color: Charts.PAL[(i + 4) % 8]
     }));
     $('chart-project').innerHTML = projBars.some(b => b.value > 0)
-      ? Charts.bar(projBars)
+      ? Charts.hbar(projBars)
       : '<p class="info">No marks yet today.</p>';
+
+    // Geofence verification and status donuts fill the remaining grid cells.
+    const gf = { INSIDE: 0, OUTSIDE: 0, UNVERIFIED: 0 };
+    rows.forEach(e => { if (e.gf && gf[e.gf] != null) gf[e.gf]++; });
+    $('chart-verify').innerHTML = Charts.donut([
+      { label: 'Inside fence', value: gf.INSIDE, color: '#1e8e3e' },
+      { label: 'Outside fence', value: gf.OUTSIDE, color: '#e37400' },
+      { label: 'GPS unverified', value: gf.UNVERIFIED, color: '#9aa0a6' }
+    ]);
+
+    const st = { PRESENT: 0, LATE: 0, ON_LEAVE: 0, NOT_MARKED: 0 };
+    rows.forEach(e => { if (!e.x && st[e.st] != null) st[e.st]++; });
+    $('chart-status').innerHTML = Charts.donut([
+      { label: 'On time', value: st.PRESENT, color: '#1e8e3e' },
+      { label: 'Late', value: st.LATE, color: '#e37400' },
+      { label: 'On leave', value: st.ON_LEAVE, color: '#4285f4' },
+      { label: 'Not marked', value: st.NOT_MARKED, color: '#c5221f' }
+    ]);
   }
 
   function renderToday() {

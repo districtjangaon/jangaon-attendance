@@ -42,6 +42,28 @@ const Charts = (() => {
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + (W * 1.4) + 'px">' + s + '</svg>';
   }
 
+  /** Horizontal bars — readable with long labels. items: [{label,value,color,title}] */
+  function hbar(items, opts) {
+    opts = opts || {};
+    if (!items.length) return '<p class="info">No data.</p>';
+    const rowH = 26, PL = 112, PR = 44, W = opts.w || 430;
+    const H = items.length * rowH + 8;
+    const max = opts.pct ? 100 : niceMax(Math.max(1, ...items.map(i => i.value)));
+    let s = '';
+    items.forEach((it, i) => {
+      const y = 4 + i * rowH;
+      const bw = Math.max(2, (it.value / max) * (W - PL - PR));
+      s += '<text x="' + (PL - 8) + '" y="' + (y + rowH / 2 + 4) +
+        '" font-size="11" text-anchor="end" fill="#666">' + esc(String(it.label).slice(0, 15)) + '</text>' +
+        '<rect x="' + PL + '" y="' + (y + 4) + '" width="' + bw.toFixed(1) + '" height="' + (rowH - 10) +
+        '" rx="3" fill="' + (it.color || PAL[0]) + '"><title>' +
+        esc(it.title || (it.label + ': ' + it.value)) + '</title></rect>' +
+        '<text x="' + (PL + bw + 6).toFixed(1) + '" y="' + (y + rowH / 2 + 4) +
+        '" font-size="11" fill="#444">' + esc(it.value + (opts.pct ? '%' : '')) + '</text>';
+    });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + (W * 1.3) + 'px">' + s + '</svg>';
+  }
+
   /** Multi-series line/area. labels: x labels. series: [{name,color,values,area?}] */
   function line(labels, series, opts) {
     opts = opts || {};
@@ -102,14 +124,14 @@ const Charts = (() => {
     parts.forEach((p, i) => {
       if (!p.value) return;
       const frac = p.value / total;
-      s += '<circle r="' + R + '" cx="60" cy="60" fill="none" stroke="' + PAL[i % PAL.length] +
+      s += '<circle r="' + R + '" cx="60" cy="60" fill="none" stroke="' + (p.color || PAL[i % PAL.length]) +
         '" stroke-width="22" stroke-dasharray="' + (frac * C).toFixed(2) + ' ' + C.toFixed(2) +
         '" stroke-dashoffset="' + (-off * C).toFixed(2) + '" transform="rotate(-90 60 60)">' +
         '<title>' + esc(p.label + ': ' + p.value) + '</title></circle>';
       off += frac;
     });
-    const legend = parts.map((p, i) => '<div><i style="background:' + PAL[i % PAL.length] + '"></i>' +
-      esc(p.label) + ' — ' + p.value + '</div>').join('');
+    const legend = parts.map((p, i) => '<div><i style="background:' + (p.color || PAL[i % PAL.length]) +
+      '"></i>' + esc(p.label) + ' — ' + p.value + '</div>').join('');
     return '<div class="chartwrap"><svg width="130" height="130" viewBox="0 0 120 120">' + s +
       '<text x="60" y="66" text-anchor="middle" font-size="20" font-weight="700">' +
       ((opts && opts.center) || total) + '</text></svg><div class="legend">' + legend + '</div></div>';
@@ -155,5 +177,5 @@ const Charts = (() => {
       (color || PAL[0]) + '" stroke-width="1.6"/></svg>';
   }
 
-  return { bar: bar, line: line, donut: donut, heatmap: heatmap, spark: spark, PAL: PAL };
+  return { bar: bar, hbar: hbar, line: line, donut: donut, heatmap: heatmap, spark: spark, PAL: PAL };
 })();
