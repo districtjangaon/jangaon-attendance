@@ -75,14 +75,18 @@ function apiLogin_(req) {
     if (Number(user.failed_attempts) > 0) updateUser_(user, { failed_attempts: '0', locked_until: '' });
   }
 
-  // Device binding — one active device per user, rebinds only via supervisor.
-  // The same deviceId bound to several users (shared centre phone) is fine.
-  if (user.device_id && user.device_id !== deviceId) {
-    return { ok: false, code: 'DEVICE_MISMATCH' };
-  }
-  if (!user.device_id) {
-    updateUser_(user, { device_id: deviceId, device_bound_at: nowIso_() });
-    audit_(user.user_id, 'DEVICE_BIND', user.user_id, '', deviceId);
+  // Device binding — one active device per FIELD user (anti-buddy-punching),
+  // rebinds only via admin. The same deviceId bound to several users (shared
+  // centre phone) is fine. Console roles (ADMIN/CDPO/SUPERVISOR) are exempt:
+  // they legitimately sign in from office PC, laptop and phone browser.
+  if (String(user.role) === 'FIELD') {
+    if (user.device_id && user.device_id !== deviceId) {
+      return { ok: false, code: 'DEVICE_MISMATCH' };
+    }
+    if (!user.device_id) {
+      updateUser_(user, { device_id: deviceId, device_bound_at: nowIso_() });
+      audit_(user.user_id, 'DEVICE_BIND', user.user_id, '', deviceId);
+    }
   }
 
   CACHE.remove(rlKey);
@@ -134,7 +138,9 @@ function verifyToken_(token) {
 
   const user = getUserById_(userId);
   if (!user || user.status !== 'ACTIVE') return { ok: false, code: 'AUTH' };
-  if (user.device_id && user.device_id !== deviceId) return { ok: false, code: 'DEVICE_MISMATCH' };
+  if (String(user.role) === 'FIELD' && user.device_id && user.device_id !== deviceId) {
+    return { ok: false, code: 'DEVICE_MISMATCH' };
+  }
   return { ok: true, tokenId: tokenId, userId: userId, deviceId: deviceId, user: user };
 }
 
