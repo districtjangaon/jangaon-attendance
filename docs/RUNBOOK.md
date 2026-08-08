@@ -35,17 +35,23 @@ never upload them anywhere, never commit them to GitHub.** The project's
 
 1. Sign in to the department Google account. Go to `script.google.com` →
    New project. Name it `attendance-backend`.
-2. Copy each file from `backend/` into the project (File → New → Script for
-   each `.gs`; paste `appsscript.json` via Project Settings → tick "Show
-   appsscript.json manifest").
-3. Project Settings → Script properties → add `ADMIN_PHONE` (the admin's
-   10-digit mobile) and `ADMIN_NAME`. These stay in the project, never in
-   the public code repository.
-4. Services (left panel “+”) → add **Drive API** (this enables the photo
-   auto-delete).
-5. Run `setupAll()` once (Run button; approve the permission prompts). It
-   creates the ATTENDANCE_MASTER spreadsheet, the AttendancePhotos folder,
-   the current month's attendance file, and the timed jobs.
+2. Two pastes, nothing else:
+   - Open `backend/COMBINED.gs` (single-file bundle of the whole backend) →
+     select all → paste into the editor's `Code.gs`, replacing its contents.
+   - Project Settings → tick "Show appsscript.json manifest" → back in the
+     editor open `appsscript.json` → replace its contents with
+     `backend/appsscript.json`. This also auto-enables the Drive service
+     (photo auto-delete) — no separate step.
+   (After any later backend change, re-run `python tools/build-combined.py`
+   and re-paste.)
+3. Project Settings → Script properties → add `ADMIN_PHONE` (the technical
+   admin's 10-digit mobile) and `ADMIN_NAME`. These stay in the project,
+   never in the public code repository.
+4. Save (Ctrl+S). In the toolbar function dropdown pick **`setupAll`** →
+   Run; approve the permission prompts (Advanced → "Go to attendance-backend
+   (unsafe)" is normal for your own unpublished script). It creates the
+   ATTENDANCE_MASTER spreadsheet, the AttendancePhotos folder, the current
+   month's attendance file, and the timed jobs.
 
 ## 3. Load the master data
 
