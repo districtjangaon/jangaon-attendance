@@ -728,6 +728,61 @@ const App = (() => {
     renderAnalytics(ym, scope, secList, anCache[key]);
   }
 
+  /**
+   * Attendance % per month over the last 6 months for the chosen scope
+   * (like the district's "Attendance Timeline" BI sample). Months with no
+   * published data are skipped silently.
+   */
+  async function loadTimeline() {
+    const endYm = $('an-ym').value, scope = $('an-scope').value;
+    if (!endYm || !scope) return;
+    const status = $('an-status');
+    status.textContent = 'Building timeline…';
+    const secList = scope === 'ALL' ? (names.sectors || []).map(s => s.code) : [scope];
+    const cur = (meta && meta.month) || new Date().toISOString().slice(0, 7);
+    const months = [];
+    let y = Number(endYm.slice(0, 4)), m = Number(endYm.slice(5, 7));
+    for (let i = 0; i < 6; i++) {
+      months.unshift(y + '-' + String(m).padStart(2, '0'));
+      m--; if (m === 0) { m = 12; y--; }
+    }
+    const staff = Object.keys(names.users).filter(uid =>
+      names.users[uid].r === 'FIELD' && secList.indexOf(names.users[uid].sc) >= 0).length || 1;
+    const points = [];
+    for (const mm of months) {
+      const path = sc => mm === cur ? 'summary/month/' + sc + '.json' : 'summary/archive/' + mm + '/' + sc + '.json';
+      const files = await Promise.all(secList.map(sc => Api.fetchJson(path(sc))));
+      const got = files.filter(Boolean);
+      if (!got.length) { points.push(null); continue; }
+      const dim = new Date(Number(mm.slice(0, 4)), Number(mm.slice(5, 7)), 0).getDate();
+      const anyF = got[0];
+      let work = 0;
+      const lastDay = mm === cur ? Math.min(dim, new Date().getDate()) : dim;
+      for (let d = 1; d <= lastDay; d++) {
+        const dd = String(d).padStart(2, '0');
+        const hol = (anyF.holidays && anyF.holidays[dd]) ||
+          new Date(mm + '-' + dd + 'T12:00:00').getDay() === 0;
+        if (!hol) work++;
+      }
+      let present = 0;
+      got.forEach(f => Object.keys(f.users || {}).forEach(uid => {
+        if (!names.users[uid] || names.users[uid].r !== 'FIELD') return;
+        Object.keys(f.users[uid]).forEach(dd => {
+          const c = f.users[uid][dd];
+          if (c.IN && c.IN.x !== 'REJ') present++;
+        });
+      }));
+      points.push(work ? Math.round(100 * present / (staff * work)) : null);
+    }
+    status.textContent = '';
+    $('an-timeline').innerHTML = points.some(p => p != null)
+      ? '<div class="chartbox"><h3>Attendance timeline — last 6 months (' +
+        esc(scope === 'ALL' ? 'whole scope' : sectorName(scope)) + ')</h3>' +
+        Charts.line(months, [{ name: 'Attendance %', color: Charts.PAL[1], area: true,
+          values: points }], { pct: true }) + '</div>'
+      : '<p class="info">No published months in this range yet — the timeline grows as months accumulate.</p>';
+  }
+
   function renderAnalytics(ym, scope, secList, files) {
     const got = secList.filter(sc => files[sc]);
     if (!got.length) {
@@ -747,10 +802,16 @@ const App = (() => {
     }
     const cur = (meta && meta.month) || new Date().toISOString().slice(0, 7);
     const lastDay = ym === cur ? Math.min(dim, new Date().getDate()) : dim;
-    const workDds = [];
+    let workDds = [];
     for (let d = 1; d <= lastDay; d++) {
       const dd = String(d).padStart(2, '0');
       if (!hols[dd]) workDds.push(dd);
+    }
+    const wk = $('an-week').value;
+    if (wk) workDds = workDds.filter(dd => Math.ceil(Number(dd) / 7) === Number(wk));
+    if (!workDds.length) {
+      $('an-content').innerHTML = '<p class="info">No working days in that week of ' + esc(ym) + '.</p>';
+      return;
     }
 
     // ---- assemble ----
@@ -870,13 +931,26 @@ const App = (() => {
           pct: Math.round(100 * s.presentDays / poss),
           late: s.late, outside: s.outside, leave: s.leave, series: s.series };
       }).sort((a, b) => b.pct - a.pct);
+      // Rate pill + trend arrow: second half of the period vs the first.
+      const trendArrow = series => {
+        const half = Math.floor(series.length / 2);
+        if (half < 1) return '<span class="trend-flat">=</span>';
+        const a = series.slice(0, half).reduce((x, y) => x + y, 0) / half;
+        const rest = series.slice(half);
+        const b = rest.reduce((x, y) => x + y, 0) / rest.length;
+        return b > a * 1.05 ? '<span class="trend-up">▲</span>'
+          : b < a * 0.95 ? '<span class="trend-down">▼</span>'
+          : '<span class="trend-flat">=</span>';
+      };
+      const pill = pct => '<span class="pill-rate ' +
+        (pct >= 85 ? 'pr-good' : pct >= 70 ? 'pr-mid' : 'pr-bad') + '">' + pct + '%</span>';
       html += '<div class="chartbox"><h3>Sector league table</h3><div class="tablewrap"><table>' +
-        '<tr><th>#</th><th>Sector</th><th>Staff</th><th>Attendance %</th><th>Late</th>' +
-        '<th>Outside</th><th>Leave</th><th>Daily trend</th></tr>' +
+        '<tr><th>#</th><th>Sector</th><th>Staff</th><th>Attendance</th><th>Trend</th><th>Late</th>' +
+        '<th>Outside</th><th>Leave</th><th>Daily</th></tr>' +
         rows.map((r, i) =>
           '<tr><td>' + (i + 1) + '</td><td>' + esc(r.name) + '</td><td>' + r.staff + '</td>' +
-          '<td><b style="color:' + (r.pct >= 85 ? '#1e8e3e' : r.pct >= 70 ? '#e37400' : '#c5221f') + '">' +
-          r.pct + '%</b></td><td>' + r.late + '</td><td>' + r.outside + '</td><td>' + r.leave +
+          '<td>' + pill(r.pct) + '</td><td>' + trendArrow(r.series) + '</td>' +
+          '<td>' + r.late + '</td><td>' + r.outside + '</td><td>' + r.leave +
           '</td><td>' + Charts.spark(r.series) + '</td></tr>').join('') + '</table></div></div>';
 
       html += '<div class="chartbox"><h3>Coverage heatmap — sector × day (greener = fuller attendance)</h3>' +
@@ -1063,6 +1137,14 @@ const App = (() => {
     $('tab-today').onclick = () => switchTab('today');
     $('tab-analytics').onclick = () => switchTab('analytics');
     $('btn-an-load').onclick = runAnalytics;
+    $('an-week').onchange = runAnalytics;
+    $('btn-an-timeline').onclick = loadTimeline;
+    $('btn-theme').onclick = () => {
+      const dark = document.body.classList.toggle('dark');
+      localStorage.setItem('consoleTheme', dark ? 'dark' : 'light');
+      $('btn-theme').textContent = dark ? '☀️' : '🌙';
+    };
+    if (document.body.classList.contains('dark')) $('btn-theme').textContent = '☀️';
     $('tab-exceptions').onclick = () => switchTab('exceptions');
     $('tab-monthly').onclick = () => switchTab('monthly');
     $('tab-reports').onclick = () => switchTab('reports');
@@ -1079,6 +1161,7 @@ const App = (() => {
   }
 
   async function init() {
+    if (localStorage.getItem('consoleTheme') === 'dark') document.body.classList.add('dark');
     bind();
     if (token && me) {
       try { await boot(); return; } catch (e) { /* fall through to login */ }

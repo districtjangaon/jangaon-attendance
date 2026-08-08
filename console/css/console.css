@@ -130,6 +130,42 @@ main { padding: 0 18px 30px; max-width: 1280px; margin: 0 auto; }
 .insights ul { margin: 4px 0 4px 20px; }
 .insights li { margin: 5px 0; font-size: 14px; }
 
+/* rating pills + trend arrows (per the district's BI sample) */
+.pill-rate {
+  display: inline-block; min-width: 64px; text-align: center; padding: 3px 10px;
+  border-radius: 6px; color: #fff; font-weight: 700; font-size: 13px;
+}
+.pr-good { background: #1e8e3e; }
+.pr-mid { background: #e37400; }
+.pr-bad { background: #c5221f; }
+.trend-up { color: #1e8e3e; font-weight: 700; }
+.trend-down { color: #c5221f; font-weight: 700; }
+.trend-flat { color: var(--muted); font-weight: 700; }
+
+/* dark theme (Power-BI-style, for projector reviews) */
+body.dark { background: #17181c; color: #dfe1e5; }
+body.dark .view, body.dark .chartbox, body.dark .login-card { background: #1f2126; border-color: #33363d; }
+body.dark .tab { background: #26282e; color: #9aa0a6; border-color: #33363d; }
+body.dark .tab.sel { background: #1f2126; color: #7fd3a1; }
+body.dark th { background: #26282e; color: #7fd3a1; }
+body.dark th, body.dark td { border-color: #33363d; }
+body.dark tr.click:hover { background: #26282e; }
+body.dark input, body.dark select { background: #26282e; color: #dfe1e5; border-color: #44474f; }
+body.dark .btn-plain { background: #33363d; color: #dfe1e5; }
+body.dark .card, body.dark .st { background: #26282e; border-color: #33363d; }
+body.dark .card span, body.dark .info, body.dark .legend { color: #9aa0a6; }
+body.dark .card b { color: #dfe1e5; }
+body.dark .insights { background: #20261f; }
+body.dark h2, body.dark h3, body.dark .crumb { color: #7fd3a1; }
+body.dark .mgrid th.name-col, body.dark .mgrid td.name-col { background: #1f2126; }
+body.dark .mgrid th.hol { background: #26282e; color: #777; }
+body.dark svg text { fill: #b6bac2; }
+body.dark svg line { stroke: #3a3d44; }
+body.dark .banner.ok { background: #1d2b21; color: #9fd8ae; }
+body.dark .banner.warn { background: #2e2716; color: #e6c37a; }
+body.dark .banner.err { background: #301b1a; color: #e8938d; }
+body.dark .holiday-note { background: linear-gradient(135deg, #0d3a33, #17594d); }
+
 .toolbar { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
 .toolbar input[type="search"] { flex: 1; min-width: 160px; width: auto; }
 .toolbar select, .toolbar input[type="month"] { width: auto; }

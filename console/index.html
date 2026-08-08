@@ -16,6 +16,7 @@
     </div>
     <div class="head-right">
       <span id="head-user" class="head-user"></span>
+      <button id="btn-theme" class="btn btn-plain btn-inline" title="Light / dark">🌙</button>
       <button id="btn-logout" class="btn btn-plain btn-inline" hidden>Logout</button>
     </div>
   </header>
@@ -96,9 +97,19 @@
       <div class="toolbar">
         <input id="an-ym" type="month">
         <select id="an-scope"></select>
+        <select id="an-week">
+          <option value="">Full month</option>
+          <option value="1">Week 1 (1–7)</option>
+          <option value="2">Week 2 (8–14)</option>
+          <option value="3">Week 3 (15–21)</option>
+          <option value="4">Week 4 (22–28)</option>
+          <option value="5">Week 5 (29–31)</option>
+        </select>
         <button id="btn-an-load" class="btn btn-plain btn-inline">Analyse</button>
+        <button id="btn-an-timeline" class="btn btn-plain btn-inline">6-month timeline</button>
         <span id="an-status" class="info"></span>
       </div>
+      <div id="an-timeline"></div>
       <div id="an-content"><p class="info">Pick a month and scope, then Analyse. District-wide pulls
         all 27 sector files (a few seconds).</p></div>
     </section>
@@ -165,7 +176,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v1.4-20260808-1800</footer>
+  <footer class="build-tag">BUILD: v1.4-20260808-1900</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
