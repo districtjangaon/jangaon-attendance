@@ -133,6 +133,7 @@ const App = (() => {
     $('tab-admin').hidden = false; // server scopes what each role can actually do
     fillMonthControls();
     fillReportControls();
+    fillAnalyticsControls();
     fillAwcPicker();
     await refreshAll();
     // The published data regenerates every ~5 min; the screen re-reads it
@@ -696,6 +697,257 @@ const App = (() => {
       [reportHead].concat(reportRows));
   }
 
+  // ---------------- Analytics ----------------
+  const anCache = {}; // ym|scope -> sector files
+
+  function fillAnalyticsControls() {
+    $('an-ym').value = new Date().toISOString().slice(0, 7);
+    const secs = names.sectors || [];
+    const all = (me.role === 'ADMIN' || me.role === 'CDPO')
+      ? '<option value="ALL">Whole ' + (me.role === 'ADMIN' ? 'district' : 'project') + '</option>' : '';
+    $('an-scope').innerHTML = all + secs.map(s =>
+      '<option value="' + esc(s.code) + '">' + esc(s.name) + '</option>').join('');
+  }
+
+  async function runAnalytics() {
+    const ym = $('an-ym').value, scope = $('an-scope').value;
+    if (!ym || !scope) return;
+    const status = $('an-status');
+    const cur = (meta && meta.month) || new Date().toISOString().slice(0, 7);
+    const path = sc => ym === cur ? 'summary/month/' + sc + '.json' : 'summary/archive/' + ym + '/' + sc + '.json';
+    const secList = scope === 'ALL' ? (names.sectors || []).map(s => s.code) : [scope];
+    status.textContent = 'Loading ' + secList.length + ' sector file(s)…';
+    const key = ym + '|' + scope;
+    if (!anCache[key]) {
+      const files = await Promise.all(secList.map(sc => Api.fetchJson(path(sc))));
+      anCache[key] = {};
+      files.forEach((f, i) => { if (f) anCache[key][secList[i]] = f; });
+      setTimeout(() => { delete anCache[key]; }, 120000); // keep it fresh-ish
+    }
+    status.textContent = '';
+    renderAnalytics(ym, scope, secList, anCache[key]);
+  }
+
+  function renderAnalytics(ym, scope, secList, files) {
+    const got = secList.filter(sc => files[sc]);
+    if (!got.length) {
+      $('an-content').innerHTML = '<p class="info">No published data for ' + esc(ym) +
+        ' yet — month files appear after the first nightly run. Today\'s live picture is on the Dashboard tab.</p>';
+      return;
+    }
+    const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
+    const anyF = files[got[0]];
+    const hols = {};
+    for (let d = 1; d <= dim; d++) {
+      const dd = String(d).padStart(2, '0');
+      if ((anyF.holidays && anyF.holidays[dd]) ||
+        new Date(ym + '-' + dd + 'T12:00:00').getDay() === 0) {
+        hols[dd] = (anyF.holidays && anyF.holidays[dd]) || 'Sunday';
+      }
+    }
+    const cur = (meta && meta.month) || new Date().toISOString().slice(0, 7);
+    const lastDay = ym === cur ? Math.min(dim, new Date().getDate()) : dim;
+    const workDds = [];
+    for (let d = 1; d <= lastDay; d++) {
+      const dd = String(d).padStart(2, '0');
+      if (!hols[dd]) workDds.push(dd);
+    }
+
+    // ---- assemble ----
+    const staffOf = {};   // sc -> uid list (in scope)
+    const perDay = {};    // dd -> {present, late, outside}
+    const flagCount = {};
+    const inBuckets = [0, 0, 0, 0, 0];
+    const secStats = {};  // sc -> {staff, presentDays, late, outside, unverified, leave, series}
+    const userStats = {}; // uid -> {present, late, absentSet, leave, sc, streak}
+    workDds.forEach(dd => { perDay[dd] = { present: 0, late: 0, outside: 0 }; });
+
+    got.forEach(sc => {
+      const f = files[sc];
+      const uids = Object.keys(names.users).filter(uid =>
+        names.users[uid].sc === sc && names.users[uid].r === 'FIELD');
+      staffOf[sc] = uids;
+      const st = secStats[sc] = { staff: uids.length, presentDays: 0, late: 0, outside: 0,
+        unverified: 0, leave: 0, series: workDds.map(() => 0) };
+      uids.forEach(uid => {
+        const days = (f.users || {})[uid] || {};
+        const lvs = (f.leaves || {})[uid] || {};
+        const lateAt = lateAfterFor(uid);
+        const us = userStats[uid] = { present: 0, late: 0, leave: Object.keys(lvs).length,
+          absent: 0, sc: sc, maxStreak: 0 };
+        let streak = 0;
+        workDds.forEach((dd, di) => {
+          const c = days[dd];
+          const inOk = c && c.IN && c.IN.x !== 'REJ';
+          if (inOk) {
+            us.present++; st.presentDays++; perDay[dd].present++; st.series[di]++;
+            streak = 0;
+            const t = c.IN.t || '';
+            if (t && t > lateAt) { us.late++; st.late++; perDay[dd].late++; }
+            if (c.IN.gf === 'OUTSIDE') { st.outside++; perDay[dd].outside++; }
+            if (c.IN.gf === 'UNVERIFIED') st.unverified++;
+            if (t) {
+              const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+              inBuckets[m < 540 ? 0 : m < 570 ? 1 : m < 600 ? 2 : m < 660 ? 3 : 4]++;
+            }
+            ['IN', 'OUT'].forEach(ty => {
+              if (c[ty] && c[ty].fl) c[ty].fl.split(',').forEach(fl => {
+                if (fl) flagCount[fl] = (flagCount[fl] || 0) + 1;
+              });
+            });
+          } else if (lvs[dd]) {
+            st.leave++; streak = 0;
+          } else {
+            us.absent++; streak++;
+            if (streak > us.maxStreak) us.maxStreak = streak;
+          }
+        });
+      });
+    });
+
+    const totStaff = got.reduce((s, sc) => s + secStats[sc].staff, 0);
+    const totPresent = got.reduce((s, sc) => s + secStats[sc].presentDays, 0);
+    const totLate = got.reduce((s, sc) => s + secStats[sc].late, 0);
+    const totOutside = got.reduce((s, sc) => s + secStats[sc].outside, 0);
+    const totUnv = got.reduce((s, sc) => s + secStats[sc].unverified, 0);
+    const totLeave = got.reduce((s, sc) => s + secStats[sc].leave, 0);
+    const possible = totStaff * workDds.length || 1;
+    const attPct = Math.round(100 * totPresent / possible);
+    const onTimePct = totPresent ? Math.round(100 * (totPresent - totLate) / totPresent) : 0;
+    const verifPct = totPresent ? Math.round(100 * (totPresent - totOutside - totUnv) / totPresent) : 0;
+
+    // ---- KPI strip ----
+    let html = '<div class="bigcards">' +
+      bigcard('bc-teal', 'Attendance', attPct + '%', totPresent + ' present-days of ' + possible) +
+      bigcard('bc-blue', 'On time', onTimePct + '%', totLate + ' late marks') +
+      bigcard('bc-olive', 'GPS verified', verifPct + '%', totOutside + ' outside · ' + totUnv + ' unverified') +
+      bigcard('bc-maroon', 'Leave days', totLeave, 'approved this month') +
+      bigcard('bc-grey', 'Working days', workDds.length, (ym === cur ? 'so far · ' : '') +
+        Object.keys(hols).length + ' holidays/Sundays') +
+      '</div>';
+
+    // ---- daily trend ----
+    const labels = workDds.map(dd => Number(dd) + '');
+    html += '<div class="chartbox"><h3>Daily attendance — ' + esc(ym) + '</h3>' +
+      Charts.line(labels, [
+        { name: 'Present', color: Charts.PAL[0], area: true, values: workDds.map(dd => perDay[dd].present) },
+        { name: 'Late (of present)', color: Charts.PAL[3], values: workDds.map(dd => perDay[dd].late) },
+        { name: 'Outside fence', color: Charts.PAL[4], values: workDds.map(dd => perDay[dd].outside) }
+      ]) + '</div>';
+
+    // ---- weekday pattern + punctuality + flags ----
+    const wd = [[], [], [], [], [], []]; // Mon..Sat
+    workDds.forEach(dd => {
+      const day = new Date(ym + '-' + dd + 'T12:00:00').getDay();
+      if (day >= 1 && day <= 6) wd[day - 1].push(100 * perDay[dd].present / (totStaff || 1));
+    });
+    const wdNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    html += '<div class="charts">' +
+      '<div class="chartbox"><h3>Attendance by weekday</h3>' +
+      Charts.bar(wdNames.map((n, i) => ({
+        label: n, color: Charts.PAL[1],
+        value: wd[i].length ? Math.round(wd[i].reduce((a, b) => a + b, 0) / wd[i].length) : 0
+      })), { pct: true }) + '</div>' +
+      '<div class="chartbox"><h3>Punctuality (all IN marks)</h3>' +
+      Charts.donut([
+        { label: 'Before 9:00', value: inBuckets[0] }, { label: '9:00–9:30', value: inBuckets[1] },
+        { label: '9:30–10:00', value: inBuckets[2] }, { label: '10:00–11:00', value: inBuckets[3] },
+        { label: 'After 11:00', value: inBuckets[4] }
+      ]) + '</div>' +
+      '<div class="chartbox"><h3>Data-quality flags</h3>' +
+      (Object.keys(flagCount).length
+        ? Charts.bar(Object.keys(flagCount).sort((a, b) => flagCount[b] - flagCount[a]).slice(0, 6)
+            .map((fl, i) => ({ label: fl.slice(0, 12), title: fl + ': ' + flagCount[fl],
+              value: flagCount[fl], color: Charts.PAL[(i + 2) % 8] })))
+        : '<p class="info">No flags this month — clean data.</p>') + '</div></div>';
+
+    // ---- sector league (ALL) or coverage heatmap rows ----
+    if (scope === 'ALL') {
+      const rows = got.map(sc => {
+        const s = secStats[sc];
+        const poss = s.staff * workDds.length || 1;
+        return { sc: sc, name: sectorName(sc), staff: s.staff,
+          pct: Math.round(100 * s.presentDays / poss),
+          late: s.late, outside: s.outside, leave: s.leave, series: s.series };
+      }).sort((a, b) => b.pct - a.pct);
+      html += '<div class="chartbox"><h3>Sector league table</h3><div class="tablewrap"><table>' +
+        '<tr><th>#</th><th>Sector</th><th>Staff</th><th>Attendance %</th><th>Late</th>' +
+        '<th>Outside</th><th>Leave</th><th>Daily trend</th></tr>' +
+        rows.map((r, i) =>
+          '<tr><td>' + (i + 1) + '</td><td>' + esc(r.name) + '</td><td>' + r.staff + '</td>' +
+          '<td><b style="color:' + (r.pct >= 85 ? '#1e8e3e' : r.pct >= 70 ? '#e37400' : '#c5221f') + '">' +
+          r.pct + '%</b></td><td>' + r.late + '</td><td>' + r.outside + '</td><td>' + r.leave +
+          '</td><td>' + Charts.spark(r.series) + '</td></tr>').join('') + '</table></div></div>';
+
+      html += '<div class="chartbox"><h3>Coverage heatmap — sector × day (greener = fuller attendance)</h3>' +
+        Charts.heatmap(rows.map(r => ({
+          label: r.name,
+          cells: workDds.map((dd, di) => ({
+            v: r.staff ? secStats[r.sc].series[di] / r.staff : null,
+            title: r.name + ' ' + ym + '-' + dd + ': ' + secStats[r.sc].series[di] + '/' + r.staff
+          }))
+        })), workDds.map(dd => Number(dd) + '')) + '</div>';
+    } else {
+      const sc = scope;
+      html += '<div class="chartbox"><h3>Worker × day heatmap — ' + esc(sectorName(sc)) + '</h3>' +
+        Charts.heatmap((staffOf[sc] || []).slice(0, 60).map(uid => {
+          const f = files[sc];
+          const days = (f.users || {})[uid] || {};
+          const lvs = (f.leaves || {})[uid] || {};
+          return { label: userName(uid),
+            cells: workDds.map(dd => {
+              const c = days[dd];
+              const inOk = c && c.IN && c.IN.x !== 'REJ';
+              return { v: inOk ? 1 : lvs[dd] ? -1 : 0,
+                title: userName(uid) + ' ' + ym + '-' + dd + ': ' +
+                  (inOk ? 'present ' + (c.IN.t || '') : lvs[dd] ? lvs[dd] + ' leave' : 'absent') };
+            }) };
+        }), workDds.map(dd => Number(dd) + '')) + '</div>';
+    }
+
+    // ---- attention list (decision-making) ----
+    const worst = Object.keys(userStats)
+      .map(uid => Object.assign({ uid: uid }, userStats[uid]))
+      .filter(u => u.absent > 0)
+      .sort((a, b) => b.absent - a.absent || b.maxStreak - a.maxStreak).slice(0, 15);
+    html += '<div class="chartbox"><h3>Needs attention — most absences</h3>' +
+      (worst.length ? '<div class="tablewrap"><table><tr><th>Name</th><th>Sector</th><th>Absent days</th>' +
+        '<th>Longest streak</th><th>Present</th><th>Late</th><th>Leave</th></tr>' +
+        worst.map(u =>
+          '<tr><td>' + esc(userName(u.uid)) + '</td><td>' + esc(sectorName(u.sc)) + '</td>' +
+          '<td><b style="color:#c5221f">' + u.absent + '</b></td><td>' + u.maxStreak +
+          '</td><td>' + u.present + '</td><td>' + u.late + '</td><td>' + u.leave + '</td></tr>').join('') +
+        '</table></div>' : '<p class="info">Nobody with unexplained absences. Excellent.</p>') + '</div>';
+
+    // ---- auto insights ----
+    const insights = [];
+    if (scope === 'ALL' && got.length > 1) {
+      const league = got.map(sc => ({ sc: sc,
+        pct: Math.round(100 * secStats[sc].presentDays / (secStats[sc].staff * workDds.length || 1)) }))
+        .sort((a, b) => b.pct - a.pct);
+      insights.push('Best sector: <b>' + esc(sectorName(league[0].sc)) + '</b> (' + league[0].pct +
+        '%); weakest: <b>' + esc(sectorName(league[league.length - 1].sc)) + '</b> (' +
+        league[league.length - 1].pct + '%).');
+    }
+    let worstDay = null;
+    workDds.forEach(dd => {
+      const pct = 100 * perDay[dd].present / (totStaff || 1);
+      if (!worstDay || pct < worstDay.pct) worstDay = { dd: dd, pct: Math.round(pct) };
+    });
+    if (worstDay) insights.push('Lowest-attendance day: <b>' + esc(ym + '-' + worstDay.dd) +
+      '</b> (' + worstDay.pct + '%).');
+    if (totLate) insights.push('<b>' + totLate + '</b> late marks; ' + (inBuckets[4] || 0) +
+      ' IN marks after 11:00.');
+    if (flagCount.FAKE_GPS_SUSPECT) insights.push('<b style="color:#c5221f">' +
+      flagCount.FAKE_GPS_SUSPECT + ' fake-GPS-suspect marks</b> — check the Flagged tab.');
+    const streaky = worst.filter(u => u.maxStreak >= 3).length;
+    if (streaky) insights.push('<b>' + streaky + '</b> worker(s) with 3+ consecutive unexplained absences.');
+    html = '<div class="chartbox insights"><h3>Key insights — ' + esc(ym) + '</h3><ul>' +
+      insights.map(i => '<li>' + i + '</li>').join('') + '</ul></div>' + html;
+
+    $('an-content').innerHTML = html;
+  }
+
   // ---------------- Admin ----------------
   function renderAdmin() {
     if (!names) return;
@@ -789,12 +1041,13 @@ const App = (() => {
 
   // ---------------- tabs & events ----------------
   function switchTab(name) {
-    ['today', 'exceptions', 'monthly', 'reports', 'leaves', 'admin'].forEach(t => {
+    ['today', 'analytics', 'exceptions', 'monthly', 'reports', 'leaves', 'admin'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
     if (name === 'admin') renderAdmin();
     if (name === 'leaves') renderLeaves();
+    if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
   }
 
   function bind() {
@@ -808,6 +1061,8 @@ const App = (() => {
     $('today-search').oninput = renderToday;
     $('today-filter').onchange = renderToday;
     $('tab-today').onclick = () => switchTab('today');
+    $('tab-analytics').onclick = () => switchTab('analytics');
+    $('btn-an-load').onclick = runAnalytics;
     $('tab-exceptions').onclick = () => switchTab('exceptions');
     $('tab-monthly').onclick = () => switchTab('monthly');
     $('tab-reports').onclick = () => switchTab('reports');

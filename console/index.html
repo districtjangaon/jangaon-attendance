@@ -51,6 +51,7 @@
   <main id="main" hidden>
     <nav class="tabs">
       <button id="tab-today" class="tab sel">Dashboard</button>
+      <button id="tab-analytics" class="tab">Analytics</button>
       <button id="tab-exceptions" class="tab">Flagged <span id="exc-count" class="pill" hidden></span></button>
       <button id="tab-monthly" class="tab">Monthly</button>
       <button id="tab-reports" class="tab">Reports</button>
@@ -88,6 +89,18 @@
         <button id="btn-refresh" class="btn btn-plain btn-inline">Refresh</button>
       </div>
       <div id="today-table" class="tablewrap"></div>
+    </section>
+
+    <!-- Analytics -->
+    <section id="view-analytics" class="view" hidden>
+      <div class="toolbar">
+        <input id="an-ym" type="month">
+        <select id="an-scope"></select>
+        <button id="btn-an-load" class="btn btn-plain btn-inline">Analyse</button>
+        <span id="an-status" class="info"></span>
+      </div>
+      <div id="an-content"><p class="info">Pick a month and scope, then Analyse. District-wide pulls
+        all 27 sector files (a few seconds).</p></div>
     </section>
 
     <!-- Flagged marks (informational — attendance is auto-approved) -->
@@ -152,10 +165,11 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v1.3-20260808-1700</footer>
+  <footer class="build-tag">BUILD: v1.4-20260808-1800</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/charts.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

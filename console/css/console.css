@@ -124,6 +124,12 @@ main { padding: 0 18px 30px; max-width: 1280px; margin: 0 auto; }
 
 .mgrid td.d-leave { background: #e3f0fb; color: #1565c0; font-weight: 700; }
 
+.legend-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+.chartbox { margin-bottom: 12px; }
+.insights { background: #f7fbf8; border-left: 4px solid var(--ts-green); }
+.insights ul { margin: 4px 0 4px 20px; }
+.insights li { margin: 5px 0; font-size: 14px; }
+
 .toolbar { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
 .toolbar input[type="search"] { flex: 1; min-width: 160px; width: auto; }
 .toolbar select, .toolbar input[type="month"] { width: auto; }
