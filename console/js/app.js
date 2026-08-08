@@ -203,6 +203,10 @@ const App = (() => {
 
   function statusTag(st) { return '<span class="tag ' + esc(st) + '">' + esc(st.replace('_', ' ')) + '</span>'; }
   function gfTag(gf) { return gf ? '<span class="tag ' + esc(gf) + '">' + esc(gf) + '</span>' : ''; }
+  function ratePill(pct) {
+    return '<span class="pill-rate ' +
+      (pct >= 85 ? 'pr-good' : pct >= 70 ? 'pr-mid' : 'pr-bad') + '">' + pct + '%</span>';
+  }
 
   function downloadCsv(name, rows) {
     const csv = rows.map(r => r.map(c => {
@@ -279,6 +283,27 @@ const App = (() => {
     });
     $('chart-intime').innerHTML = donutSVG(buckets);
     $('chart-trend').innerHTML = trendSVG(inTimes);
+
+    // Sector Top-10 and per-project bars, per the district's BI sample.
+    const secBars = today.sectors.map(s => ({
+      label: sectorName(s.code).slice(0, 9),
+      title: sectorName(s.code) + ': ' + (s.in + s.late) + '/' + s.expected + ' marked',
+      value: s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0,
+      color: Charts.PAL[3]
+    })).sort((a, b) => b.value - a.value).slice(0, 10);
+    $('chart-sector').innerHTML = secBars.some(b => b.value > 0)
+      ? Charts.bar(secBars, { pct: true })
+      : '<p class="info">No sector has marks yet today.</p>';
+
+    const projBars = today.projects.map((p, i) => ({
+      label: projectName(p.code).slice(0, 12),
+      title: projectName(p.code) + ': ' + (p.in + p.late) + ' of ' + p.expected + ' marked IN',
+      value: p.in + p.late,
+      color: Charts.PAL[(i + 4) % 8]
+    }));
+    $('chart-project').innerHTML = projBars.some(b => b.value > 0)
+      ? Charts.bar(projBars)
+      : '<p class="info">No marks yet today.</p>';
   }
 
   function renderToday() {
@@ -350,11 +375,12 @@ const App = (() => {
 
     let html;
     if (!q && drill.level === 'district') {
-      html = '<table><tr><th>Project</th><th>Expected</th><th>Marked IN</th><th>Late</th>' +
+      html = '<table><tr><th>Project</th><th>Expected</th><th>Attendance</th><th>Marked IN</th><th>Late</th>' +
         '<th>Not marked</th><th>Outside</th><th>Unverified</th></tr>' +
         today.projects.map(p =>
           '<tr class="click" data-code="' + esc(p.code) + '"><td>' + esc(projectName(p.code)) + '</td><td>' +
-          p.expected + '</td><td>' + (p.in + p.late) + '</td><td>' + p.late + '</td><td>' +
+          p.expected + '</td><td>' + ratePill(p.expected ? Math.round(100 * (p.in + p.late) / p.expected) : 0) +
+          '</td><td>' + (p.in + p.late) + '</td><td>' + p.late + '</td><td>' +
           p.notMarked + '</td><td>' + p.outside + '</td><td>' + p.unverified + '</td></tr>').join('') +
         '</table>';
       // Admin/office test marks: visible with photos, never in the counts.
@@ -377,11 +403,12 @@ const App = (() => {
     }
     if (!q && drill.level === 'project') {
       const secs = today.sectors.filter(s => s.project === drill.code);
-      html = '<table><tr><th>Sector</th><th>Expected</th><th>Marked IN</th><th>Late</th>' +
+      html = '<table><tr><th>Sector</th><th>Expected</th><th>Attendance</th><th>Marked IN</th><th>Late</th>' +
         '<th>Not marked</th><th>Outside</th><th>Unverified</th></tr>' +
         secs.map(s =>
           '<tr class="click" data-code="' + esc(s.code) + '"><td>' + esc(sectorName(s.code)) + '</td><td>' +
-          s.expected + '</td><td>' + (s.in + s.late) + '</td><td>' + s.late + '</td><td>' +
+          s.expected + '</td><td>' + ratePill(s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0) +
+          '</td><td>' + (s.in + s.late) + '</td><td>' + s.late + '</td><td>' +
           s.notMarked + '</td><td>' + s.outside + '</td><td>' + s.unverified + '</td></tr>').join('') +
         '</table>';
       $('today-table').innerHTML = html;
@@ -942,8 +969,7 @@ const App = (() => {
           : b < a * 0.95 ? '<span class="trend-down">▼</span>'
           : '<span class="trend-flat">=</span>';
       };
-      const pill = pct => '<span class="pill-rate ' +
-        (pct >= 85 ? 'pr-good' : pct >= 70 ? 'pr-mid' : 'pr-bad') + '">' + pct + '%</span>';
+      const pill = ratePill;
       html += '<div class="chartbox"><h3>Sector league table</h3><div class="tablewrap"><table>' +
         '<tr><th>#</th><th>Sector</th><th>Staff</th><th>Attendance</th><th>Trend</th><th>Late</th>' +
         '<th>Outside</th><th>Leave</th><th>Daily</th></tr>' +
