@@ -1180,6 +1180,14 @@ function publishOrg() {
   ghCommit_([buildOrgFile_()], 'org ' + nowIso_());
 }
 
+/**
+ * Owner-run: force an immediate today.json publish, bypassing summaryTick's
+ * off-peak gate (which otherwise defers to the first 10 minutes of the hour).
+ */
+function publishToday() {
+  buildToday_();
+}
+
 // ---- nightly full build ----
 function nightlyJob() {
   const now = new Date();
