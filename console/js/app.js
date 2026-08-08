@@ -164,12 +164,26 @@ const App = (() => {
       b.textContent = 'No summary data published yet — check the Apps Script triggers and GitHub token.';
       return;
     }
-    const min = Math.round((Date.now() - new Date(today.generatedAt).getTime()) / 60000);
+    // Liveness (checkedAt heartbeat) and data age (generatedAt) are
+    // different things: idle-but-healthy must not look like a failure.
+    const dataTime = new Date(today.generatedAt);
+    const checked = (meta && meta.checkedAt) ? new Date(meta.checkedAt) : dataTime;
+    const aliveMin = Math.round((Date.now() - checked.getTime()) / 60000);
+    const hhmm = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     b.hidden = false;
-    b.className = 'banner ' + (min <= 15 ? 'ok' : min <= 45 ? 'warn' : 'err');
-    b.textContent = 'Data generated ' + (min < 1 ? 'just now' : min + ' min ago') +
-      ' (' + new Date(today.generatedAt).toLocaleTimeString() + ') • regenerates every 5 min in ' +
-      'working hours • this screen re-checks every 30 s.';
+    if (aliveMin <= 40) {
+      b.className = 'banner ok';
+      b.textContent = '✓ System live. Attendance shown as of ' + hhmm(dataTime) +
+        ' — it updates within ~5 minutes whenever someone marks. Nothing new since then.';
+    } else if (aliveMin <= 90) {
+      b.className = 'banner warn';
+      b.textContent = 'Updates delayed — last server check ' + aliveMin +
+        ' min ago (data as of ' + hhmm(dataTime) + ').';
+    } else {
+      b.className = 'banner err';
+      b.textContent = 'Not updating — last server check ' + aliveMin + ' min ago. ' +
+        'Check the Apps Script triggers and GitHub token. Data shown is from ' + hhmm(dataTime) + '.';
+    }
   }
 
   // ---------------- helpers ----------------

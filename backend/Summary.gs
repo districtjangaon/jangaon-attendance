@@ -30,7 +30,18 @@ function summaryTick() {
   if (!ss) return;
   const marker = fmtDay_(Date.now()) + '|' + ss.getSheetByName('Marks').getLastRow() +
     '|' + leavesSheet_().getLastRow();
-  if (CACHE.get('sumMarker') === marker) return;
+  if (CACHE.get('sumMarker') === marker) {
+    // Nothing new — but prove we are alive: heartbeat meta.json at most
+    // every 30 min so the console can tell "idle" apart from "dead".
+    if (!CACHE.get('hb')) {
+      CACHE.put('hb', '1', 1800);
+      ghCommit_([{ path: 'summary/meta.json', content: JSON.stringify({
+        generatedAt: PROPS.getProperty('LAST_GEN') || '', checkedAt: nowIso_(),
+        month: ym, date: fmtDay_(Date.now())
+      }) }], 'heartbeat ' + nowIso_());
+    }
+    return;
+  }
   buildToday_();
   CACHE.put('sumMarker', marker, 21600);
   // Something changed: also keep the Register tab reasonably fresh (at most
@@ -192,9 +203,11 @@ function buildToday_() {
       Object.assign({ code: sc, project: sectorProject[sc] || '' }, sectors[sc])),
     users: userEntries, exceptions: exceptions
   };
+  PROPS.setProperty('LAST_GEN', generatedAt);
   ghCommit_([
     { path: 'summary/today.json', content: JSON.stringify(todayJson) },
-    { path: 'summary/meta.json', content: JSON.stringify({ generatedAt: generatedAt, month: ym, date: today }) }
+    { path: 'summary/meta.json', content: JSON.stringify({ generatedAt: generatedAt,
+      checkedAt: generatedAt, month: ym, date: today }) }
   ], 'today ' + generatedAt);
 }
 

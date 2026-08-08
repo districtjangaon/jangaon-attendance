@@ -144,7 +144,8 @@ const Api = (() => {
 
   function demoJson(path) {
     if (path === 'summary/meta.json') {
-      return { generatedAt: new Date(Date.now() - 7 * 60000).toISOString(), month: dYm(), date: dToday() };
+      return { generatedAt: new Date(Date.now() - 7 * 60000).toISOString(),
+        checkedAt: new Date(Date.now() - 2 * 60000).toISOString(), month: dYm(), date: dToday() };
     }
     if (path === 'summary/today.json') return demoTodayJson();
     if (path === 'summary/org.json') {
