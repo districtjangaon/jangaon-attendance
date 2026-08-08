@@ -1,10 +1,10 @@
 'use strict';
 /**
- * Console configuration (local copy — gitignored; see config.example.js).
+ * Console configuration (live deployment — Jangaon district).
  */
 window.CONSOLE_CONFIG = {
-  ENDPOINT: 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE',
+  ENDPOINT: 'https://script.google.com/macros/s/AKfycbyX0oRc80SAH7VxkMB3c5-eyKx58lOsVh_vgaOZRZ8HqR2D0jr8NDF3J_A-hCEy3hc0EQ/exec',
   SUMMARY_BASE: '../',
-  DEMO: true,
+  DEMO: false,
   VERSION: '1.0.0'
 };

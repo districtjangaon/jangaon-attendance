@@ -1,9 +1,9 @@
 'use strict';
 /**
- * App configuration (local copy — gitignored; see config.example.js).
+ * App configuration (live deployment — Jangaon district).
  */
 window.APP_CONFIG = {
-  ENDPOINT: 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE',
-  DEMO: true,
+  ENDPOINT: 'https://script.google.com/macros/s/AKfycbyX0oRc80SAH7VxkMB3c5-eyKx58lOsVh_vgaOZRZ8HqR2D0jr8NDF3J_A-hCEy3hc0EQ/exec',
+  DEMO: false,
   VERSION: '1.0.0'
 };
