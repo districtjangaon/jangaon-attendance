@@ -184,9 +184,27 @@ function buildOrgFile_() {
   };
 }
 
+/**
+ * Public gazetteer: name + coordinates of every active AWC (government
+ * facilities — public locations, no people). The app uses it to write a
+ * place name into the photo stamp ("Near Alipur-I · 210 m") even for users
+ * with no assigned centre — coordinates alone mean nothing to an auditor.
+ */
+function buildPlacesFile_() {
+  const awcs = {};
+  masterSheetRows_('AWCs', AWC_H).forEach(r => {
+    const a = awcFromRow_(r);
+    if (a.active && a.lat != null && a.lng != null) {
+      awcs[a.awc_id] = { n: a.name, lat: a.lat, lng: a.lng };
+    }
+  });
+  return { path: 'summary/places.json',
+    content: JSON.stringify({ generatedAt: nowIso_(), awcs: awcs }) };
+}
+
 /** Owner-run after importFromSheets so the console has org names immediately. */
 function publishOrg() {
-  ghCommit_([buildOrgFile_()], 'org ' + nowIso_());
+  ghCommit_([buildOrgFile_(), buildPlacesFile_()], 'org ' + nowIso_());
 }
 
 /**
@@ -203,13 +221,28 @@ function nightlyJob() {
   const ym = Utilities.formatDate(now, TZ, 'yyyy-MM');
   let files = buildMonthFiles_(ym, 'summary/month/', true);
   files.push(buildOrgFile_());
-  if (Utilities.formatDate(now, TZ, 'd') === '1') {
+  files.push(buildPlacesFile_());
+  const firstOfMonth = Utilities.formatDate(now, TZ, 'd') === '1';
+  if (firstOfMonth) {
     // Freeze last month under summary/archive/ before it goes cold.
     const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
     const prevYm = m === 1 ? (y - 1) + '-12' : y + '-' + pad_(m - 1, 2);
     files = files.concat(buildMonthFiles_(prevYm, 'summary/archive/' + prevYm + '/', false));
   }
   if (files.length) ghCommit_(files, 'nightly ' + nowIso_());
+
+  // Keep the Register tab current without anyone running buildRegister by
+  // hand: rebuilt every night (and last month finalised on the 1st). A
+  // register failure must never cost the summary publish above.
+  try {
+    buildRegister(ym);
+    if (firstOfMonth) {
+      const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+      buildRegister(m === 1 ? (y - 1) + '-12' : y + '-' + pad_(m - 1, 2));
+    }
+  } catch (err) {
+    console.error('register rebuild failed: ' + err);
+  }
 }
 
 /**

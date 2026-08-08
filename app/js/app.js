@@ -18,6 +18,7 @@ const App = (() => {
 
   let accounts = {};    // uid -> { token, user, config }
   let activeUid = null;
+  let places = [];      // district gazetteer: every AWC's name + coords
   let loginSel = null;  // userId chosen in the who-am-I picker
   let geoPromise = null;
   let geoResult = null;
@@ -54,6 +55,48 @@ const App = (() => {
     await DB.kvSet('activeUid', activeUid);
   }
 
+  /**
+   * District gazetteer (summary/places.json, published by the backend):
+   * lets the photo stamp always carry a PLACE NAME, never raw coordinates.
+   * Cached in IndexedDB for offline days; refreshed weekly.
+   */
+  async function loadPlaces() {
+    const cached = await DB.kvGet('places');
+    if (cached) places = cached.list || [];
+    if (cached && Date.now() - cached.at < 7 * 86400000) return;
+    try {
+      const res = await fetch('../summary/places.json?t=' + Date.now());
+      if (!res.ok) return;
+      const j = await res.json();
+      places = Object.keys(j.awcs || {}).map(id =>
+        ({ name: j.awcs[id].n, lat: j.awcs[id].lat, lng: j.awcs[id].lng }));
+      await DB.kvSet('places', { at: Date.now(), list: places });
+    } catch (e) { /* offline: keep the cached copy */ }
+  }
+
+  const fmtDist = d => d >= 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m';
+
+  /** Human place line for the stamp: own AWC, else nearest known centre. */
+  function placeLine(g, cfg) {
+    if (!g) return 'GPS UNAVAILABLE';
+    let best = null, bestD = Infinity, isNear = false;
+    for (const l of ((cfg && cfg.locations) || [])) {
+      if (l.lat == null || l.lng == null) continue;
+      const d = Geo.distM(g.lat, g.lng, l.lat, l.lng);
+      if (d < bestD) { bestD = d; best = l; }
+    }
+    if (!best) {
+      for (const p of places) {
+        const d = Geo.distM(g.lat, g.lng, p.lat, p.lng);
+        if (d < bestD) { bestD = d; best = p; }
+      }
+      isNear = true;
+    }
+    return best
+      ? (isNear ? 'Near ' : '') + best.name.slice(0, 26) + ' · ' + fmtDist(bestD)
+      : g.lat.toFixed(5) + ',' + g.lng.toFixed(5); // empty gazetteer: last resort
+  }
+
   // ---------- init ----------
   async function init() {
     if ('serviceWorker' in navigator) {
@@ -74,6 +117,7 @@ const App = (() => {
 
     accounts = await DB.kvGet('accounts') || {};
     activeUid = await DB.kvGet('activeUid') || null;
+    loadPlaces(); // async; stamp falls back gracefully until it arrives
     if (activeUid && !accounts[activeUid]) activeUid = Object.keys(accounts)[0] || null;
     if (active()) {
       await goHome();
@@ -434,24 +478,12 @@ const App = (() => {
       let photoBlob = null;
       const video = $('cam-video');
       if (video.srcObject && video.videoWidth > 0) {
-        // Burnt-in stamp reads like a register entry: place name (nearest
-        // assigned AWC + distance) and the person's name, not raw
-        // coordinates and ids. Coordinates still travel in the record.
-        let where = 'GPS UNAVAILABLE';
-        if (g) {
-          const cands = ((acc.config && acc.config.locations) || []).filter(l => l.lat != null && l.lng != null);
-          let best = null, bestD = Infinity;
-          for (const l of cands) {
-            const d = Geo.distM(g.lat, g.lng, l.lat, l.lng);
-            if (d < bestD) { bestD = d; best = l; }
-          }
-          where = best
-            ? best.name.slice(0, 30) + ' · ' + (bestD >= 1000 ? (bestD / 1000).toFixed(1) + ' km' : bestD + ' m')
-            : g.lat.toFixed(6) + ',' + g.lng.toFixed(6) + ' ±' + Math.round(g.accuracy) + 'm';
-        }
+        // Burnt-in stamp reads like a register entry: place name (own AWC,
+        // else nearest known centre) and the person's name — never raw
+        // coordinates. Coordinates still travel inside the record.
         const stamp = [
           clientTs.slice(0, 16).replace('T', ' '),
-          where,
+          placeLine(g, acc.config),
           acc.user.name.slice(0, 28) + ' — ' + markType
         ];
         photoBlob = await Camera.capture(video, stamp, (acc.config && acc.config.photoMaxKB) || 60);
