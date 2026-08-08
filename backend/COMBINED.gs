@@ -1398,7 +1398,10 @@ function createMaster_() {
 function bootstrapAdmin_() {
   const phone = String(PROPS.getProperty('ADMIN_PHONE')).replace(/\D/g, '');
   if (getUsersByPhone_(phone).length) return;
+  // Fixed id U2000, outside both the register range (U0001..) and the manual
+  // console-account range (U2001..): an id-keyed import can never clobber it.
   upsertUser_({
+    user_id: 'U2000', allowCreateWithId: true,
     phone: phone, name: String(PROPS.getProperty('ADMIN_NAME') || 'District Admin'),
     cadre: 'OTHER', role: 'ADMIN'
   }, 'SETUP');
