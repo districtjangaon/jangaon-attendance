@@ -1653,9 +1653,13 @@ function importFromSheets() {
 // Open the spreadsheet and File > Download > Excel for offline use.
 // ---------------------------------------------------------------------------
 
-const REG_H = ['id', 'date', 'type', 'day_type', 'user_id', 'phone', 'name', 'cadre', 'role',
-  'project', 'sector', 'awc', 'marked_at', 'lat', 'lng', 'accuracy_m', 'verified', 'geofence',
-  'distance_m', 'flags', 'photo', 'received_at', 'sync_delay_sec', 'device_id'];
+// One row per person per day, in the district's requested format; our extra
+// audit detail (OUT mark, day type, flags, AWC) is appended after markCount /
+// firstMarkAt so the familiar columns line up exactly.
+const REG_H = ['id', 'date', 'phone', 'name', 'role', 'mandal', 'markedAt', 'lat', 'lng',
+  'accuracy', 'verified', 'photo', 'timezone', 'receivedAt', 'status', 'leaveId', 'leaveType',
+  'markCount', 'firstMarkAt',
+  'outMarkedAt', 'outVerified', 'dayType', 'flags', 'awc', 'userId'];
 
 function buildRegister(ymOpt) {
   const ym = ymOpt || Utilities.formatDate(new Date(), TZ, 'yyyy-MM');
@@ -1666,33 +1670,43 @@ function buildRegister(ymOpt) {
   getUsersAll_().forEach(u => { users[String(u.user_id)] = u; });
   const sectors = {};
   getSectors_().forEach(s => { sectors[s.code] = s.name; });
-  const projects = {};
-  getProjects_().forEach(p => { projects[p.code] = p.name; });
   const awcNames = {};
   masterSheetRows_('AWCs', AWC_H).forEach(r => { awcNames[String(r[0])] = String(r[3]); });
+  const photoUrl = id => id ? 'https://drive.google.com/file/d/' + id + '/view' : '';
 
   const sh = ss.getSheetByName('Marks');
   const last = sh.getLastRow();
-  const rows = [];
+  const days = {}; // uid_yyyymmdd -> { IN: markObj, OUT: markObj }
   if (last >= 2) {
     sh.getRange(2, 1, last - 1, MARKS_H.length).getValues().forEach(v => {
       const o = rowToObj_(MARKS_H, v);
       const p = String(o.key).split('_');
-      const date = p[1] ? p[1].slice(0, 4) + '-' + p[1].slice(4, 6) + '-' + p[1].slice(6, 8) : '';
-      const u = users[String(o.user_id)] || {};
-      rows.push([
-        String(o.key), date, String(o.type), date ? (holidayFor_(date) || 'WORKING') : '',
-        String(o.user_id), String(u.phone || ''), String(u.name || ''), String(u.cadre || ''),
-        String(u.role || ''), projects[String(u.project_code)] || String(u.project_code || ''),
-        sectors[String(o.sector_code)] || String(o.sector_code), awcNames[String(o.awc_id)] || String(o.awc_id),
-        String(o.client_ts), o.lat, o.lng, o.accuracy_m,
-        String(o.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE', String(o.geofence),
-        o.distance_m, String(o.flags),
-        o.photo_id ? 'https://drive.google.com/file/d/' + o.photo_id + '/view' : '',
-        String(o.server_ts), o.sync_delay_sec, String(o.device_id)
-      ]);
+      if (p.length !== 3) return;
+      (days[p[0] + '_' + p[1]] = days[p[0] + '_' + p[1]] || {})[p[2]] = o;
     });
   }
+
+  const rows = Object.keys(days).sort().map(dk => {
+    const seg = dk.split('_');
+    const uid = seg[0];
+    const date = seg[1].slice(0, 4) + '-' + seg[1].slice(4, 6) + '-' + seg[1].slice(6, 8);
+    const u = users[uid] || {};
+    const inM = days[dk].IN, outM = days[dk].OUT;
+    const first = inM || outM;               // the day's first mark drives the familiar columns
+    const flags = [inM && inM.flags, outM && outM.flags].filter(Boolean).join(',');
+    return [
+      dk, date, String(u.phone || ''), String(u.name || ''), String(u.cadre || ''),
+      sectors[String(u.sector_code)] || String(u.sector_code || ''),
+      String(first.client_ts), first.lat, first.lng, first.accuracy_m,
+      String(first.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE', photoUrl(String(first.photo_id)),
+      'Asia/Calcutta', String(first.server_ts), 'PRESENT', '', '',
+      (inM ? 1 : 0) + (outM ? 1 : 0), inM ? String(inM.client_ts) : '',
+      outM ? String(outM.client_ts) : '',
+      outM ? (String(outM.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE') : '',
+      holidayFor_(date) || 'WORKING', flags,
+      awcNames[String(u.awc_id)] || String(u.awc_id || ''), uid
+    ];
+  });
 
   let reg = ss.getSheetByName('Register');
   if (!reg) reg = ss.insertSheet('Register');
