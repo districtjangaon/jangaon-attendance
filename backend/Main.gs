@@ -17,6 +17,7 @@ function doPost(e) {
     const action = String(req.action || '');
     if (action === 'ping') return jsonOut_({ ok: true, ts: nowIso_() });
     if (action === 'login') return jsonOut_(apiLogin_(req));
+    if (action === 'diag') return jsonOut_(apiDiag_(req)); // DIAG_KEY-gated, read-only
 
     // Everything else requires a valid session token.
     const auth = verifyToken_(req.token);

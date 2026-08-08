@@ -202,6 +202,54 @@ function apiTestReset_(auth, req) {
   return { ok: true, removed: removed };
 }
 
+/**
+ * action: "diag" — read-only system doctor, gated by the DIAG_KEY script
+ * property (unset = disabled). Lets the maintainer check master-data health
+ * and pipeline liveness remotely without Sheet access. Reports misconfigured
+ * rows (with name/phone so they can be fixed) but never dumps bulk data.
+ */
+function apiDiag_(req) {
+  const key = PROPS.getProperty('DIAG_KEY');
+  if (!key || String(req.key || '') !== key) return { ok: false, code: 'FORBIDDEN' };
+
+  const sectors = {};
+  getSectors_().forEach(s => { sectors[s.code] = 1; });
+  const awcs = {};
+  masterSheetRows_('AWCs', AWC_H).forEach(r => { awcs[String(r[0])] = 1; });
+
+  const roles = {};
+  const issues = [];
+  let active = 0;
+  getUsersAll_().forEach(u => {
+    const role = String(u.role);
+    roles[role] = (roles[role] || 0) + 1;
+    if (String(u.status) !== 'ACTIVE') return;
+    active++;
+    const base = { id: String(u.user_id), name: String(u.name), phone: String(u.phone),
+      role: role, sector: String(u.sector_code), awc: String(u.awc_id) };
+    if (role === 'FIELD') {
+      if (!sectors[base.sector]) issues.push(Object.assign({ type: 'FIELD_INVALID_SECTOR' }, base));
+      else if (!awcs[base.awc]) issues.push(Object.assign({ type: 'FIELD_INVALID_AWC' }, base));
+      if (!/^\d{10}$/.test(base.phone)) issues.push(Object.assign({ type: 'NO_VALID_PHONE' }, base));
+    }
+  });
+
+  const today = fmtDay_(Date.now());
+  const ss = getMonthSS_(today.slice(0, 7), true);
+  const marksRows = ss ? ss.getSheetByName('Marks').getLastRow() - 1 : 0;
+
+  return {
+    ok: true, ts: nowIso_(),
+    users: { activeTotal: active, byRole: roles },
+    sectors: Object.keys(sectors).length, awcs: Object.keys(awcs).length,
+    leavesRows: leavesSheet_().getLastRow() - 1,
+    monthMarksRows: marksRows,
+    lastSummaryGen: PROPS.getProperty('LAST_GEN') || null,
+    holidayToday: holidayFor_(today) || null,
+    issues: issues.slice(0, 50), issueCount: issues.length
+  };
+}
+
 function apiRevoke_(auth, req) {
   if (auth.user.role !== 'ADMIN') return deny_();
   const sh = masterSS_().getSheetByName('Sessions');
