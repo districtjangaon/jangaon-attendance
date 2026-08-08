@@ -18,7 +18,7 @@ function summaryTick() {
   const min = Number(Utilities.formatDate(now, TZ, 'm'));
   const hm = h * 60 + min;
   const peak = (hm >= 480 && hm <= 660) || (hm >= 900 && hm <= 1080); // 8:00–11:00, 15:00–18:00
-  if (!peak && min >= 10) return; // off-peak: only the first tick each hour
+  if (!peak && min >= 5) return; // off-peak: only the first tick each hour
   buildToday_();
 }
 
@@ -54,15 +54,23 @@ function buildToday_() {
   // nobody is LATE and the console shows "attendance not expected".
   const holidayName = holidayFor_(today);
 
-  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) !== 'ADMIN');
+  // Approved leaves covering today: those users count ON_LEAVE, not absent.
+  const leaveByUid = {};
+  leavesOverlapping_(today, today).forEach(l => {
+    if (!leaveByUid[String(l.user_id)]) leaveByUid[String(l.user_id)] = String(l.type);
+  });
+
+  // Only FIELD users owe attendance (flat org model: admins/Collector do not).
+  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) === 'FIELD');
+  const blank = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0,
+    onLeave: 0, outside: 0, unverified: 0 });
   const sectors = {};
   const userEntries = [];
   const exceptions = [];
 
   for (const u of users) {
     const uid = String(u.user_id), sc = String(u.sector_code);
-    const agg = sectors[sc] = sectors[sc] ||
-      { expected: 0, in: 0, late: 0, out: 0, notMarked: 0, outside: 0, unverified: 0 };
+    const agg = sectors[sc] = sectors[sc] || blank();
     agg.expected++;
 
     const recs = marksByUser[uid] || {};
@@ -99,6 +107,11 @@ function buildToday_() {
       }
     });
 
+    if (st === 'NOT_MARKED' && leaveByUid[uid]) {
+      st = 'ON_LEAVE';
+      entry.lv = leaveByUid[uid];
+      agg.onLeave++;
+    }
     entry.st = st;
     entry.gf = worstGf;
     if (st === 'NOT_MARKED') agg.notMarked++;
@@ -107,7 +120,6 @@ function buildToday_() {
     userEntries.push(entry);
   }
 
-  const blank = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0, outside: 0, unverified: 0 });
   const district = blank();
   const projects = {};
   Object.keys(sectors).forEach(sc => {
@@ -166,6 +178,7 @@ function buildOrgFile_() {
       generatedAt: nowIso_(),
       projects: getProjects_(),
       sectors: getSectors_().map(s => ({ code: s.code, project: s.project, name: s.name })),
+      schedules: getSchedules_(), // console reports use late_after for late counting
       awcs: awcs
     })
   };
@@ -297,10 +310,32 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
     if (h) monthHolidays[pad_(d, 2)] = h;
   }
 
-  const files = Object.keys(bySector).sort().map(sc => ({
+  // Approved leave days per sector/user for the grid and console reports.
+  const monthEnd = ym + '-' + pad_(dim, 2);
+  const userSector = {};
+  getUsersAll_().forEach(u => { userSector[String(u.user_id)] = String(u.sector_code); });
+  const leavesBySector = {}; // sc -> uid -> dd -> type
+  leavesOverlapping_(ym + '-01', monthEnd).forEach(l => {
+    const uid = String(l.user_id);
+    const sc = userSector[uid];
+    if (!sc) return;
+    const from = String(l.from_date) > ym + '-01' ? String(l.from_date) : ym + '-01';
+    const to = String(l.to_date) < monthEnd ? String(l.to_date) : monthEnd;
+    for (let d = Number(from.slice(8)); d <= Number(to.slice(8)); d++) {
+      const dd = pad_(d, 2);
+      if (monthHolidays[dd]) continue; // leave on a holiday is meaningless
+      const sb = leavesBySector[sc] = leavesBySector[sc] || {};
+      (sb[uid] = sb[uid] || {})[dd] = String(l.type);
+    }
+  });
+
+  const allSectors = {};
+  Object.keys(bySector).forEach(sc => { allSectors[sc] = 1; });
+  Object.keys(leavesBySector).forEach(sc => { allSectors[sc] = 1; });
+  const files = Object.keys(allSectors).sort().map(sc => ({
     path: basePath + sc + '.json',
     content: JSON.stringify({ ym: ym, generatedAt: generatedAt, sector: sc,
-      holidays: monthHolidays, users: bySector[sc] })
+      holidays: monthHolidays, leaves: leavesBySector[sc] || {}, users: bySector[sc] || {} })
   }));
   if (withExceptions) {
     files.push({

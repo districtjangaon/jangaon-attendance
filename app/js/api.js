@@ -25,6 +25,7 @@ const Api = (() => {
     U0001: { name: 'Demo Teacher', cadre: 'AWT', pin: null },
     U0002: { name: 'Demo Helper', cadre: 'AWH', pin: null }
   };
+  const demoLeaves = {};
 
   async function demo(body) {
     await new Promise(r => setTimeout(r, 350)); // simulate network
@@ -64,6 +65,18 @@ const Api = (() => {
       }
       case 'myHistory':
         return { ok: true, marks: [] };
+      case 'leaveApply': {
+        const uid2 = String(body.token || '').replace('demo-token-', '');
+        (demoLeaves[uid2] = demoLeaves[uid2] || []).unshift({
+          id: 'LV-demo' + Math.random().toString(36).slice(2, 6),
+          from: body.from, to: body.to, type: body.type, reason: body.reason, status: 'APPROVED'
+        });
+        return { ok: true, leaveId: 'LV-demo', status: 'APPROVED' };
+      }
+      case 'myLeaves': {
+        const uid3 = String(body.token || '').replace('demo-token-', '');
+        return { ok: true, leaves: demoLeaves[uid3] || [] };
+      }
       default:
         return { ok: true };
     }

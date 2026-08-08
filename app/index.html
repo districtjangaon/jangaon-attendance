@@ -92,11 +92,36 @@
     <h2 id="cam-title">Take your photo</h2>
     <div class="cam-wrap">
       <video id="cam-video" autoplay playsinline muted></video>
+      <div class="face-frame"></div>
     </div>
     <div id="cam-gps" class="gps-line">Getting GPS&hellip;</div>
-    <button id="btn-capture" class="btn btn-primary btn-capture">&#128247; CAPTURE</button>
+    <button id="btn-capture" class="btn btn-capture">&#128247; TAP TO CAPTURE</button>
     <button id="btn-cam-cancel" class="btn btn-plain">Cancel</button>
     <p id="cam-msg" class="msg"></p>
+  </section>
+
+  <!-- ============ LEAVE ============ -->
+  <section id="screen-leave" class="screen" hidden>
+    <h2>Apply for leave</h2>
+    <label for="lv-from">From date</label>
+    <input id="lv-from" type="date">
+    <label for="lv-to">To date</label>
+    <input id="lv-to" type="date">
+    <label for="lv-type">Type</label>
+    <select id="lv-type">
+      <option value="CASUAL">Casual leave</option>
+      <option value="SICK">Sick leave</option>
+      <option value="EARNED">Earned leave</option>
+      <option value="MATERNITY">Maternity leave</option>
+      <option value="OTHER">Other</option>
+    </select>
+    <label for="lv-reason">Reason</label>
+    <input id="lv-reason" type="text" maxlength="200" placeholder="Short reason">
+    <button id="btn-leave-submit" class="btn btn-primary">SUBMIT LEAVE</button>
+    <p id="leave-msg" class="msg"></p>
+    <h2>My leaves</h2>
+    <ul id="leave-list" class="history-list"><li>Loading&hellip;</li></ul>
+    <button id="btn-leave-back" class="btn btn-plain">Back</button>
   </section>
 
   <!-- ============ SUCCESS ============ -->
@@ -118,12 +143,13 @@
     <h2>Menu</h2>
     <div id="menu-user" class="info"></div>
     <div id="menu-version" class="info"></div>
+    <button id="btn-leave" class="btn btn-primary">Apply for leave</button>
     <button id="btn-logout" class="btn btn-danger">Logout this user</button>
     <button id="btn-demo-reset" class="btn btn-plain" hidden>Reset demo (clear all data on this device)</button>
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v1.1-20260808-1310</footer>
+  <footer class="build-tag">BUILD: v1.2-20260808-1400</footer>
 
   <script src="js/config.js"></script>
   <script src="js/db.js"></script>

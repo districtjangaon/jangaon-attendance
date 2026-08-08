@@ -41,7 +41,8 @@ function createMaster_() {
   ss.setSpreadsheetTimeZone(TZ);
   const tabs = [
     ['Users', USERS_H], ['AWCs', AWC_H], ['Projects', PROJ_H], ['Sectors', SECT_H],
-    ['Schedules', SCH_H], ['Holidays', HOL_H], ['Sessions', SESS_H], ['Audit', AUD_H]
+    ['Schedules', SCH_H], ['Holidays', HOL_H], ['Leaves', LEAVE_H],
+    ['Sessions', SESS_H], ['Audit', AUD_H]
   ];
   tabs.forEach(t => {
     const sh = ss.insertSheet(t[0]);
@@ -67,7 +68,7 @@ function bootstrapAdmin_() {
 
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('nightlyJob').timeBased().atHour(22).everyDays(1).create();
   ScriptApp.newTrigger('reaperJob').timeBased().atHour(2).everyDays(1).create();
   ScriptApp.newTrigger('monthPrep').timeBased().atHour(3).everyDays(1).create();
@@ -299,11 +300,25 @@ function buildRegister(ymOpt) {
     });
   }
 
+  // Approved leaves for the month: fill leaveId/leaveType on marked days and
+  // emit ON_LEAVE rows for unmarked working leave days.
+  const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
+  const monthEnd = ym + '-' + pad_(dim, 2);
+  const leaveDay = {}; // 'uid_yyyymmdd' -> leave row
+  leavesOverlapping_(ym + '-01', monthEnd).forEach(l => {
+    const from = String(l.from_date) > ym + '-01' ? String(l.from_date) : ym + '-01';
+    const to = String(l.to_date) < monthEnd ? String(l.to_date) : monthEnd;
+    for (let d = Number(from.slice(8)); d <= Number(to.slice(8)); d++) {
+      leaveDay[String(l.user_id) + '_' + ym.replace('-', '') + pad_(d, 2)] = l;
+    }
+  });
+
   const rows = Object.keys(days).sort().map(dk => {
     const seg = dk.split('_');
     const uid = seg[0];
     const date = seg[1].slice(0, 4) + '-' + seg[1].slice(4, 6) + '-' + seg[1].slice(6, 8);
     const u = users[uid] || {};
+    const lv = leaveDay[dk];
     const inM = days[dk].IN, outM = days[dk].OUT;
     const first = inM || outM;               // the day's first mark drives the familiar columns
     const flags = [inM && inM.flags, outM && outM.flags].filter(Boolean).join(',');
@@ -322,7 +337,8 @@ function buildRegister(ymOpt) {
       sectors[String(u.sector_code)] || String(u.sector_code || ''),
       String(first.client_ts), location,
       String(first.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE', photoUrl(String(first.photo_id)),
-      'Asia/Calcutta', String(first.server_ts), 'PRESENT', '', '',
+      'Asia/Calcutta', String(first.server_ts), 'PRESENT',
+      lv ? String(lv.leave_id) : '', lv ? String(lv.type) : '',
       (inM ? 1 : 0) + (outM ? 1 : 0), inM ? String(inM.client_ts) : '',
       outM ? String(outM.client_ts) : '',
       outM ? (String(outM.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE') : '',
@@ -331,6 +347,26 @@ function buildRegister(ymOpt) {
       first.lat, first.lng, first.accuracy_m
     ];
   });
+
+  // ON_LEAVE rows for approved leave days without any mark (working days only).
+  Object.keys(leaveDay).sort().forEach(dk => {
+    if (days[dk]) return;
+    const seg = dk.split('_');
+    const uid = seg[0];
+    const date = seg[1].slice(0, 4) + '-' + seg[1].slice(4, 6) + '-' + seg[1].slice(6, 8);
+    if (holidayFor_(date)) return;
+    const u = users[uid] || {};
+    const lv = leaveDay[dk];
+    rows.push([
+      dk, date, String(u.phone || ''), String(u.name || ''), String(u.cadre || ''),
+      sectors[String(u.sector_code)] || String(u.sector_code || ''),
+      '', '', '', '', 'Asia/Calcutta', '', 'ON_LEAVE',
+      String(lv.leave_id), String(lv.type), 0, '',
+      '', '', 'WORKING', '',
+      awcNames[String(u.awc_id)] || String(u.awc_id || ''), uid, '', '', ''
+    ]);
+  });
+  rows.sort((a, b) => a[0] < b[0] ? -1 : 1);
 
   let reg = ss.getSheetByName('Register');
   if (!reg) reg = ss.insertSheet('Register');

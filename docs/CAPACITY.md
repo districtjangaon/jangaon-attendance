@@ -24,11 +24,15 @@ lost), 6 min/execution (a 20-record batch runs in seconds), triggers total
 
 ## Read path (console)
 
-Zero live reads: dashboards are static JSON on GitHub Pages. `summaryTick`
-reads only rows received today (≤ ~2,500) — ~30–45 s per run. Daily trigger
-budget: ~54 ticks (10-min peak / hourly off-peak) ≈ 36 min + nightly full
-build ~5 min + photo reaper ~3 min + month-prep ~1 min ≈ **45 of the 90
-trigger-minutes/day**. UrlFetch: ~300 GitHub API calls/day vs 20,000 quota.
+Zero live reads: dashboards are static JSON on GitHub Pages; the console
+re-reads it every 30 s client-side (free — it's a CDN file). `summaryTick`
+regenerates it every 5 min in peak windows (hourly off-peak), reading only
+rows received today (≤ ~2,500) — ~30–45 s per run. Daily trigger budget:
+~90 ticks ≈ 52 min + nightly full build ~6 min + photo reaper ~3 min +
+month-prep ~1 min ≈ **62 of the 90 trigger-minutes/day**. True 30-second
+regeneration is impossible on the free tier: 2,880 runs/day × ~35 s ≈ 28
+hours of runtime against a 90-minute quota. UrlFetch: ~500 GitHub API
+calls/day vs 20,000 quota.
 
 ## Storage (Drive 15 GB free)
 

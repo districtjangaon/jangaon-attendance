@@ -50,15 +50,28 @@
   <!-- ============ MAIN ============ -->
   <main id="main" hidden>
     <nav class="tabs">
-      <button id="tab-today" class="tab sel">Today</button>
-      <button id="tab-exceptions" class="tab">Exceptions <span id="exc-count" class="pill" hidden></span></button>
+      <button id="tab-today" class="tab sel">Dashboard</button>
+      <button id="tab-exceptions" class="tab">Flagged <span id="exc-count" class="pill" hidden></span></button>
       <button id="tab-monthly" class="tab">Monthly</button>
+      <button id="tab-reports" class="tab">Reports</button>
+      <button id="tab-leaves" class="tab">Leaves</button>
       <button id="tab-admin" class="tab" hidden>Users &amp; Admin</button>
     </nav>
 
-    <!-- Today -->
+    <!-- Today / Dashboard -->
     <section id="view-today" class="view">
-      <div id="today-cards" class="cards"></div>
+      <div id="holiday-note" class="holiday-note" hidden></div>
+      <div id="today-cards" class="bigcards"></div>
+      <div class="charts">
+        <div class="chartbox">
+          <h3>Today's In-Time Statistics</h3>
+          <div id="chart-intime" class="chartwrap"></div>
+        </div>
+        <div class="chartbox">
+          <h3>Today's Marking Trend</h3>
+          <div id="chart-trend" class="chartwrap"></div>
+        </div>
+      </div>
       <div class="toolbar">
         <span id="today-crumb" class="crumb"></span>
         <input id="today-search" type="search" placeholder="Search name / AWC…">
@@ -67,6 +80,7 @@
           <option value="NOT_MARKED">Not marked</option>
           <option value="LATE">Late</option>
           <option value="PRESENT">Present</option>
+          <option value="ON_LEAVE">On leave</option>
           <option value="OUTSIDE">Outside geofence</option>
           <option value="UNVERIFIED">GPS unverified</option>
         </select>
@@ -76,11 +90,30 @@
       <div id="today-table" class="tablewrap"></div>
     </section>
 
-    <!-- Exceptions -->
+    <!-- Flagged marks (informational — attendance is auto-approved) -->
     <section id="view-exceptions" class="view" hidden>
-      <p class="info">Marks needing review: outside geofence, GPS unverified, flagged, plus nightly
-        anomalies. Decisions are appended as corrections — the original record is never changed.</p>
+      <p class="info">Attendance is <b>auto-approved</b> — nothing here needs action. This list surfaces
+        marks worth a look: outside geofence, GPS unverified, fake-GPS suspects, and nightly anomalies.</p>
       <div id="exc-list" class="tablewrap"></div>
+    </section>
+
+    <!-- Reports -->
+    <section id="view-reports" class="view" hidden>
+      <div class="toolbar">
+        <input id="report-ym" type="month">
+        <select id="report-scope"></select>
+        <button id="btn-report-load" class="btn btn-plain btn-inline">Build report</button>
+        <button id="btn-report-csv" class="btn btn-plain btn-inline">Export CSV</button>
+      </div>
+      <div id="report-table" class="tablewrap"><p class="info">Pick a month and scope, then Build report.
+        Working days exclude Sundays and state holidays; leave days are counted separately.</p></div>
+    </section>
+
+    <!-- Leaves -->
+    <section id="view-leaves" class="view" hidden>
+      <p class="info">Leave applications from the field app. Auto-approved by district policy;
+        rejecting one returns those days to "not marked".</p>
+      <div id="leaves-table" class="tablewrap"></div>
     </section>
 
     <!-- Monthly -->
@@ -119,7 +152,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v1.1-20260808-1310</footer>
+  <footer class="build-tag">BUILD: v1.2-20260808-1400</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

@@ -43,6 +43,11 @@ served from `/console/` on the Pages site the summariser commits into.
   original record untouched).
 - **Monthly** — per-sector user × day grid from the nightly files, archive
   months included, CSV export.
+- **Reports** — month × scope: per-user present/late/leave/absent days and
+  attendance %, or a per-sector district summary; working days exclude
+  Sundays and state holidays; CSV export.
+- **Leaves** — applications from the field app (auto-approved by policy);
+  reject returns the days to absent.
 - **Users & Admin** — search users; PIN reset and device unbind (scoped);
   activate/deactivate (admin only); capture a real GPS fix for AWCs whose
   register coordinates were blank or wrong (stand at the centre, one tap).

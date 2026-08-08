@@ -14,7 +14,7 @@
 const App = (() => {
   const $ = id => document.getElementById(id);
   const screens = ['screen-login', 'screen-home', 'screen-users', 'screen-camera',
-    'screen-success', 'screen-history', 'screen-menu'];
+    'screen-success', 'screen-history', 'screen-menu', 'screen-leave'];
 
   let accounts = {};    // uid -> { token, user, config }
   let activeUid = null;
@@ -94,6 +94,72 @@ const App = (() => {
     $('btn-menu-back').onclick = goHome;
     $('btn-logout').onclick = doLogout;
     $('btn-demo-reset').onclick = demoReset;
+    $('btn-leave').onclick = showLeave;
+    $('btn-leave-back').onclick = goHome;
+    $('btn-leave-submit').onclick = submitLeave;
+  }
+
+  // ---------- leave ----------
+  async function showLeave() {
+    if (!navigator.onLine && !window.APP_CONFIG.DEMO) {
+      alert('Leave application needs internet. Marks work offline, leave requests do not.');
+      return;
+    }
+    $('leave-msg').textContent = '';
+    show('screen-leave');
+    await renderMyLeaves();
+  }
+
+  async function renderMyLeaves() {
+    const list = $('leave-list');
+    try {
+      const res = await Api.post({ action: 'myLeaves', token: active().token });
+      if (!res.ok) { list.innerHTML = '<li>Could not load (' + res.code + ').</li>'; return; }
+      if (!res.leaves.length) { list.innerHTML = '<li>No leave applications yet.</li>'; return; }
+      list.innerHTML = '';
+      res.leaves.forEach(l => {
+        const li = document.createElement('li');
+        li.innerHTML = '<span class="tag">' + l.type + '</span><span>' +
+          l.from + (l.to !== l.from ? ' → ' + l.to : '') + '</span>' +
+          '<span class="' + (l.status === 'APPROVED' ? 'sync' : l.status === 'REJECTED' ? 'pend' : '') + '">' +
+          l.status + '</span>';
+        list.appendChild(li);
+      });
+    } catch (e) {
+      list.innerHTML = '<li>No connection.</li>';
+    }
+  }
+
+  async function submitLeave() {
+    const msg = $('leave-msg');
+    msg.textContent = '';
+    const from = $('lv-from').value, to = $('lv-to').value || $('lv-from').value;
+    if (!from) { msg.textContent = 'Pick the from-date.'; return; }
+    $('btn-leave-submit').disabled = true;
+    try {
+      const res = await Api.post({
+        action: 'leaveApply', token: active().token,
+        from: from, to: to, type: $('lv-type').value, reason: $('lv-reason').value.trim()
+      });
+      if (res.ok) {
+        msg.textContent = res.status === 'APPROVED'
+          ? 'Leave recorded and approved.' : 'Leave submitted for approval.';
+        $('lv-from').value = ''; $('lv-to').value = ''; $('lv-reason').value = '';
+        await renderMyLeaves();
+      } else {
+        msg.textContent = {
+          FROM_AFTER_TO: 'From-date is after to-date.',
+          TOO_LONG: 'Maximum 31 days per application.',
+          TOO_OLD: 'That period is too far in the past.',
+          OVERLAPS_EXISTING: 'You already have a leave covering those dates.',
+          BAD_DATE: 'Pick valid dates.'
+        }[res.code] || ('Failed (' + res.code + ').');
+      }
+    } catch (e) {
+      msg.textContent = 'No connection — try again with internet.';
+    } finally {
+      $('btn-leave-submit').disabled = false;
+    }
   }
 
   /** DEMO only: wipe everything on this device and start over. */

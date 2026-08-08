@@ -14,9 +14,12 @@ const App = (() => {
   let me = JSON.parse(sessionStorage.getItem('cons_me') || 'null');
   let names = null;        // nameMap result: users, awcs, projects, sectors
   let today = null, meta = null, nightlyExc = [];
+  let orgData = null;      // org.json (sector/project names, schedules)
   let drill = { level: 'district', code: null };
   let monthData = null;
   let loginSel = null;
+  let reportRows = null, reportHead = null;
+  let refreshTimer = null;
 
   // ---------------- login ----------------
   function resetLogin() {
@@ -129,14 +132,22 @@ const App = (() => {
     $('head-user').textContent = me.name + ' (' + me.role + ')';
     $('tab-admin').hidden = false; // server scopes what each role can actually do
     fillMonthControls();
+    fillReportControls();
     fillAwcPicker();
     await refreshAll();
+    // The published data regenerates every ~5 min; the screen re-reads it
+    // every 30 s so nobody ever presses Refresh.
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => {
+      if (!document.hidden && token) refreshAll();
+    }, 30000);
   }
 
   async function refreshAll() {
-    [meta, today] = await Promise.all([
+    [meta, today, orgData] = await Promise.all([
       Api.fetchJson('summary/meta.json'),
-      Api.fetchJson('summary/today.json')
+      Api.fetchJson('summary/today.json'),
+      orgData ? Promise.resolve(orgData) : Api.fetchJson('summary/org.json')
     ]);
     const exc = await Api.fetchJson('summary/exceptions.json');
     nightlyExc = (exc && exc.open) || [];
@@ -156,9 +167,9 @@ const App = (() => {
     const min = Math.round((Date.now() - new Date(today.generatedAt).getTime()) / 60000);
     b.hidden = false;
     b.className = 'banner ' + (min <= 15 ? 'ok' : min <= 45 ? 'warn' : 'err');
-    b.textContent = 'Dashboard data generated ' + (min < 1 ? 'just now' : min + ' min ago') +
-      ' (' + new Date(today.generatedAt).toLocaleTimeString() + '). It refreshes every 10 minutes in peak hours.' +
-      (today.holiday ? ' • Today is ' + today.holiday + ' — attendance is not expected.' : '');
+    b.textContent = 'Data generated ' + (min < 1 ? 'just now' : min + ' min ago') +
+      ' (' + new Date(today.generatedAt).toLocaleTimeString() + ') • regenerates every 5 min in ' +
+      'working hours • this screen re-checks every 30 s.';
   }
 
   // ---------------- helpers ----------------
@@ -190,19 +201,69 @@ const App = (() => {
     URL.revokeObjectURL(a.href);
   }
 
-  // ---------------- Today view ----------------
-  function cardRow(g) {
-    const marked = g.in + g.late;
-    return [
-      { k: 'Expected', v: g.expected, cls: '' },
-      { k: 'Marked IN', v: marked, cls: 'ok' },
-      { k: 'On time', v: g.in, cls: 'ok' },
-      { k: 'Late', v: g.late, cls: 'warn' },
-      { k: 'Not marked', v: g.notMarked, cls: 'err' },
-      { k: 'Outside fence', v: g.outside, cls: 'warn' },
-      { k: 'GPS unverified', v: g.unverified, cls: '' },
-      { k: 'Marked OUT', v: g.out, cls: '' }
+  // ---------------- Today / Dashboard ----------------
+  const PALETTE = ['#1e8e3e', '#4285f4', '#f4b400', '#e37400', '#c5221f', '#7b1e3c'];
+
+  function bigcard(cls, k, v, sub) {
+    return '<div class="bigcard ' + cls + '"><div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(v) + '</div>' + (sub ? '<div class="sub">' + esc(sub) + '</div>' : '') + '</div>';
+  }
+
+  function donutSVG(parts) {
+    const total = parts.reduce((s, p) => s + p.value, 0);
+    if (!total) return '<p class="info">No IN marks yet today.</p>';
+    const R = 45, C = 2 * Math.PI * R;
+    let off = 0, segs = '';
+    parts.forEach((p, i) => {
+      if (!p.value) return;
+      const frac = p.value / total;
+      segs += '<circle r="' + R + '" cx="60" cy="60" fill="none" stroke="' + PALETTE[i % 6] +
+        '" stroke-width="22" stroke-dasharray="' + (frac * C).toFixed(2) + ' ' + C.toFixed(2) +
+        '" stroke-dashoffset="' + (-off * C).toFixed(2) + '" transform="rotate(-90 60 60)"></circle>';
+      off += frac;
+    });
+    const legend = parts.map((p, i) => '<div><i style="background:' + PALETTE[i % 6] + '"></i>' +
+      esc(p.label) + ' — ' + p.value + '</div>').join('');
+    return '<svg width="130" height="130" viewBox="0 0 120 120">' + segs +
+      '<text x="60" y="66" text-anchor="middle" font-size="20" font-weight="700">' + total + '</text></svg>' +
+      '<div class="legend">' + legend + '</div>';
+  }
+
+  function trendSVG(inTimes) {
+    if (!inTimes.length) return '<p class="info">No IN marks yet today.</p>';
+    const mins = inTimes.map(t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))).sort((a, b) => a - b);
+    const start = 6 * 60, end = 18 * 60, W = 340, H = 130, PB = 22, PL = 30;
+    const x = m => PL + Math.min(1, Math.max(0, (m - start) / (end - start))) * (W - PL - 8);
+    const y = c => (H - PB) - (c / mins.length) * (H - PB - 12);
+    let path = 'M' + PL + ',' + (H - PB);
+    mins.forEach((m, i) => { path += ' L' + x(m).toFixed(1) + ',' + y(i + 1).toFixed(1); });
+    const area = path + ' L' + x(mins[mins.length - 1]).toFixed(1) + ',' + (H - PB) + ' Z';
+    let labels = '';
+    for (let h = 6; h <= 18; h += 3) {
+      labels += '<text x="' + x(h * 60).toFixed(0) + '" y="' + (H - 6) +
+        '" font-size="10" fill="#888" text-anchor="middle">' + h + ':00</text>';
+    }
+    return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">' +
+      '<line x1="' + PL + '" y1="' + (H - PB) + '" x2="' + (W - 6) + '" y2="' + (H - PB) + '" stroke="#ddd"/>' +
+      '<path d="' + area + '" fill="rgba(30,142,62,.18)"/>' +
+      '<path d="' + path + '" fill="none" stroke="#1e8e3e" stroke-width="2"/>' +
+      '<text x="' + PL + '" y="12" font-size="11" fill="#555">' + mins.length + ' marked IN (cumulative)</text>' +
+      labels + '</svg>';
+  }
+
+  function renderCharts(rows) {
+    const inTimes = rows.map(e => e.in).filter(Boolean);
+    const buckets = [
+      { label: 'Before 9:00', value: 0 }, { label: '9:00–9:30', value: 0 },
+      { label: '9:30–10:00', value: 0 }, { label: '10:00–11:00', value: 0 },
+      { label: 'After 11:00', value: 0 }
     ];
+    inTimes.forEach(t => {
+      const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+      buckets[m < 540 ? 0 : m < 570 ? 1 : m < 600 ? 2 : m < 660 ? 3 : 4].value++;
+    });
+    $('chart-intime').innerHTML = donutSVG(buckets);
+    $('chart-trend').innerHTML = trendSVG(inTimes);
   }
 
   function renderToday() {
@@ -218,8 +279,33 @@ const App = (() => {
     } else if (drill.level === 'sector') {
       agg = (today.sectors.find(s => s.code === drill.code)) || agg;
     }
-    $('today-cards').innerHTML = cardRow(agg).map(c =>
-      '<div class="card ' + c.cls + '"><b>' + c.v + '</b><span>' + c.k + '</span></div>').join('');
+
+    const scopeRows = today.users.filter(e => inScopeUid(e.id));
+    const staffCount = Object.keys(names.users).filter(id => names.users[id].r === 'FIELD').length;
+    const awcCount = Object.keys(names.awcs || {}).length;
+    const onLeave = agg.onLeave || 0;
+    const note = $('holiday-note');
+    if (today.holiday) {
+      note.hidden = false;
+      note.textContent = '🎉 Today is ' + today.holiday + ' — a holiday. Attendance is not expected; ' +
+        'marks below are voluntary duty.';
+      $('today-cards').innerHTML =
+        bigcard('bc-teal', 'Voluntary marks today', agg.in + agg.late, 'IN marks on this holiday') +
+        bigcard('bc-blue', 'On approved leave', onLeave, '') +
+        bigcard('bc-maroon', 'Registered employees', staffCount, 'AWT + AWH on the rolls') +
+        bigcard('bc-grey', 'Registered AWCs', awcCount, 'centres in scope');
+    } else {
+      note.hidden = true;
+      $('today-cards').innerHTML =
+        bigcard('bc-teal', 'Present today', agg.in + agg.late, 'on time ' + agg.in + ' · late ' + agg.late) +
+        bigcard('bc-red', 'Not marked', agg.notMarked, 'of ' + agg.expected + ' expected') +
+        bigcard('bc-blue', 'On leave', onLeave, 'approved applications') +
+        bigcard('bc-olive', 'Marked OUT', agg.out, 'day complete') +
+        bigcard('bc-maroon', 'Registered employees', staffCount, 'AWT + AWH on the rolls') +
+        bigcard('bc-grey', 'Flagged marks', agg.outside + agg.unverified,
+          'outside fence ' + agg.outside + ' · GPS unverified ' + agg.unverified);
+    }
+    renderCharts(scopeRows);
 
     const crumb = [];
     if (me.role === 'ADMIN' || me.role === 'CDPO') {
@@ -328,36 +414,15 @@ const App = (() => {
       return;
     }
     $('exc-list').innerHTML = '<table><tr><th>Name</th><th>Sector</th><th>Date</th><th>Type</th>' +
-      '<th>Time</th><th>Geofence</th><th>Flags</th><th>Photo</th><th>Decision</th></tr>' +
-      merged.map((e, i) =>
+      '<th>Time</th><th>Geofence</th><th>Flags</th><th>Photo</th></tr>' +
+      merged.map(e =>
         '<tr><td>' + esc(userName(e.u)) + '</td><td>' + esc(sectorName(e.s)) + '</td><td>' +
         esc(e.d || (today && today.date) || '') + '</td><td>' + esc(e.t) + '</td><td>' + esc(e.at || '–') +
         '</td><td>' + gfTag(e.gf) + '</td><td class="flags">' + esc(e.fl || '') + '</td><td>' +
         (e.ph ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(e.ph) + '">view</button>' : '') +
-        '</td><td>' +
-        '<button class="btn btn-plain btn-inline" data-act="ACCEPT_OUTSIDE" data-i="' + i + '">Accept</button> ' +
-        '<button class="btn btn-plain btn-inline" data-act="REJECT_MARK" data-i="' + i + '">Reject</button>' +
         '</td></tr>').join('') + '</table>';
 
     bindPhotoButtons($('exc-list'));
-    $('exc-list').querySelectorAll('button[data-act]').forEach(b => {
-      b.onclick = () => adjudicate(merged[Number(b.dataset.i)], b.dataset.act);
-    });
-  }
-
-  async function adjudicate(exc, act) {
-    if (String(exc.key).startsWith('ANOM_')) {
-      alert('Anomalies are informational — talk to the worker; reject the specific day\'s mark if needed.');
-      return;
-    }
-    const reason = prompt((act === 'ACCEPT_OUTSIDE' ? 'Accept this mark' : 'Reject this mark') +
-      ' for ' + userName(exc.u) + '.\nReason (required, goes to the audit log):');
-    if (!reason || !reason.trim()) return;
-    const res = await Api.post({ action: 'correction', token: token, origKey: exc.key, act: act, reason: reason.trim() });
-    if (res.ok) {
-      alert('Recorded. It appears in reports after the next summary run.');
-    } else if (['AUTH', 'EXPIRED', 'REVOKED'].indexOf(res.code) >= 0) authLost();
-    else alert('Failed: ' + res.code);
   }
 
   function bindPhotoButtons(root) {
@@ -419,7 +484,9 @@ const App = (() => {
         const dd = String(d).padStart(2, '0');
         const cell = monthData.users[uid][dd];
         if (!cell || (!cell.IN && !cell.OUT)) {
-          html += hols[dd] ? '<td class="d-hol" title="' + esc(hols[dd]) + '"></td>' : '<td></td>';
+          const lv = monthData.leaves && monthData.leaves[uid] && monthData.leaves[uid][dd];
+          html += lv ? '<td class="d-leave" title="' + esc(lv) + ' leave">L</td>'
+            : hols[dd] ? '<td class="d-hol" title="' + esc(hols[dd]) + '"></td>' : '<td></td>';
           continue;
         }
         const inC = cell.IN, outC = cell.OUT;
@@ -435,7 +502,7 @@ const App = (() => {
       html += '</tr>';
     }
     html += '</table><p class="info">Cell: IN time over OUT time. Green = inside fence, orange = outside, ' +
-      'red = rejected, gold border = admin decision applied. Grey columns = Sundays and holidays ' +
+      'red = rejected, blue L = approved leave. Grey columns = Sundays and holidays ' +
       '(hover for the occasion) — attendance not expected.</p>';
     $('month-table').innerHTML = html;
   }
@@ -457,6 +524,150 @@ const App = (() => {
       rows.push(r);
     });
     downloadCsv('attendance-' + monthData.sector + '-' + ym + '.csv', rows);
+  }
+
+  // ---------------- Leaves ----------------
+  async function renderLeaves() {
+    const res = await Api.post({ action: 'leaveList', token: token });
+    if (!res.ok) {
+      if (['AUTH', 'EXPIRED', 'REVOKED'].indexOf(res.code) >= 0) { authLost(); return; }
+      $('leaves-table').innerHTML = '<p class="info">Could not load leaves (' + esc(res.code) + ').</p>';
+      return;
+    }
+    const rows = res.leaves || [];
+    if (!rows.length) {
+      $('leaves-table').innerHTML = '<p class="info">No leave applications yet. Workers apply from the app menu.</p>';
+      return;
+    }
+    const dayCount = l => Math.round((new Date(l.to) - new Date(l.from)) / 86400000) + 1;
+    $('leaves-table').innerHTML = '<table><tr><th>Name</th><th>From</th><th>To</th><th>Days</th>' +
+      '<th>Type</th><th>Reason</th><th>Status</th><th>Applied</th><th>Action</th></tr>' +
+      rows.map((l, i) =>
+        '<tr><td>' + esc(userName(l.u)) + '</td><td>' + esc(l.from) + '</td><td>' + esc(l.to) +
+        '</td><td>' + dayCount(l) + '</td><td>' + esc(l.type) + '</td><td>' + esc(l.reason || '') +
+        '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK' : l.status === 'REJECTED' ? 'ERR' : 'WARN') +
+        '">' + esc(l.status) + '</span></td><td>' + esc(String(l.at).slice(0, 10)) + '</td><td>' +
+        (l.status !== 'REJECTED'
+          ? '<button class="btn btn-plain btn-inline" data-dec="REJECTED" data-i="' + i + '">Reject</button>'
+          : '<button class="btn btn-plain btn-inline" data-dec="APPROVED" data-i="' + i + '">Approve</button>') +
+        '</td></tr>').join('') + '</table>';
+    $('leaves-table').querySelectorAll('button[data-dec]').forEach(b => {
+      b.onclick = async () => {
+        const l = rows[Number(b.dataset.i)];
+        if (!confirm((b.dataset.dec === 'REJECTED' ? 'Reject' : 'Approve') + ' leave of ' +
+          userName(l.u) + ' (' + l.from + ' → ' + l.to + ')?')) return;
+        const r = await Api.post({ action: 'leaveDecide', token: token, leaveId: l.id, decision: b.dataset.dec });
+        if (r.ok) renderLeaves(); else alert('Failed: ' + r.code);
+      };
+    });
+  }
+
+  // ---------------- Reports ----------------
+  function fillReportControls() {
+    $('report-ym').value = new Date().toISOString().slice(0, 7);
+    const secs = (names.sectors || []);
+    const all = (me.role === 'ADMIN' || me.role === 'CDPO')
+      ? '<option value="ALL">Whole ' + (me.role === 'ADMIN' ? 'district' : 'project') + '</option>' : '';
+    $('report-scope').innerHTML = all + secs.map(s =>
+      '<option value="' + esc(s.code) + '">' + esc(s.name) + ' (' + esc(s.code) + ')</option>').join('');
+  }
+
+  function lateAfterFor(uid) {
+    const u = names.users[uid] || {};
+    const scheds = (orgData && orgData.schedules) || [];
+    let best = null, bestScore = -1;
+    for (const r of scheds) {
+      const pOK = r.project_code === u.pj, pAll = r.project_code === 'ALL';
+      const cOK = r.cadre === u.c, cAll = r.cadre === 'ALL';
+      if (!(pOK || pAll) || !(cOK || cAll)) continue;
+      const score = (pOK ? 2 : 0) + (cOK ? 1 : 0);
+      if (score > bestScore) { best = r; bestScore = score; }
+    }
+    return (best && best.late_after) || '09:30';
+  }
+
+  async function buildReport() {
+    const ym = $('report-ym').value;
+    const scope = $('report-scope').value;
+    if (!ym || !scope) return;
+    $('report-table').innerHTML = '<p class="info">Building…</p>';
+    const cur = (meta && meta.month) || new Date().toISOString().slice(0, 7);
+    const path = sc => ym === cur ? 'summary/month/' + sc + '.json' : 'summary/archive/' + ym + '/' + sc + '.json';
+    const secList = scope === 'ALL' ? (names.sectors || []).map(s => s.code) : [scope];
+    const files = await Promise.all(secList.map(sc => Api.fetchJson(path(sc))));
+
+    const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
+    const anyFile = files.find(Boolean);
+    if (!anyFile) {
+      $('report-table').innerHTML = '<p class="info">No published data for ' + esc(ym) +
+        ' yet. Month files appear after the first nightly run.</p>';
+      reportRows = null;
+      return;
+    }
+    const hols = {};
+    for (let d = 1; d <= dim; d++) {
+      const dd = String(d).padStart(2, '0');
+      if ((anyFile.holidays && anyFile.holidays[dd]) ||
+        new Date(ym + '-' + dd + 'T12:00:00').getDay() === 0) hols[dd] = 1;
+    }
+    const daysSoFar = ym === cur ? Math.min(dim, new Date().getDate()) : dim;
+    let workingDays = 0;
+    for (let d = 1; d <= daysSoFar; d++) {
+      if (!hols[String(d).padStart(2, '0')]) workingDays++;
+    }
+
+    const perUser = [];
+    const perSector = {};
+    files.forEach((f, i) => {
+      if (!f) return;
+      const sc = secList[i];
+      const stats = perSector[sc] = { staff: 0, present: 0, late: 0, outside: 0, leave: 0 };
+      const uids = new Set(Object.keys(f.users || {}).concat(Object.keys(f.leaves || {})));
+      uids.forEach(uid => {
+        if (!names.users[uid]) return;
+        const lateAt = lateAfterFor(uid);
+        let present = 0, late = 0, outside = 0;
+        const days = (f.users || {})[uid] || {};
+        Object.keys(days).forEach(dd => {
+          const c = days[dd];
+          if (!c.IN || c.IN.x === 'REJ') return;
+          present++;
+          if (c.IN.t && c.IN.t > lateAt) late++;
+          if (c.IN.gf === 'OUTSIDE') outside++;
+        });
+        const leave = Object.keys((f.leaves || {})[uid] || {}).length;
+        const absent = Math.max(0, workingDays - present - leave);
+        stats.staff++; stats.present += present; stats.late += late;
+        stats.outside += outside; stats.leave += leave;
+        perUser.push([userName(uid), (names.users[uid] || {}).c || '', sectorName(sc),
+          present, late, outside, leave, absent,
+          workingDays ? Math.round(100 * present / workingDays) + '%' : '–']);
+      });
+    });
+
+    if (scope === 'ALL') {
+      reportHead = ['Sector', 'Staff', 'Working days', 'Present-days', 'Avg %', 'Late', 'Outside', 'Leave days'];
+      reportRows = secList.filter(sc => perSector[sc] && perSector[sc].staff).map(sc => {
+        const s = perSector[sc];
+        return [sectorName(sc), s.staff, workingDays, s.present,
+          Math.round(100 * s.present / (s.staff * workingDays || 1)) + '%', s.late, s.outside, s.leave];
+      });
+    } else {
+      reportHead = ['Name', 'Cadre', 'Sector', 'Present days', 'Late', 'Outside', 'Leave days', 'Absent', 'Attendance %'];
+      reportRows = perUser.sort((a, b) => a[0] < b[0] ? -1 : 1);
+    }
+    $('report-table').innerHTML = '<p class="info">' + esc(ym) + ' — ' + workingDays +
+      ' working days counted' + (ym === cur ? ' so far (month in progress)' : '') +
+      '. Absent = working days − present − leave.</p>' +
+      '<table><tr>' + reportHead.map(h => '<th>' + esc(h) + '</th>').join('') + '</tr>' +
+      reportRows.map(r => '<tr>' + r.map(c => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('') +
+      '</table>';
+  }
+
+  function reportCsv() {
+    if (!reportRows) { alert('Build a report first.'); return; }
+    downloadCsv('attendance-report-' + $('report-ym').value + '-' + $('report-scope').value + '.csv',
+      [reportHead].concat(reportRows));
   }
 
   // ---------------- Admin ----------------
@@ -552,11 +763,12 @@ const App = (() => {
 
   // ---------------- tabs & events ----------------
   function switchTab(name) {
-    ['today', 'exceptions', 'monthly', 'admin'].forEach(t => {
+    ['today', 'exceptions', 'monthly', 'reports', 'leaves', 'admin'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
     if (name === 'admin') renderAdmin();
+    if (name === 'leaves') renderLeaves();
   }
 
   function bind() {
@@ -572,9 +784,13 @@ const App = (() => {
     $('tab-today').onclick = () => switchTab('today');
     $('tab-exceptions').onclick = () => switchTab('exceptions');
     $('tab-monthly').onclick = () => switchTab('monthly');
+    $('tab-reports').onclick = () => switchTab('reports');
+    $('tab-leaves').onclick = () => switchTab('leaves');
     $('tab-admin').onclick = () => switchTab('admin');
     $('btn-month-load').onclick = loadMonth;
     $('btn-month-csv').onclick = monthCsv;
+    $('btn-report-load').onclick = buildReport;
+    $('btn-report-csv').onclick = reportCsv;
     $('admin-search').oninput = renderAdmin;
     $('btn-awc-capture').onclick = captureAwc;
     $('lightbox-close').onclick = () => { $('lightbox').hidden = true; };

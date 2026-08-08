@@ -119,6 +119,11 @@ never upload them anywhere, never commit them to GitHub.** The project's
   for honorarium processing is on the Monthly tab.
 - **Forgot PIN**: admin → Users & Admin → Reset PIN → worker sets a new
   one at next login. **New phone**: Unbind phone, then login binds the new one.
+- **Leaves**: workers apply from the app menu (needs internet); applications
+  auto-approve (set script property `LEAVE_AUTO_APPROVE` to `0` to require
+  manual approval). Console → Leaves lists them; rejecting one returns those
+  days to "not marked". Approved leave shows as ON_LEAVE on the dashboard,
+  blue L in the monthly grid, and fills leaveId/leaveType in the register.
 - **Holidays**: the state list lives in the `Holidays` tab (date, name);
   Sundays are automatic. Update it yearly: drop the new `holidays.xlsx` in
   `input/`, run `python tools/import-awc.py`, re-import the `IMPORT_HOLIDAYS`

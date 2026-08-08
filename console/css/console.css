@@ -92,6 +92,38 @@ main { padding: 0 18px 30px; max-width: 1280px; margin: 0 auto; }
 .card.warn b { color: var(--warn); }
 .card.err b { color: var(--err); }
 
+/* BAS-style dashboard */
+.holiday-note {
+  background: linear-gradient(135deg, #00695c, #26a69a); color: #fff;
+  border-radius: 12px; padding: 16px 20px; font-size: 17px; font-weight: 600;
+  margin-bottom: 14px;
+}
+.bigcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.bigcard { border-radius: 10px; padding: 14px 16px; color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+.bigcard .k { font-size: 14px; font-weight: 600; opacity: .95; }
+.bigcard .v { font-size: 32px; font-weight: 800; line-height: 1.2; }
+.bigcard .sub { font-size: 12px; opacity: .9; }
+.bc-teal { background: linear-gradient(135deg, #00695c, #00897b); }
+.bc-maroon { background: linear-gradient(135deg, #7b1e3c, #a62b52); }
+.bc-olive { background: linear-gradient(135deg, #827717, #9e9d24); }
+.bc-red { background: linear-gradient(135deg, #b71c1c, #d84343); }
+.bc-blue { background: linear-gradient(135deg, #1565c0, #1e88e5); }
+.bc-grey { background: linear-gradient(135deg, #546e7a, #78909c); }
+
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.chartbox { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #fff; }
+.chartbox h3 { margin: 0 0 8px; }
+.chartwrap { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.chartwrap svg { max-width: 100%; }
+.legend { font-size: 12px; color: var(--muted); }
+.legend div { margin: 3px 0; }
+.legend i {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 6px; vertical-align: baseline;
+}
+
+.mgrid td.d-leave { background: #e3f0fb; color: #1565c0; font-weight: 700; }
+
 .toolbar { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
 .toolbar input[type="search"] { flex: 1; min-width: 160px; width: auto; }
 .toolbar select, .toolbar input[type="month"] { width: auto; }
@@ -110,6 +142,7 @@ tr.click:hover { background: #f4faf6; }
 .tag.LATE, .tag.OUTSIDE, .tag.WARN { background: #fef1e2; color: var(--warn); }
 .tag.NOT_MARKED, .tag.ERR { background: #fde7e7; color: var(--err); }
 .tag.UNVERIFIED, .tag.MANUAL { background: #eee; color: var(--muted); }
+.tag.ON_LEAVE { background: #e3f0fb; color: #1565c0; }
 
 .flags { font-size: 11px; color: var(--warn); }
 

@@ -109,6 +109,13 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
   if (syncDelay !== '' && syncDelay > 86400) flags.push('LATE_SYNC');
   if (skewSec !== '' && Math.abs(skewSec) > 300) flags.push('CLOCK_SKEW');
   if (acc !== '' && acc > 0 && acc <= 3) flags.push('PERFECT_ACCURACY');
+  // Fake-GPS heuristics. Honest limitation: a browser PWA cannot query
+  // Android's mock-location APIs (native apps only), so detection is
+  // signal-based: spoofers typically report impossibly perfect accuracy,
+  // frozen coordinates, or teleporting between marks.
+  if (gf.status !== 'UNVERIFIED' && gf.dist !== '' && Number(gf.dist) <= 2 && acc !== '' && acc <= 5) {
+    flags.push('AT_CENTER_EXACT'); // parked exactly on the stored AWC point
+  }
 
   // Velocity + repeated-coordinates checks against the user's previous mark
   // (cached 6 h; the nightly job re-runs these across the whole month).
@@ -121,6 +128,10 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
         const kmh = (distM_(prev.lat, prev.lng, lat, lng) / 1000) / ((clientMs - prev.ms) / 3600000);
         if (kmh > 150) flags.push('IMPOSSIBLE_VELOCITY');
       }
+    }
+    if (flags.indexOf('PERFECT_ACCURACY') >= 0 &&
+        (flags.indexOf('REPEAT_COORDS') >= 0 || flags.indexOf('IMPOSSIBLE_VELOCITY') >= 0)) {
+      flags.push('FAKE_GPS_SUSPECT');
     }
     CACHE.put('lastm_' + user.user_id,
       JSON.stringify({ lat: lat, lng: lng, ms: isNaN(clientMs) ? 0 : clientMs }), 21600);

@@ -42,6 +42,8 @@ const PROJ_H = ['project_code', 'name'];
 const SECT_H = ['sector_code', 'project_code', 'name', 'supervisor_user_id'];
 const SCH_H = ['project_code', 'cadre', 'in_start', 'in_end', 'late_after', 'out_start', 'out_end'];
 const HOL_H = ['date', 'name'];
+const LEAVE_H = ['leave_id', 'user_id', 'from_date', 'to_date', 'type', 'reason',
+  'status', 'applied_at', 'decided_by', 'decided_at'];
 const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', 'revoked'];
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
@@ -637,6 +639,13 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
   if (syncDelay !== '' && syncDelay > 86400) flags.push('LATE_SYNC');
   if (skewSec !== '' && Math.abs(skewSec) > 300) flags.push('CLOCK_SKEW');
   if (acc !== '' && acc > 0 && acc <= 3) flags.push('PERFECT_ACCURACY');
+  // Fake-GPS heuristics. Honest limitation: a browser PWA cannot query
+  // Android's mock-location APIs (native apps only), so detection is
+  // signal-based: spoofers typically report impossibly perfect accuracy,
+  // frozen coordinates, or teleporting between marks.
+  if (gf.status !== 'UNVERIFIED' && gf.dist !== '' && Number(gf.dist) <= 2 && acc !== '' && acc <= 5) {
+    flags.push('AT_CENTER_EXACT'); // parked exactly on the stored AWC point
+  }
 
   // Velocity + repeated-coordinates checks against the user's previous mark
   // (cached 6 h; the nightly job re-runs these across the whole month).
@@ -649,6 +658,10 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
         const kmh = (distM_(prev.lat, prev.lng, lat, lng) / 1000) / ((clientMs - prev.ms) / 3600000);
         if (kmh > 150) flags.push('IMPOSSIBLE_VELOCITY');
       }
+    }
+    if (flags.indexOf('PERFECT_ACCURACY') >= 0 &&
+        (flags.indexOf('REPEAT_COORDS') >= 0 || flags.indexOf('IMPOSSIBLE_VELOCITY') >= 0)) {
+      flags.push('FAKE_GPS_SUSPECT');
     }
     CACHE.put('lastm_' + user.user_id,
       JSON.stringify({ lat: lat, lng: lng, ms: isNaN(clientMs) ? 0 : clientMs }), 21600);
@@ -1027,6 +1040,137 @@ function upsertUser_(f, actor) {
 }
 
 ///////////////////////////////////////////////////////////////////////////
+//  Leaves.gs
+///////////////////////////////////////////////////////////////////////////
+
+/**
+ * Leaves.gs — leave application and management.
+ *
+ * Applications come from the field app (online only — a leave request is not
+ * time-critical the way a mark is). Script property LEAVE_AUTO_APPROVE
+ * (default on) approves applications immediately per district policy of
+ * 2026-08-08 ("no one to approve"); admins can still REJECT one later from
+ * the console, which retroactively returns those days to absent.
+ *
+ * Approved leave days show as ON_LEAVE on the dashboard (instead of "not
+ * marked"), grey-blue in the monthly grid, and fill leaveId/leaveType in the
+ * register.
+ */
+
+const LEAVE_TYPES = ['CASUAL', 'SICK', 'EARNED', 'MATERNITY', 'OTHER'];
+
+function leavesSheet_() {
+  const ss = masterSS_();
+  let sh = ss.getSheetByName('Leaves');
+  if (!sh) {
+    sh = ss.insertSheet('Leaves');
+    sh.getRange(1, 1, 1, LEAVE_H.length).setValues([LEAVE_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), LEAVE_H.length).setNumberFormat('@');
+  }
+  return sh;
+}
+
+function getLeavesAll_() {
+  const c = CACHE.get('leaves');
+  if (c) return JSON.parse(c);
+  const sh = leavesSheet_();
+  const last = sh.getLastRow();
+  const out = last < 2 ? [] : sh.getRange(2, 1, last - 1, LEAVE_H.length).getValues()
+    .map((r, i) => {
+      const o = rowToObj_(LEAVE_H, r);
+      o._row = i + 2;
+      return o;
+    });
+  CACHE.put('leaves', JSON.stringify(out), 300);
+  return out;
+}
+
+/** APPROVED leaves overlapping [fromStr..toStr] (yyyy-MM-dd, inclusive). */
+function leavesOverlapping_(fromStr, toStr) {
+  return getLeavesAll_().filter(l =>
+    String(l.status) === 'APPROVED' &&
+    String(l.from_date) <= toStr && String(l.to_date) >= fromStr);
+}
+
+// action: "leaveApply"  req: { token, from, to, type, reason }
+function apiLeaveApply_(auth, req) {
+  const from = String(req.from || '').trim();
+  const to = String(req.to || '').trim();
+  const type = String(req.type || '').trim().toUpperCase();
+  const reason = String(req.reason || '').trim().slice(0, 200);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    return { ok: false, code: 'BAD_DATE' };
+  }
+  if (from > to) return { ok: false, code: 'FROM_AFTER_TO' };
+  const spanDays = (new Date(to).getTime() - new Date(from).getTime()) / 86400000 + 1;
+  if (spanDays > 31) return { ok: false, code: 'TOO_LONG', maxDays: 31 };
+  if (to < fmtDay_(Date.now() - 31 * 86400000)) return { ok: false, code: 'TOO_OLD' };
+  if (LEAVE_TYPES.indexOf(type) < 0) return { ok: false, code: 'BAD_TYPE', types: LEAVE_TYPES };
+
+  const mine = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId) &&
+    String(l.status) !== 'REJECTED' && String(l.from_date) <= to && String(l.to_date) >= from);
+  if (mine.length) return { ok: false, code: 'OVERLAPS_EXISTING' };
+
+  const status = PROPS.getProperty('LEAVE_AUTO_APPROVE') === '0' ? 'PENDING' : 'APPROVED';
+  const leaveId = 'LV-' + Utilities.getUuid().slice(0, 8);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    leavesSheet_().appendRow([leaveId, String(auth.userId), from, to, type, reason,
+      status, nowIso_(), status === 'APPROVED' ? 'AUTO' : '', status === 'APPROVED' ? nowIso_() : '']);
+  } finally {
+    lock.releaseLock();
+  }
+  CACHE.remove('leaves');
+  audit_(auth.userId, 'LEAVE_APPLY', leaveId, '', { from: from, to: to, type: type, status: status });
+  return { ok: true, leaveId: leaveId, status: status };
+}
+
+// action: "myLeaves"
+function apiMyLeaves_(auth, req) {
+  const mine = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId))
+    .slice(-20).reverse()
+    .map(l => ({ id: String(l.leave_id), from: String(l.from_date), to: String(l.to_date),
+      type: String(l.type), reason: String(l.reason), status: String(l.status) }));
+  return { ok: true, leaves: mine };
+}
+
+// action: "leaveList" (console roles; scoped like everything else)
+function apiLeaveList_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const scope = sectorScope_(auth.user);
+  const users = {};
+  getUsersAll_().forEach(u => { users[String(u.user_id)] = u; });
+  const rows = getLeavesAll_().filter(l => {
+    const u = users[String(l.user_id)];
+    return u && (!scope || scope.indexOf(String(u.sector_code)) >= 0);
+  }).slice(-300).reverse().map(l => ({
+    id: String(l.leave_id), u: String(l.user_id), from: String(l.from_date),
+    to: String(l.to_date), type: String(l.type), reason: String(l.reason),
+    status: String(l.status), at: String(l.applied_at)
+  }));
+  return { ok: true, leaves: rows };
+}
+
+// action: "leaveDecide"  req: { token, leaveId, decision: APPROVED|REJECTED, reason? }
+function apiLeaveDecide_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const decision = String(req.decision || '').toUpperCase();
+  if (decision !== 'APPROVED' && decision !== 'REJECTED') return { ok: false, code: 'BAD_DECISION' };
+  const leave = getLeavesAll_().find(l => String(l.leave_id) === String(req.leaveId || ''));
+  if (!leave) return { ok: false, code: 'NOT_FOUND' };
+  const target = getUserById_(String(leave.user_id));
+  if (!target || !inScope_(auth.user, target)) return deny_();
+  const sh = leavesSheet_();
+  sh.getRange(leave._row, 7).setValue(decision);                    // status
+  sh.getRange(leave._row, 9, 1, 2).setValues([[String(auth.userId), nowIso_()]]); // decided_by, decided_at
+  CACHE.remove('leaves');
+  audit_(auth.userId, 'LEAVE_' + decision, String(leave.leave_id),
+    String(leave.status), String(req.reason || ''));
+  return { ok: true };
+}
+
+///////////////////////////////////////////////////////////////////////////
 //  Summary.gs
 ///////////////////////////////////////////////////////////////////////////
 
@@ -1050,7 +1194,7 @@ function summaryTick() {
   const min = Number(Utilities.formatDate(now, TZ, 'm'));
   const hm = h * 60 + min;
   const peak = (hm >= 480 && hm <= 660) || (hm >= 900 && hm <= 1080); // 8:00–11:00, 15:00–18:00
-  if (!peak && min >= 10) return; // off-peak: only the first tick each hour
+  if (!peak && min >= 5) return; // off-peak: only the first tick each hour
   buildToday_();
 }
 
@@ -1086,15 +1230,23 @@ function buildToday_() {
   // nobody is LATE and the console shows "attendance not expected".
   const holidayName = holidayFor_(today);
 
-  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) !== 'ADMIN');
+  // Approved leaves covering today: those users count ON_LEAVE, not absent.
+  const leaveByUid = {};
+  leavesOverlapping_(today, today).forEach(l => {
+    if (!leaveByUid[String(l.user_id)]) leaveByUid[String(l.user_id)] = String(l.type);
+  });
+
+  // Only FIELD users owe attendance (flat org model: admins/Collector do not).
+  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) === 'FIELD');
+  const blank = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0,
+    onLeave: 0, outside: 0, unverified: 0 });
   const sectors = {};
   const userEntries = [];
   const exceptions = [];
 
   for (const u of users) {
     const uid = String(u.user_id), sc = String(u.sector_code);
-    const agg = sectors[sc] = sectors[sc] ||
-      { expected: 0, in: 0, late: 0, out: 0, notMarked: 0, outside: 0, unverified: 0 };
+    const agg = sectors[sc] = sectors[sc] || blank();
     agg.expected++;
 
     const recs = marksByUser[uid] || {};
@@ -1131,6 +1283,11 @@ function buildToday_() {
       }
     });
 
+    if (st === 'NOT_MARKED' && leaveByUid[uid]) {
+      st = 'ON_LEAVE';
+      entry.lv = leaveByUid[uid];
+      agg.onLeave++;
+    }
     entry.st = st;
     entry.gf = worstGf;
     if (st === 'NOT_MARKED') agg.notMarked++;
@@ -1139,7 +1296,6 @@ function buildToday_() {
     userEntries.push(entry);
   }
 
-  const blank = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0, outside: 0, unverified: 0 });
   const district = blank();
   const projects = {};
   Object.keys(sectors).forEach(sc => {
@@ -1198,6 +1354,7 @@ function buildOrgFile_() {
       generatedAt: nowIso_(),
       projects: getProjects_(),
       sectors: getSectors_().map(s => ({ code: s.code, project: s.project, name: s.name })),
+      schedules: getSchedules_(), // console reports use late_after for late counting
       awcs: awcs
     })
   };
@@ -1329,10 +1486,32 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
     if (h) monthHolidays[pad_(d, 2)] = h;
   }
 
-  const files = Object.keys(bySector).sort().map(sc => ({
+  // Approved leave days per sector/user for the grid and console reports.
+  const monthEnd = ym + '-' + pad_(dim, 2);
+  const userSector = {};
+  getUsersAll_().forEach(u => { userSector[String(u.user_id)] = String(u.sector_code); });
+  const leavesBySector = {}; // sc -> uid -> dd -> type
+  leavesOverlapping_(ym + '-01', monthEnd).forEach(l => {
+    const uid = String(l.user_id);
+    const sc = userSector[uid];
+    if (!sc) return;
+    const from = String(l.from_date) > ym + '-01' ? String(l.from_date) : ym + '-01';
+    const to = String(l.to_date) < monthEnd ? String(l.to_date) : monthEnd;
+    for (let d = Number(from.slice(8)); d <= Number(to.slice(8)); d++) {
+      const dd = pad_(d, 2);
+      if (monthHolidays[dd]) continue; // leave on a holiday is meaningless
+      const sb = leavesBySector[sc] = leavesBySector[sc] || {};
+      (sb[uid] = sb[uid] || {})[dd] = String(l.type);
+    }
+  });
+
+  const allSectors = {};
+  Object.keys(bySector).forEach(sc => { allSectors[sc] = 1; });
+  Object.keys(leavesBySector).forEach(sc => { allSectors[sc] = 1; });
+  const files = Object.keys(allSectors).sort().map(sc => ({
     path: basePath + sc + '.json',
     content: JSON.stringify({ ym: ym, generatedAt: generatedAt, sector: sc,
-      holidays: monthHolidays, users: bySector[sc] })
+      holidays: monthHolidays, leaves: leavesBySector[sc] || {}, users: bySector[sc] || {} })
   }));
   if (withExceptions) {
     files.push({
@@ -1428,7 +1607,8 @@ function createMaster_() {
   ss.setSpreadsheetTimeZone(TZ);
   const tabs = [
     ['Users', USERS_H], ['AWCs', AWC_H], ['Projects', PROJ_H], ['Sectors', SECT_H],
-    ['Schedules', SCH_H], ['Holidays', HOL_H], ['Sessions', SESS_H], ['Audit', AUD_H]
+    ['Schedules', SCH_H], ['Holidays', HOL_H], ['Leaves', LEAVE_H],
+    ['Sessions', SESS_H], ['Audit', AUD_H]
   ];
   tabs.forEach(t => {
     const sh = ss.insertSheet(t[0]);
@@ -1454,7 +1634,7 @@ function bootstrapAdmin_() {
 
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('nightlyJob').timeBased().atHour(22).everyDays(1).create();
   ScriptApp.newTrigger('reaperJob').timeBased().atHour(2).everyDays(1).create();
   ScriptApp.newTrigger('monthPrep').timeBased().atHour(3).everyDays(1).create();
@@ -1686,11 +1866,25 @@ function buildRegister(ymOpt) {
     });
   }
 
+  // Approved leaves for the month: fill leaveId/leaveType on marked days and
+  // emit ON_LEAVE rows for unmarked working leave days.
+  const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
+  const monthEnd = ym + '-' + pad_(dim, 2);
+  const leaveDay = {}; // 'uid_yyyymmdd' -> leave row
+  leavesOverlapping_(ym + '-01', monthEnd).forEach(l => {
+    const from = String(l.from_date) > ym + '-01' ? String(l.from_date) : ym + '-01';
+    const to = String(l.to_date) < monthEnd ? String(l.to_date) : monthEnd;
+    for (let d = Number(from.slice(8)); d <= Number(to.slice(8)); d++) {
+      leaveDay[String(l.user_id) + '_' + ym.replace('-', '') + pad_(d, 2)] = l;
+    }
+  });
+
   const rows = Object.keys(days).sort().map(dk => {
     const seg = dk.split('_');
     const uid = seg[0];
     const date = seg[1].slice(0, 4) + '-' + seg[1].slice(4, 6) + '-' + seg[1].slice(6, 8);
     const u = users[uid] || {};
+    const lv = leaveDay[dk];
     const inM = days[dk].IN, outM = days[dk].OUT;
     const first = inM || outM;               // the day's first mark drives the familiar columns
     const flags = [inM && inM.flags, outM && outM.flags].filter(Boolean).join(',');
@@ -1709,7 +1903,8 @@ function buildRegister(ymOpt) {
       sectors[String(u.sector_code)] || String(u.sector_code || ''),
       String(first.client_ts), location,
       String(first.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE', photoUrl(String(first.photo_id)),
-      'Asia/Calcutta', String(first.server_ts), 'PRESENT', '', '',
+      'Asia/Calcutta', String(first.server_ts), 'PRESENT',
+      lv ? String(lv.leave_id) : '', lv ? String(lv.type) : '',
       (inM ? 1 : 0) + (outM ? 1 : 0), inM ? String(inM.client_ts) : '',
       outM ? String(outM.client_ts) : '',
       outM ? (String(outM.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE') : '',
@@ -1718,6 +1913,26 @@ function buildRegister(ymOpt) {
       first.lat, first.lng, first.accuracy_m
     ];
   });
+
+  // ON_LEAVE rows for approved leave days without any mark (working days only).
+  Object.keys(leaveDay).sort().forEach(dk => {
+    if (days[dk]) return;
+    const seg = dk.split('_');
+    const uid = seg[0];
+    const date = seg[1].slice(0, 4) + '-' + seg[1].slice(4, 6) + '-' + seg[1].slice(6, 8);
+    if (holidayFor_(date)) return;
+    const u = users[uid] || {};
+    const lv = leaveDay[dk];
+    rows.push([
+      dk, date, String(u.phone || ''), String(u.name || ''), String(u.cadre || ''),
+      sectors[String(u.sector_code)] || String(u.sector_code || ''),
+      '', '', '', '', 'Asia/Calcutta', '', 'ON_LEAVE',
+      String(lv.leave_id), String(lv.type), 0, '',
+      '', '', 'WORKING', '',
+      awcNames[String(u.awc_id)] || String(u.awc_id || ''), uid, '', '', ''
+    ]);
+  });
+  rows.sort((a, b) => a[0] < b[0] ? -1 : 1);
 
   let reg = ss.getSheetByName('Register');
   if (!reg) reg = ss.insertSheet('Register');
@@ -1789,9 +2004,13 @@ function doPost(e) {
       config: apiConfig_,
       myHistory: apiMyHistory_,
       logout: apiLogout_,
+      leaveApply: apiLeaveApply_,
+      myLeaves: apiMyLeaves_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,
+      leaveList: apiLeaveList_,
+      leaveDecide: apiLeaveDecide_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,

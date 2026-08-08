@@ -77,7 +77,7 @@ const Api = (() => {
   const dCompact = () => dToday().replace(/-/g, '');
 
   function demoTodayJson() {
-    const agg = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0, outside: 0, unverified: 0 });
+    const agg = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0, onLeave: 0, outside: 0, unverified: 0 });
     const rows = [
       { id: 'U9101', st: 'PRESENT', in: '09:02', out: null, gf: 'INSIDE', fl: '' },
       { id: 'U9102', st: 'LATE', in: '09:48', out: null, gf: 'INSIDE', fl: '' },
@@ -85,8 +85,8 @@ const Api = (() => {
       { id: 'U9104', st: 'NOT_MARKED', in: null, out: null, gf: null, fl: '' },
       { id: 'U9105', st: 'PRESENT', in: '09:10', out: null, gf: 'UNVERIFIED', fl: 'NO_PHOTO' },
       { id: 'U9106', st: 'PRESENT', in: '09:00', out: '15:45', gf: 'INSIDE', fl: '' },
-      { id: 'U9107', st: 'NOT_MARKED', in: null, out: null, gf: null, fl: '' },
-      { id: 'U9108', st: 'PRESENT', in: '08:59', out: null, gf: 'INSIDE', fl: 'CLOCK_SKEW' },
+      { id: 'U9107', st: 'ON_LEAVE', lv: 'CASUAL', in: null, out: null, gf: null, fl: '' },
+      { id: 'U9108', st: 'PRESENT', in: '08:59', out: null, gf: 'INSIDE', fl: 'CLOCK_SKEW,FAKE_GPS_SUSPECT' },
       { id: 'U9002', st: 'PRESENT', in: '09:20', out: null, gf: 'INSIDE', fl: '' }
     ];
     const sectors = {}, projects = {}, district = agg();
@@ -103,6 +103,7 @@ const Api = (() => {
         if (e.st === 'PRESENT') g.in++;
         if (e.st === 'LATE') g.late++;
         if (e.st === 'NOT_MARKED') g.notMarked++;
+        if (e.st === 'ON_LEAVE') g.onLeave++;
         if (e.out) g.out++;
         if (e.gf === 'OUTSIDE') g.outside++;
         if (e.gf === 'UNVERIFIED') g.unverified++;
@@ -137,7 +138,8 @@ const Api = (() => {
       }
       users[uid] = days;
     });
-    return { ym: dYm(), generatedAt: new Date().toISOString(), sector: sc, users: users };
+    const leaves = sc === 'S01' ? { U9103: { '02': 'SICK', '03': 'SICK' } } : {};
+    return { ym: dYm(), generatedAt: new Date().toISOString(), sector: sc, leaves: leaves, users: users };
   }
 
   function demoJson(path) {
@@ -148,7 +150,12 @@ const Api = (() => {
     if (path === 'summary/org.json') {
       const awcs = {};
       Object.keys(D.awcs).forEach(id => { awcs[id] = { n: D.awcs[id].n, sc: D.awcs[id].sc }; });
-      return { generatedAt: new Date().toISOString(), projects: D.projects, sectors: D.sectors, awcs: awcs };
+      return {
+        generatedAt: new Date().toISOString(), projects: D.projects, sectors: D.sectors,
+        schedules: [{ project_code: 'ALL', cadre: 'ALL', in_start: '08:30', in_end: '10:30',
+          late_after: '09:30', out_start: '15:30', out_end: '17:30' }],
+        awcs: awcs
+      };
     }
     if (path === 'summary/exceptions.json') {
       return {
@@ -215,12 +222,23 @@ const Api = (() => {
           sectors: scoped ? D.sectors.filter(s => scoped.indexOf(s.code) >= 0) : D.sectors
         };
       }
+      case 'leaveList':
+        return {
+          ok: true,
+          leaves: [
+            { id: 'LV-demo1', u: 'U9107', from: dToday(), to: dToday(), type: 'CASUAL',
+              reason: 'Family function', status: 'APPROVED', at: new Date().toISOString() },
+            { id: 'LV-demo2', u: 'U9103', from: dYm() + '-02', to: dYm() + '-03', type: 'SICK',
+              reason: 'Fever', status: 'APPROVED', at: new Date().toISOString() }
+          ]
+        };
       case 'correction':
       case 'pinReset':
       case 'deviceUnbind':
       case 'setAwcCoords':
       case 'userUpsert':
       case 'setSchedules':
+      case 'leaveDecide':
       case 'logout':
         return { ok: true, userId: body.userId, awcId: body.awcId };
       default:

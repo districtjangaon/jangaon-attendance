@@ -28,9 +28,13 @@ function doPost(e) {
       config: apiConfig_,
       myHistory: apiMyHistory_,
       logout: apiLogout_,
+      leaveApply: apiLeaveApply_,
+      myLeaves: apiMyLeaves_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,
+      leaveList: apiLeaveList_,
+      leaveDecide: apiLeaveDecide_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,
