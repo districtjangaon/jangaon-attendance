@@ -58,6 +58,14 @@ const App = (() => {
   async function init() {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(() => {});
+      // A new version activated: reload to run it — but never mid-capture,
+      // and never while records are being sent.
+      navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data && e.data.type === 'sw-updated' &&
+            $('screen-camera').hidden && !Sync.isSyncing()) {
+          location.reload();
+        }
+      });
     }
     Sync.init();
     window.addEventListener('online', renderStatus);

@@ -7,7 +7,7 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v10';
+const CACHE = 'attendance-v11';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/config.js', './js/db.js', './js/api.js', './js/geo.js',
@@ -24,6 +24,10 @@ self.addEventListener('activate', e => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+      // Tell open pages a new version just took over, so the app can reload
+      // itself — otherwise users keep the stale shell until a manual restart.
+      .then(() => self.clients.matchAll({ includeUncontrolled: true }))
+      .then(clients => clients.forEach(c => c.postMessage({ type: 'sw-updated' })))
   );
 });
 
