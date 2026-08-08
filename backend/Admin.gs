@@ -169,6 +169,39 @@ function apiSetSchedules_(auth, req) {
   return { ok: true, count: rows.length };
 }
 
+/**
+ * action: "testReset" — ADMIN only, own marks, today only. Deletes the
+ * admin's own IN/OUT rows for today so features can be demonstrated
+ * repeatedly. The append-only rule protects real attendance; an admin's
+ * test marks are exactly what it does not need to protect. Audit-logged.
+ */
+function apiTestReset_(auth, req) {
+  if (auth.user.role !== 'ADMIN') return deny_();
+  const today = fmtDay_(Date.now());
+  const compact = today.replace(/-/g, '');
+  const ss = getMonthSS_(today.slice(0, 7), true);
+  if (!ss) return { ok: true, removed: 0 };
+  const sh = ss.getSheetByName('Marks');
+  const prefix = String(auth.userId) + '_' + compact + '_';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let removed = 0;
+  try {
+    const rows = findRowsByValue_(sh, 2, auth.userId)
+      .filter(r => String(sh.getRange(r, 1).getValue()).indexOf(prefix) === 0)
+      .sort((a, b) => b - a); // delete bottom-up so row numbers stay valid
+    rows.forEach(r => { sh.deleteRow(r); removed++; });
+  } finally {
+    lock.releaseLock();
+  }
+  CACHE.remove('mk_' + prefix + 'IN');
+  CACHE.remove('mk_' + prefix + 'OUT');
+  CACHE.remove('lastm_' + auth.userId);
+  CACHE.remove('sumMarker');
+  audit_(auth.userId, 'TEST_RESET', prefix + '*', removed + ' rows', '');
+  return { ok: true, removed: removed };
+}
+
 function apiRevoke_(auth, req) {
   if (auth.user.role !== 'ADMIN') return deny_();
   const sh = masterSS_().getSheetByName('Sessions');

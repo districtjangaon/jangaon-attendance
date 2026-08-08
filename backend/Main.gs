@@ -42,6 +42,7 @@ function doPost(e) {
       userUpsert: apiUserUpsert_,
       importUsers: apiImportUsers_,
       setSchedules: apiSetSchedules_,
+      testReset: apiTestReset_,
       revoke: apiRevoke_
     };
     const fn = ROUTES[action];

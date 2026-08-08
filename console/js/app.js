@@ -342,7 +342,19 @@ const App = (() => {
           p.expected + '</td><td>' + (p.in + p.late) + '</td><td>' + p.late + '</td><td>' +
           p.notMarked + '</td><td>' + p.outside + '</td><td>' + p.unverified + '</td></tr>').join('') +
         '</table>';
+      // Admin/office test marks: visible with photos, never in the counts.
+      const office = today.users.filter(e => e.x && inScopeUid(e.id));
+      if (office.length) {
+        html += '<h3>Office / test marks today (not counted)</h3>' +
+          '<table><tr><th>Name</th><th>IN</th><th>OUT</th><th>Geofence</th><th>Flags</th><th>Photo</th></tr>' +
+          office.map(e =>
+            '<tr><td>' + esc(userName(e.id)) + '</td><td>' + esc(e.in || '–') + '</td><td>' +
+            esc(e.out || '–') + '</td><td>' + gfTag(e.gf) + '</td><td class="flags">' + esc(e.fl || '') +
+            '</td><td>' + (e.ph ? '<button class="btn btn-plain btn-inline" data-ph="' +
+              esc(e.ph) + '">view</button>' : '') + '</td></tr>').join('') + '</table>';
+      }
       $('today-table').innerHTML = html;
+      bindPhotoButtons($('today-table'));
       $('today-table').querySelectorAll('tr.click').forEach(tr => {
         tr.onclick = () => { drill = { level: 'project', code: tr.dataset.code }; renderToday(); };
       });

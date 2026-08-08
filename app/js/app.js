@@ -149,6 +149,29 @@ const App = (() => {
     $('btn-leave').onclick = showLeave;
     $('btn-leave-back').onclick = goHome;
     $('btn-leave-submit').onclick = submitLeave;
+    $('btn-test-reset').onclick = testReset;
+  }
+
+  /** ADMIN only: wipe own marks for today (server + this phone) to re-test. */
+  async function testReset() {
+    const acc = active();
+    if (!acc || acc.user.role !== 'ADMIN') return;
+    if (!confirm('Delete YOUR OWN marks for today (server + this phone) so you can mark again? ' +
+      'Only works for admin accounts.')) return;
+    try {
+      const res = await Api.post({ action: 'testReset', token: acc.token });
+      if (!res.ok) { alert('Failed: ' + res.code); return; }
+      const t = todayCompact();
+      for (const store of ['queue', 'history']) {
+        for (const type of ['IN', 'OUT']) {
+          await DB.del(store, activeUid + '_' + t + '_' + type);
+        }
+      }
+      alert('Cleared ' + res.removed + ' server record(s). You can mark IN again.');
+      await goHome();
+    } catch (e) {
+      alert('Needs internet.');
+    }
   }
 
   // ---------- leave ----------
@@ -542,6 +565,7 @@ const App = (() => {
     $('menu-version').textContent = 'App version ' + window.APP_CONFIG.VERSION +
       (window.APP_CONFIG.DEMO ? ' — DEMO MODE (no server)' : '');
     $('btn-demo-reset').hidden = !window.APP_CONFIG.DEMO;
+    $('btn-test-reset').hidden = acc.user.role !== 'ADMIN';
     show('screen-menu');
   }
 

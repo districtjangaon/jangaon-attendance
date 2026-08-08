@@ -17,9 +17,22 @@ function summaryTick() {
   const h = Number(Utilities.formatDate(now, TZ, 'H'));
   const min = Number(Utilities.formatDate(now, TZ, 'm'));
   const hm = h * 60 + min;
-  const peak = (hm >= 480 && hm <= 660) || (hm >= 900 && hm <= 1080); // 8:00–11:00, 15:00–18:00
-  if (!peak && min >= 5) return; // off-peak: only the first tick each hour
+  if (hm < 360 || hm > 1200) { // night 20:00–06:00: hourly heartbeat only
+    if (min >= 5) return;
+    buildToday_();
+    return;
+  }
+  // Working day: every 5 minutes — affordable because a tick that finds no
+  // new marks/leaves since the last build exits in seconds without reading
+  // or publishing anything.
+  const ym = Utilities.formatDate(now, TZ, 'yyyy-MM');
+  const ss = getMonthSS_(ym, true);
+  if (!ss) return;
+  const marker = fmtDay_(Date.now()) + '|' + ss.getSheetByName('Marks').getLastRow() +
+    '|' + leavesSheet_().getLastRow();
+  if (CACHE.get('sumMarker') === marker) return;
   buildToday_();
+  CACHE.put('sumMarker', marker, 21600);
 }
 
 function buildToday_() {
@@ -119,6 +132,35 @@ function buildToday_() {
     if (worstGf === 'UNVERIFIED') agg.unverified++;
     userEntries.push(entry);
   }
+
+  // Marks by non-FIELD users (admin test marks, voluntary duty): visible in
+  // the tables and the flagged list — with photos — but never counted in the
+  // district numbers, which stay FIELD-only.
+  const fieldSet = {};
+  users.forEach(u => { fieldSet[String(u.user_id)] = 1; });
+  Object.keys(marksByUser).forEach(uid => {
+    if (fieldSet[uid]) return;
+    const u = getUserById_(uid);
+    if (!u) return;
+    const entry = { id: uid, s: String(u.sector_code), a: String(u.awc_id),
+      st: 'PRESENT', in: null, out: null, gf: null, fl: '', ph: null, x: 1 };
+    ['IN', 'OUT'].forEach(type => {
+      const o = marksByUser[uid][type];
+      if (!o) return;
+      const t = String(o.client_ts).slice(11, 16);
+      if (type === 'IN') { entry.in = t; entry.ph = String(o.photo_id) || null; }
+      else entry.out = t;
+      const gf = String(o.geofence), fl = String(o.flags);
+      if (gf === 'OUTSIDE' || (gf === 'UNVERIFIED' && entry.gf !== 'OUTSIDE')) entry.gf = gf;
+      else if (!entry.gf) entry.gf = gf;
+      if (fl) entry.fl = entry.fl ? entry.fl + ',' + fl : fl;
+      if (gf !== 'INSIDE' || fl) {
+        exceptions.push({ key: String(o.key), u: uid, s: String(u.sector_code), t: type,
+          at: t, gf: gf, fl: fl, ph: String(o.photo_id) || null });
+      }
+    });
+    userEntries.push(entry);
+  });
 
   const district = blank();
   const projects = {};

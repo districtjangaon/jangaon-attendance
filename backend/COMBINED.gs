@@ -982,6 +982,39 @@ function apiSetSchedules_(auth, req) {
   return { ok: true, count: rows.length };
 }
 
+/**
+ * action: "testReset" — ADMIN only, own marks, today only. Deletes the
+ * admin's own IN/OUT rows for today so features can be demonstrated
+ * repeatedly. The append-only rule protects real attendance; an admin's
+ * test marks are exactly what it does not need to protect. Audit-logged.
+ */
+function apiTestReset_(auth, req) {
+  if (auth.user.role !== 'ADMIN') return deny_();
+  const today = fmtDay_(Date.now());
+  const compact = today.replace(/-/g, '');
+  const ss = getMonthSS_(today.slice(0, 7), true);
+  if (!ss) return { ok: true, removed: 0 };
+  const sh = ss.getSheetByName('Marks');
+  const prefix = String(auth.userId) + '_' + compact + '_';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let removed = 0;
+  try {
+    const rows = findRowsByValue_(sh, 2, auth.userId)
+      .filter(r => String(sh.getRange(r, 1).getValue()).indexOf(prefix) === 0)
+      .sort((a, b) => b - a); // delete bottom-up so row numbers stay valid
+    rows.forEach(r => { sh.deleteRow(r); removed++; });
+  } finally {
+    lock.releaseLock();
+  }
+  CACHE.remove('mk_' + prefix + 'IN');
+  CACHE.remove('mk_' + prefix + 'OUT');
+  CACHE.remove('lastm_' + auth.userId);
+  CACHE.remove('sumMarker');
+  audit_(auth.userId, 'TEST_RESET', prefix + '*', removed + ' rows', '');
+  return { ok: true, removed: removed };
+}
+
 function apiRevoke_(auth, req) {
   if (auth.user.role !== 'ADMIN') return deny_();
   const sh = masterSS_().getSheetByName('Sessions');
@@ -1193,9 +1226,22 @@ function summaryTick() {
   const h = Number(Utilities.formatDate(now, TZ, 'H'));
   const min = Number(Utilities.formatDate(now, TZ, 'm'));
   const hm = h * 60 + min;
-  const peak = (hm >= 480 && hm <= 660) || (hm >= 900 && hm <= 1080); // 8:00–11:00, 15:00–18:00
-  if (!peak && min >= 5) return; // off-peak: only the first tick each hour
+  if (hm < 360 || hm > 1200) { // night 20:00–06:00: hourly heartbeat only
+    if (min >= 5) return;
+    buildToday_();
+    return;
+  }
+  // Working day: every 5 minutes — affordable because a tick that finds no
+  // new marks/leaves since the last build exits in seconds without reading
+  // or publishing anything.
+  const ym = Utilities.formatDate(now, TZ, 'yyyy-MM');
+  const ss = getMonthSS_(ym, true);
+  if (!ss) return;
+  const marker = fmtDay_(Date.now()) + '|' + ss.getSheetByName('Marks').getLastRow() +
+    '|' + leavesSheet_().getLastRow();
+  if (CACHE.get('sumMarker') === marker) return;
   buildToday_();
+  CACHE.put('sumMarker', marker, 21600);
 }
 
 function buildToday_() {
@@ -1295,6 +1341,35 @@ function buildToday_() {
     if (worstGf === 'UNVERIFIED') agg.unverified++;
     userEntries.push(entry);
   }
+
+  // Marks by non-FIELD users (admin test marks, voluntary duty): visible in
+  // the tables and the flagged list — with photos — but never counted in the
+  // district numbers, which stay FIELD-only.
+  const fieldSet = {};
+  users.forEach(u => { fieldSet[String(u.user_id)] = 1; });
+  Object.keys(marksByUser).forEach(uid => {
+    if (fieldSet[uid]) return;
+    const u = getUserById_(uid);
+    if (!u) return;
+    const entry = { id: uid, s: String(u.sector_code), a: String(u.awc_id),
+      st: 'PRESENT', in: null, out: null, gf: null, fl: '', ph: null, x: 1 };
+    ['IN', 'OUT'].forEach(type => {
+      const o = marksByUser[uid][type];
+      if (!o) return;
+      const t = String(o.client_ts).slice(11, 16);
+      if (type === 'IN') { entry.in = t; entry.ph = String(o.photo_id) || null; }
+      else entry.out = t;
+      const gf = String(o.geofence), fl = String(o.flags);
+      if (gf === 'OUTSIDE' || (gf === 'UNVERIFIED' && entry.gf !== 'OUTSIDE')) entry.gf = gf;
+      else if (!entry.gf) entry.gf = gf;
+      if (fl) entry.fl = entry.fl ? entry.fl + ',' + fl : fl;
+      if (gf !== 'INSIDE' || fl) {
+        exceptions.push({ key: String(o.key), u: uid, s: String(u.sector_code), t: type,
+          at: t, gf: gf, fl: fl, ph: String(o.photo_id) || null });
+      }
+    });
+    userEntries.push(entry);
+  });
 
   const district = blank();
   const projects = {};
@@ -2051,6 +2126,7 @@ function doPost(e) {
       userUpsert: apiUserUpsert_,
       importUsers: apiImportUsers_,
       setSchedules: apiSetSchedules_,
+      testReset: apiTestReset_,
       revoke: apiRevoke_
     };
     const fn = ROUTES[action];
