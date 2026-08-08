@@ -172,10 +172,12 @@ const App = (() => {
     const aliveMin = Math.round((Date.now() - checked.getTime()) / 60000);
     const hhmm = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     b.hidden = false;
+    const dataMin = Math.round((Date.now() - dataTime.getTime()) / 60000);
     if (aliveMin <= 40) {
       b.className = 'banner ok';
-      b.textContent = '✓ System live. Attendance shown as of ' + hhmm(dataTime) +
-        ' — it updates within ~5 minutes whenever someone marks. Nothing new since then.';
+      b.textContent = '✓ System live. Attendance as of ' + hhmm(dataTime) +
+        ' (' + (dataMin < 1 ? 'just now' : dataMin + ' min ago') +
+        ') — nothing new since then; updates land within ~5 minutes of any mark.';
     } else if (aliveMin <= 90) {
       b.className = 'banner warn';
       b.textContent = 'Updates delayed — last server check ' + aliveMin +
