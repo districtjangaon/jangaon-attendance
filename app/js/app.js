@@ -150,6 +150,19 @@ const App = (() => {
     $('btn-leave-back').onclick = goHome;
     $('btn-leave-submit').onclick = submitLeave;
     $('btn-test-reset').onclick = testReset;
+    $('btn-refresh-app').onclick = refreshApp;
+  }
+
+  /** Header ↻: check for a new version and reload — works on every screen. */
+  async function refreshApp() {
+    $('btn-refresh-app').classList.add('spinning');
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) await reg.update(); // if a new version installs, sw-updated
+      }                              // will reload us; otherwise reload below
+    } catch (e) { /* offline: plain reload still shows cached app */ }
+    setTimeout(() => location.reload(), 800);
   }
 
   /** ADMIN only: wipe own marks for today (server + this phone) to re-test. */

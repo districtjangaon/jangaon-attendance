@@ -37,6 +37,9 @@ body {
   position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   background: none; border: none; color: #fff; font-size: 24px; padding: 8px;
 }
+.refresh-btn { right: 52px; }
+.refresh-btn.spinning { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
 
 .banner { padding: 10px 14px; font-size: 14px; text-align: center; }
 .banner-offline { background: #fff3cd; color: #7a5c00; border-bottom: 1px solid #ffe08a; }

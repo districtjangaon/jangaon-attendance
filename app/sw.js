@@ -7,7 +7,7 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v14';
+const CACHE = 'attendance-v15';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/config.js', './js/db.js', './js/api.js', './js/geo.js',
