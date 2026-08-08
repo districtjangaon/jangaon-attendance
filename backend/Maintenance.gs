@@ -269,10 +269,10 @@ function importFromSheets() {
 // One row per person per day, in the district's requested format; our extra
 // audit detail (OUT mark, day type, flags, AWC) is appended after markCount /
 // firstMarkAt so the familiar columns line up exactly.
-const REG_H = ['id', 'date', 'phone', 'name', 'role', 'mandal', 'markedAt', 'lat', 'lng',
-  'accuracy', 'verified', 'photo', 'timezone', 'receivedAt', 'status', 'leaveId', 'leaveType',
+const REG_H = ['id', 'date', 'phone', 'name', 'role', 'mandal', 'markedAt', 'location',
+  'verified', 'photo', 'timezone', 'receivedAt', 'status', 'leaveId', 'leaveType',
   'markCount', 'firstMarkAt',
-  'outMarkedAt', 'outVerified', 'dayType', 'flags', 'awc', 'userId'];
+  'outMarkedAt', 'outVerified', 'dayType', 'flags', 'awc', 'userId', 'lat', 'lng', 'accuracy_m'];
 
 function buildRegister(ymOpt) {
   const ym = ymOpt || Utilities.formatDate(new Date(), TZ, 'yyyy-MM');
@@ -307,17 +307,28 @@ function buildRegister(ymOpt) {
     const inM = days[dk].IN, outM = days[dk].OUT;
     const first = inM || outM;               // the day's first mark drives the familiar columns
     const flags = [inM && inM.flags, outM && outM.flags].filter(Boolean).join(',');
+    // Human location: the AWC the mark was verified against + how far away,
+    // instead of raw coordinates (those move to the audit columns at the end).
+    let location = 'GPS not available';
+    if (String(first.geofence) !== 'UNVERIFIED' && first.awc_id) {
+      const d = Number(first.distance_m);
+      location = (awcNames[String(first.awc_id)] || String(first.awc_id)) +
+        (isFinite(d) ? ' (' + (d >= 1000 ? (d / 1000).toFixed(1) + ' km' : d + ' m') + ')' : '');
+    } else if (first.lat !== '' && first.lat != null) {
+      location = first.lat + ', ' + first.lng;
+    }
     return [
       dk, date, String(u.phone || ''), String(u.name || ''), String(u.cadre || ''),
       sectors[String(u.sector_code)] || String(u.sector_code || ''),
-      String(first.client_ts), first.lat, first.lng, first.accuracy_m,
+      String(first.client_ts), location,
       String(first.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE', photoUrl(String(first.photo_id)),
       'Asia/Calcutta', String(first.server_ts), 'PRESENT', '', '',
       (inM ? 1 : 0) + (outM ? 1 : 0), inM ? String(inM.client_ts) : '',
       outM ? String(outM.client_ts) : '',
       outM ? (String(outM.geofence) === 'INSIDE' ? 'TRUE' : 'FALSE') : '',
       holidayFor_(date) || 'WORKING', flags,
-      awcNames[String(u.awc_id)] || String(u.awc_id || ''), uid
+      awcNames[String(u.awc_id)] || String(u.awc_id || ''), uid,
+      first.lat, first.lng, first.accuracy_m
     ];
   });
 

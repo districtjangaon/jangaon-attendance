@@ -360,10 +360,25 @@ const App = (() => {
       let photoBlob = null;
       const video = $('cam-video');
       if (video.srcObject && video.videoWidth > 0) {
+        // Burnt-in stamp reads like a register entry: place name (nearest
+        // assigned AWC + distance) and the person's name, not raw
+        // coordinates and ids. Coordinates still travel in the record.
+        let where = 'GPS UNAVAILABLE';
+        if (g) {
+          const cands = ((acc.config && acc.config.locations) || []).filter(l => l.lat != null && l.lng != null);
+          let best = null, bestD = Infinity;
+          for (const l of cands) {
+            const d = Geo.distM(g.lat, g.lng, l.lat, l.lng);
+            if (d < bestD) { bestD = d; best = l; }
+          }
+          where = best
+            ? best.name.slice(0, 30) + ' · ' + (bestD >= 1000 ? (bestD / 1000).toFixed(1) + ' km' : bestD + ' m')
+            : g.lat.toFixed(6) + ',' + g.lng.toFixed(6) + ' ±' + Math.round(g.accuracy) + 'm';
+        }
         const stamp = [
           clientTs.slice(0, 16).replace('T', ' '),
-          g ? (g.lat.toFixed(6) + ',' + g.lng.toFixed(6) + ' ±' + Math.round(g.accuracy) + 'm') : 'GPS UNAVAILABLE',
-          acc.user.id + ' ' + markType
+          where,
+          acc.user.name.slice(0, 28) + ' — ' + markType
         ];
         photoBlob = await Camera.capture(video, stamp, (acc.config && acc.config.photoMaxKB) || 60);
       }
