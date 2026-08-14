@@ -8,7 +8,7 @@
 const Charts = (() => {
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const PAL = ['#1e8e3e', '#4285f4', '#f4b400', '#e37400', '#c5221f', '#7b1e3c', '#00897b', '#546e7a'];
+  const PAL = ['#4f5ce5', '#0ca38a', '#e8a020', '#e4572e', '#d13438', '#8b5cf6', '#2aa7d8', '#78829e'];
 
   function niceMax(v) {
     if (v <= 5) return 5;

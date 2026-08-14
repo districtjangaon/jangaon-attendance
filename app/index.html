@@ -3,17 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#006437">
+  <meta name="theme-color" content="#10142b">
   <title>AWC Attendance</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <header class="gov-header">
-    <div class="gov-line">Government of Telangana — WD&amp;CW, Jangaon</div>
-    <div class="app-title">AWC Attendance</div>
+    <img src="icons/emblem.svg" alt="Emblem of Telangana" class="gov-emblem">
+    <div class="gov-head-text">
+      <div class="gov-line">Government of Telangana &middot; WD&amp;CW Jangaon</div>
+      <div class="app-title">AWC Attendance</div>
+    </div>
     <button id="btn-refresh-app" class="menu-btn refresh-btn" title="Refresh app">&#8635;</button>
     <button id="btn-menu" class="menu-btn" hidden>&#9776;</button>
   </header>
@@ -151,7 +157,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v1.5-20260808-1745</footer>
+  <footer class="build-tag">BUILD: v1.6-20260814-1800</footer>
 
   <script src="js/config.js"></script>
   <script src="js/db.js"></script>

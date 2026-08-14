@@ -1,13 +1,27 @@
-/* Government of Telangana theme: deep green + gold on white. */
+/* Design system v2 — light theme.
+   Language taken from Ref/: Space Grotesk display type, JetBrains Mono
+   eyebrow/numeric labels, periwinkle-indigo + teal accents on light
+   surfaces, deep-navy header band with a gradient rule. */
 :root {
-  --ts-green: #006437;
-  --ts-green-dark: #004d2a;
-  --ts-gold: #f4b400;
-  --ok: #1e8e3e;
-  --warn: #e37400;
-  --err: #c5221f;
-  --ink: #1f1f1f;
-  --muted: #5f6368;
+  --ink: #10142b;          /* deep navy — also the header band */
+  --muted: #5b6178;
+  --bg: #f5f6fb;
+  --surface: #ffffff;
+  --line: #e3e6f2;
+  --primary: #4f5ce5;      /* periwinkle indigo */
+  --primary-dark: #3a46c4;
+  --primary-soft: #eef0fe;
+  --teal: #0ca38a;
+  --teal-soft: #e5f7f3;
+  --ok: #178a4c;
+  --ok-soft: #e6f5ec;
+  --warn: #d97706;
+  --warn-soft: #fdf0df;
+  --err: #d13438;
+  --err-soft: #fdeaea;
+  --grad: linear-gradient(90deg, #8b96f8, #34d3b6);
+  --font-display: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -17,22 +31,33 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-display);
   color: var(--ink);
-  background: #fafafa;
+  background: var(--bg);
   max-width: 480px;
   margin: 0 auto;
 }
 
+/* Header — navy band, emblem, mono eyebrow, gradient rule (per Ref) */
 .gov-header {
-  background: var(--ts-green);
+  background: var(--ink);
   color: #fff;
   padding: 10px 14px;
-  border-bottom: 4px solid var(--ts-gold);
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 3px solid transparent;
+  border-image: var(--grad) 1;
   position: relative;
 }
-.gov-line { font-size: 12px; opacity: .9; letter-spacing: .5px; }
-.app-title { font-size: 20px; font-weight: 700; }
+.gov-emblem { height: 38px; width: auto; flex: none; }
+.gov-head-text { min-width: 0; }
+.gov-line {
+  font-family: var(--font-mono);
+  font-size: 9px; font-weight: 500;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: #aab4ff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.app-title { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
 .menu-btn {
   position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   background: none; border: none; color: #fff; font-size: 24px; padding: 8px;
@@ -42,59 +67,80 @@ body {
 @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
 
 .banner { padding: 10px 14px; font-size: 14px; text-align: center; }
-.banner-offline { background: #fff3cd; color: #7a5c00; border-bottom: 1px solid #ffe08a; }
+.banner-offline { background: var(--warn-soft); color: #8a5200; border-bottom: 1px solid #f3ddb5; }
 
 .screen { padding: 20px 16px 40px; }
-h2 { margin-bottom: 14px; color: var(--ts-green-dark); }
+h2 {
+  margin-bottom: 14px; font-size: 22px; font-weight: 700;
+  letter-spacing: -.02em; color: var(--ink);
+}
 
-label { display: block; margin: 12px 0 4px; font-size: 14px; color: var(--muted); }
-input {
-  width: 100%; padding: 14px; font-size: 20px; border: 2px solid #ccc; border-radius: 8px;
+label {
+  display: block; margin: 14px 0 5px;
+  font-family: var(--font-mono);
+  font-size: 11px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--muted);
+}
+input, select {
+  width: 100%; padding: 14px; font-size: 20px;
+  font-family: var(--font-display);
+  border: 2px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--ink);
   letter-spacing: 2px;
 }
-input:focus { outline: none; border-color: var(--ts-green); }
+select { letter-spacing: normal; font-size: 17px; }
+input:focus, select:focus {
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
 
 .btn {
-  display: block; width: 100%; margin-top: 16px; padding: 16px; font-size: 18px;
-  font-weight: 700; border: none; border-radius: 10px; cursor: pointer;
+  display: block; width: 100%; margin-top: 16px; padding: 16px; font-size: 17px;
+  font-family: var(--font-display); font-weight: 700; letter-spacing: .02em;
+  border: none; border-radius: 12px; cursor: pointer;
 }
-.btn-primary { background: var(--ts-green); color: #fff; }
-.btn-primary:active { background: var(--ts-green-dark); }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:active { background: var(--primary-dark); }
 .btn-danger { background: var(--err); color: #fff; }
-.btn-plain { background: #eee; color: var(--ink); }
+.btn-plain { background: #e9ebf5; color: var(--ink); }
 .btn-small { padding: 10px; font-size: 14px; font-weight: 600; margin-top: 10px; }
 
 .msg { margin-top: 12px; font-size: 15px; color: var(--err); min-height: 20px; }
-.info { margin: 8px 0; font-size: 14px; color: var(--muted); }
-.hint { margin-top: 20px; font-size: 13px; color: var(--muted); }
+.info { margin: 8px 0; font-size: 14px; color: var(--muted); line-height: 1.5; }
+.hint { margin-top: 20px; font-size: 13px; color: var(--muted); line-height: 1.5; }
 
 /* Home — one primary action, nothing competing with it */
-.user-name { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
-.today-date { font-size: 14px; color: var(--muted); margin-bottom: 18px; }
+.user-name { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 2px; }
+.today-date {
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em;
+  color: var(--muted); margin-bottom: 18px;
+}
 .bigbtn {
   display: block; width: 100%; aspect-ratio: 1.6; max-height: 260px;
-  font-size: 64px; font-weight: 800; letter-spacing: 4px;
-  color: #fff; background: var(--ok); border: none; border-radius: 20px;
-  box-shadow: 0 4px 14px rgba(0,0,0,.2); cursor: pointer;
+  font-family: var(--font-display); font-size: 64px; font-weight: 700; letter-spacing: 4px;
+  color: #fff; background: var(--ok); border: none; border-radius: 22px;
+  box-shadow: 0 10px 24px rgba(23, 138, 76, .25); cursor: pointer;
 }
-.bigbtn.out { background: var(--warn); }
+.bigbtn.out { background: var(--warn); box-shadow: 0 10px 24px rgba(217, 119, 6, .25); }
 .bigbtn:active { transform: scale(.98); }
-.done-note { text-align: center; padding: 40px 0; color: var(--ok); font-size: 20px; font-weight: 600; }
+.done-note { text-align: center; padding: 40px 0; color: var(--ok); font-size: 20px; font-weight: 700; }
 .done-tick { font-size: 72px; }
 
 .statusbar { display: flex; gap: 8px; margin-top: 22px; }
 .st {
-  flex: 1; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
-  padding: 8px 6px; font-size: 12px; text-align: center; color: var(--muted);
+  flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 6px; font-size: 11px; text-align: center; color: var(--muted);
+  font-family: var(--font-mono); letter-spacing: .02em;
 }
 .st b { display: block; font-size: 15px; color: var(--ink); }
 .st.warn b { color: var(--warn); }
 .homerow { display: flex; gap: 10px; }
 .homerow .btn { flex: 1; }
 
-/* Camera — face-frame overlay + gold capture bar (per district UI sample) */
+/* Camera — face-frame overlay + teal capture bar */
 .cam-wrap {
-  width: 100%; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden;
+  width: 100%; aspect-ratio: 1; background: #000; border-radius: 14px; overflow: hidden;
   position: relative;
 }
 #cam-video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
@@ -113,10 +159,13 @@ input:focus { outline: none; border-color: var(--ts-green); }
   background-repeat: no-repeat;
   opacity: .85;
 }
-.gps-line { margin-top: 10px; font-size: 14px; color: var(--muted); text-align: center; }
-.gps-line.ok { color: var(--ok); }
+.gps-line {
+  margin-top: 10px; font-family: var(--font-mono); font-size: 12px;
+  letter-spacing: .04em; color: var(--muted); text-align: center;
+}
+.gps-line.ok { color: var(--teal); }
 .gps-line.bad { color: var(--warn); }
-.btn-capture { font-size: 20px; background: var(--ts-gold); color: #1f1f1f; }
+.btn-capture { font-size: 20px; background: var(--teal); color: #fff; }
 .btn-capture:active { filter: brightness(.92); }
 
 /* Success — unmistakable full-screen state, not a toast */
@@ -126,35 +175,37 @@ input:focus { outline: none; border-color: var(--ts-green); }
   text-align: center; padding: 24px;
 }
 .success-tick { font-size: 110px; line-height: 1; }
-.success-text { font-size: 30px; font-weight: 800; margin-top: 14px; }
+.success-text { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin-top: 14px; }
 .success-sub { font-size: 16px; margin-top: 10px; opacity: .95; }
 
 /* Who-am-I picker (shared centre phone) & switch-user list */
 .whoami-list { margin-top: 10px; }
 .whoami-btn {
-  display: block; width: 100%; text-align: left; background: #fff;
-  border: 2px solid #ccc; border-radius: 10px; padding: 12px 14px;
-  margin-bottom: 8px; font-size: 16px; cursor: pointer;
+  display: block; width: 100%; text-align: left; background: var(--surface);
+  font-family: var(--font-display);
+  border: 2px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  margin-bottom: 8px; font-size: 16px; color: var(--ink); cursor: pointer;
 }
 .whoami-btn b { display: block; font-size: 17px; }
 .whoami-btn span { font-size: 13px; color: var(--muted); }
-.whoami-btn.sel { border-color: var(--ts-green); background: #e8f3ec; }
+.whoami-btn.sel { border-color: var(--primary); background: var(--primary-soft); }
 .user-awc { font-size: 14px; color: var(--muted); }
 .privacy-note {
-  margin-top: 14px; padding: 10px; background: #f1f6f2; border-radius: 8px;
-  font-size: 12px; color: var(--muted); line-height: 1.5;
+  margin-top: 14px; padding: 10px 12px; background: var(--primary-soft);
+  border-radius: 10px; font-size: 12px; color: var(--muted); line-height: 1.5;
 }
 .build-tag {
-  text-align: center; font-size: 11px; color: #aaa; padding: 8px 0 16px;
+  text-align: center; font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .08em; color: #a6abc2; padding: 8px 0 16px;
 }
 
 /* History */
 .history-list { list-style: none; }
 .history-list li {
-  background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 12px; margin-bottom: 8px; font-size: 14px;
   display: flex; justify-content: space-between; align-items: center;
 }
 .history-list .tag { font-weight: 700; }
-.history-list .pend { color: var(--warn); font-size: 12px; }
-.history-list .sync { color: var(--ok); font-size: 12px; }
+.history-list .pend { color: var(--warn); font-family: var(--font-mono); font-size: 11px; }
+.history-list .sync { color: var(--teal); font-family: var(--font-mono); font-size: 11px; }

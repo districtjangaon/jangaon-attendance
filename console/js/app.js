@@ -223,7 +223,7 @@ const App = (() => {
   }
 
   // ---------------- Today / Dashboard ----------------
-  const PALETTE = ['#1e8e3e', '#4285f4', '#f4b400', '#e37400', '#c5221f', '#7b1e3c'];
+  const PALETTE = ['#4f5ce5', '#0ca38a', '#e8a020', '#e4572e', '#d13438', '#8b5cf6'];
 
   function bigcard(cls, k, v, sub) {
     return '<div class="bigcard ' + cls + '"><div class="k">' + esc(k) + '</div>' +
@@ -266,8 +266,8 @@ const App = (() => {
     }
     return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">' +
       '<line x1="' + PL + '" y1="' + (H - PB) + '" x2="' + (W - 6) + '" y2="' + (H - PB) + '" stroke="#ddd"/>' +
-      '<path d="' + area + '" fill="rgba(30,142,62,.18)"/>' +
-      '<path d="' + path + '" fill="none" stroke="#1e8e3e" stroke-width="2"/>' +
+      '<path d="' + area + '" fill="rgba(79,92,229,.14)"/>' +
+      '<path d="' + path + '" fill="none" stroke="#4f5ce5" stroke-width="2"/>' +
       '<text x="' + PL + '" y="12" font-size="11" fill="#555">' + mins.length + ' marked IN (cumulative)</text>' +
       labels + '</svg>';
   }
@@ -313,18 +313,18 @@ const App = (() => {
     const gf = { INSIDE: 0, OUTSIDE: 0, UNVERIFIED: 0 };
     rows.forEach(e => { if (e.gf && gf[e.gf] != null) gf[e.gf]++; });
     $('chart-verify').innerHTML = Charts.donut([
-      { label: 'Inside fence', value: gf.INSIDE, color: '#1e8e3e' },
-      { label: 'Outside fence', value: gf.OUTSIDE, color: '#e37400' },
-      { label: 'GPS unverified', value: gf.UNVERIFIED, color: '#9aa0a6' }
+      { label: 'Inside fence', value: gf.INSIDE, color: '#178a4c' },
+      { label: 'Outside fence', value: gf.OUTSIDE, color: '#d97706' },
+      { label: 'GPS unverified', value: gf.UNVERIFIED, color: '#9aa1b8' }
     ]);
 
     const st = { PRESENT: 0, LATE: 0, ON_LEAVE: 0, NOT_MARKED: 0 };
     rows.forEach(e => { if (!e.x && st[e.st] != null) st[e.st]++; });
     $('chart-status').innerHTML = Charts.donut([
-      { label: 'On time', value: st.PRESENT, color: '#1e8e3e' },
-      { label: 'Late', value: st.LATE, color: '#e37400' },
-      { label: 'On leave', value: st.ON_LEAVE, color: '#4285f4' },
-      { label: 'Not marked', value: st.NOT_MARKED, color: '#c5221f' }
+      { label: 'On time', value: st.PRESENT, color: '#178a4c' },
+      { label: 'Late', value: st.LATE, color: '#d97706' },
+      { label: 'On leave', value: st.ON_LEAVE, color: '#4f5ce5' },
+      { label: 'Not marked', value: st.NOT_MARKED, color: '#d13438' }
     ]);
   }
 
@@ -1037,7 +1037,7 @@ const App = (() => {
         '<th>Longest streak</th><th>Present</th><th>Late</th><th>Leave</th></tr>' +
         worst.map(u =>
           '<tr><td>' + esc(userName(u.uid)) + '</td><td>' + esc(sectorName(u.sc)) + '</td>' +
-          '<td><b style="color:#c5221f">' + u.absent + '</b></td><td>' + u.maxStreak +
+          '<td><b style="color:#d13438">' + u.absent + '</b></td><td>' + u.maxStreak +
           '</td><td>' + u.present + '</td><td>' + u.late + '</td><td>' + u.leave + '</td></tr>').join('') +
         '</table></div>' : '<p class="info">Nobody with unexplained absences. Excellent.</p>') + '</div>';
 
@@ -1060,7 +1060,7 @@ const App = (() => {
       '</b> (' + worstDay.pct + '%).');
     if (totLate) insights.push('<b>' + totLate + '</b> late marks; ' + (inBuckets[4] || 0) +
       ' IN marks after 11:00.');
-    if (flagCount.FAKE_GPS_SUSPECT) insights.push('<b style="color:#c5221f">' +
+    if (flagCount.FAKE_GPS_SUSPECT) insights.push('<b style="color:#d13438">' +
       flagCount.FAKE_GPS_SUSPECT + ' fake-GPS-suspect marks</b> — check the Flagged tab.');
     const streaky = worst.filter(u => u.maxStreak >= 3).length;
     if (streaky) insights.push('<b>' + streaky + '</b> worker(s) with 3+ consecutive unexplained absences.');
