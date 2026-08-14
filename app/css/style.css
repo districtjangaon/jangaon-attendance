@@ -42,7 +42,7 @@ body {
 .gov-header {
   background: var(--ink);
   color: #fff;
-  padding: 10px 14px;
+  padding: 10px 92px 10px 14px; /* right side reserved for the ↻ / ☰ buttons */
   display: flex; align-items: center; gap: 10px;
   border-bottom: 3px solid transparent;
   border-image: var(--grad) 1;
@@ -57,7 +57,10 @@ body {
   color: #aab4ff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.app-title { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.app-title {
+  font-size: 18px; font-weight: 700; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .menu-btn {
   position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   background: none; border: none; color: #fff; font-size: 24px; padding: 8px;
