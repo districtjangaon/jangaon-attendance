@@ -17,3 +17,6 @@ Error Snap/
 
 # Unrelated project files kept locally
 /RUNBOOK.md
+
+# Play Store packaging output — contains the signing keystore + passwords. NEVER commit.
+/Play/
