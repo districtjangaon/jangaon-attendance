@@ -286,6 +286,59 @@ input:focus, select:focus {
   letter-spacing: .08em; color: #a6abc2; padding: 8px 0 16px;
 }
 
+/* Admin mobile dashboard (district summary, phone-width) */
+.dash-stale {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+  margin-bottom: 10px; min-height: 15px;
+}
+.dash-stale.ok { color: var(--teal); }
+.dash-stale.warn { color: var(--warn); }
+.dash-stale.err { color: var(--err); }
+.dash-holiday {
+  background: var(--ink); color: #fff; border-radius: 10px;
+  padding: 10px 14px; font-weight: 600; margin-bottom: 10px;
+}
+.dash-bar-wrap {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.dash-bar { height: 12px; border-radius: 999px; background: #e9ebf5; overflow: hidden; }
+.dash-bar i { display: block; height: 100%; border-radius: 999px; background: var(--grad); }
+.dash-bar-label { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.dash-bar-label b { color: var(--ink); font-family: var(--font-mono); }
+.dash-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.dtile {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 4px; text-align: center;
+}
+.dtile b { display: block; font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--ink); }
+.dtile span {
+  font-family: var(--font-mono); font-size: 8px; font-weight: 500;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.dtile.ok b { color: var(--ok); }
+.dtile.warn b { color: var(--warn); }
+.dtile.err b { color: var(--err); }
+.dash-h {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--muted);
+  margin: 16px 0 6px;
+}
+.drow {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 6px; font-size: 14px;
+}
+.dr-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dr-nums { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.dr-pct {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  min-width: 44px; text-align: center; border-radius: 7px; padding: 2px 6px;
+}
+.dr-pct.ok { background: var(--ok-soft); color: var(--ok); }
+.dr-pct.warn { background: var(--warn-soft); color: var(--warn); }
+.dr-pct.err { background: var(--err-soft); color: var(--err); }
+
 /* History */
 .history-list { list-style: none; }
 .history-list li {

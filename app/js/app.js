@@ -14,7 +14,7 @@
 const App = (() => {
   const $ = id => document.getElementById(id);
   const screens = ['screen-login', 'screen-home', 'screen-users', 'screen-camera',
-    'screen-success', 'screen-history', 'screen-menu', 'screen-leave'];
+    'screen-success', 'screen-history', 'screen-menu', 'screen-leave', 'screen-dash'];
 
   let accounts = {};    // uid -> { token, user, config }
   let activeUid = null;
@@ -156,6 +156,9 @@ const App = (() => {
     $('btn-test-reset').onclick = testReset;
     $('btn-refresh-app').onclick = refreshApp;
     $('btn-notif').onclick = enableReminders;
+    $('btn-dash').onclick = () => { show('screen-dash'); renderDash(); };
+    $('btn-dash-refresh').onclick = renderDash;
+    $('btn-dash-back').onclick = goHome;
   }
 
   /** Header ↻: check for a new version and reload — works on every screen. */
@@ -407,6 +410,7 @@ const App = (() => {
     $('home-awc').textContent = acc.user.awcName || '';
     $('home-date').textContent = new Date().toDateString();
     $('btn-users').hidden = false;
+    $('btn-dash').hidden = acc.user.role !== 'ADMIN';
     const next = await nextAction();
     if (next) {
       $('btn-mark').hidden = false;
@@ -539,6 +543,93 @@ const App = (() => {
     } catch (e) { /* older browser: the in-app banner still reminds */ }
     const acc = active();
     if (acc) await renderHomeExtras(acc);
+  }
+
+  // ---------- admin mobile dashboard ----------
+  // Reads the same pre-computed summary JSON the console uses (never the raw
+  // sheet): today.json + meta.json each open, org.json names cached 7 days.
+  // Published data is pseudonymous (codes, no names/phones), and the button
+  // only shows for ADMIN accounts.
+  const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function dashRow(label, m, e, pc) {
+    const cls = pc >= 85 ? 'ok' : pc >= 70 ? 'warn' : 'err';
+    return '<div class="drow"><span class="dr-name">' + escH(label) + '</span>' +
+      '<span class="dr-nums">' + m + '/' + e + '</span>' +
+      '<span class="dr-pct ' + cls + '">' + pc + '%</span></div>';
+  }
+
+  async function renderDash() {
+    const el = $('dash-content'), stale = $('dash-stale');
+    el.innerHTML = '<p class="info">Loading district data&hellip;</p>';
+    stale.textContent = '';
+    stale.className = 'dash-stale';
+
+    let meta = null, today = null;
+    try {
+      const t = Date.now();
+      [meta, today] = await Promise.all([
+        fetch('../summary/meta.json?t=' + t).then(r => r.ok ? r.json() : null),
+        fetch('../summary/today.json?t=' + t).then(r => r.ok ? r.json() : null)
+      ]);
+    } catch (e) { /* offline */ }
+    if (!today || !today.district) {
+      el.innerHTML = '<p class="info">Could not load district data — the dashboard needs internet.</p>';
+      return;
+    }
+
+    let org = await DB.kvGet('org');
+    if (!org || Date.now() - org.at > 7 * 86400000) {
+      try {
+        const j = await (await fetch('../summary/org.json?t=' + Date.now())).json();
+        org = { at: Date.now(), sectors: j.sectors || [], projects: j.projects || [] };
+        await DB.kvSet('org', org);
+      } catch (e) { org = org || { sectors: [], projects: [] }; }
+    }
+    const secName = c => { const s = (org.sectors || []).find(x => x.code === c); return s ? s.name : c; };
+    const projName = c => { const p = (org.projects || []).find(x => x.code === c); return p ? p.name : c; };
+
+    const dataMin = Math.round((Date.now() - new Date(today.generatedAt).getTime()) / 60000);
+    const aliveMin = (meta && meta.checkedAt)
+      ? Math.round((Date.now() - new Date(meta.checkedAt).getTime()) / 60000) : dataMin;
+    stale.className = 'dash-stale ' + (aliveMin <= 40 ? 'ok' : aliveMin <= 90 ? 'warn' : 'err');
+    stale.textContent = (aliveMin <= 40 ? '✓ SYSTEM LIVE' : aliveMin <= 90 ? '⚠ UPDATES DELAYED' : '✖ NOT UPDATING') +
+      ' · DATA ' + (dataMin < 1 ? 'JUST NOW' : dataMin + ' MIN AGO');
+
+    const d = today.district;
+    const marked = d.in + d.late;
+    const pct = d.expected ? Math.round(100 * marked / d.expected) : 0;
+    const tile = (v, k, cls) =>
+      '<div class="dtile ' + (cls || '') + '"><b>' + v + '</b><span>' + k + '</span></div>';
+
+    let html = '';
+    if (today.holiday) html += '<div class="dash-holiday">' + escH(today.holiday) + ' — holiday today</div>';
+    html += '<div class="dash-bar-wrap"><div class="dash-bar"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="dash-bar-label"><b>' + marked + '</b> of <b>' + d.expected +
+      '</b> marked IN · <b>' + pct + '%</b></div></div>';
+    html += '<div class="dash-grid">' +
+      tile(d.in, 'On time', 'ok') + tile(d.late, 'Late', 'warn') +
+      tile(d.notMarked, 'Not marked', 'err') + tile(d.onLeave, 'On leave', '') +
+      tile(d.out, 'Marked out', '') + tile((today.exceptions || []).length, 'Flagged', 'warn') +
+      tile(d.outside, 'Outside fence', 'warn') + tile(d.unverified, 'GPS unverif.', '') +
+      '</div>';
+
+    html += '<div class="dash-h">Projects</div>' + (today.projects || []).map(p => {
+      const m = p.in + p.late, pc2 = p.expected ? Math.round(100 * m / p.expected) : 0;
+      return dashRow(projName(p.code), m, p.expected, pc2);
+    }).join('');
+
+    const secs = (today.sectors || []).filter(s => s.code && s.code !== '?' && s.expected > 0)
+      .map(s => ({ name: secName(s.code), m: s.in + s.late, e: s.expected,
+        pc: Math.round(100 * (s.in + s.late) / s.expected) }))
+      .sort((a, b) => b.pc - a.pc);
+    html += '<div class="dash-h">Best sectors</div>' +
+      secs.slice(0, 5).map(s => dashRow(s.name, s.m, s.e, s.pc)).join('');
+    html += '<div class="dash-h">Needs attention</div>' +
+      secs.slice(-5).reverse().map(s => dashRow(s.name, s.m, s.e, s.pc)).join('');
+
+    el.innerHTML = html;
   }
 
   /**
