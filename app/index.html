@@ -62,15 +62,47 @@
   </section>
 
   <!-- ============ HOME ============ -->
-  <section id="screen-home" class="screen" hidden>
-    <div id="home-name" class="user-name"></div>
-    <div id="home-awc" class="user-awc"></div>
-    <div id="home-date" class="today-date"></div>
+  <section id="screen-home" class="screen home-screen" hidden>
+    <div class="hero">
+      <div id="home-avatar" class="avatar">–</div>
+      <div class="hero-text">
+        <div id="home-greet" class="greet"></div>
+        <div id="home-name" class="user-name"></div>
+        <div id="home-awc" class="user-awc"></div>
+      </div>
+    </div>
 
-    <button id="btn-mark" class="bigbtn">IN</button>
-    <div id="mark-done" class="done-note" hidden>
-      <div class="done-tick">&#10003;</div>
-      <div>Attendance complete for today</div>
+    <div class="punch-card">
+      <div id="home-clock" class="clock">--:--</div>
+      <div id="home-date" class="today-date"></div>
+
+      <div id="remind-banner" class="remind" hidden>
+        <span id="remind-text"></span>
+        <button id="btn-notif" class="remind-btn" hidden>Enable reminders</button>
+      </div>
+
+      <button id="btn-mark" class="bigbtn">IN</button>
+      <div id="mark-done" class="done-note" hidden>
+        <div class="done-tick">&#10003;</div>
+        <div>Attendance complete for today</div>
+      </div>
+
+      <div class="times-row">
+        <div class="time-chip"><span>IN</span><b id="tt-in">–</b></div>
+        <div class="time-chip"><span>OUT</span><b id="tt-out">–</b></div>
+        <div class="time-chip"><span>Hours</span><b id="tt-hrs">–</b></div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat"><b id="stat-streak">–</b><span>day streak</span></div>
+      <div class="stat"><b id="stat-month">–</b><span>this month</span></div>
+      <div class="stat"><b id="stat-avgin">–</b><span>avg IN, 7d</span></div>
+    </div>
+
+    <div class="week-card">
+      <div class="week-title">Last 7 days</div>
+      <div id="week-strip" class="week-strip"></div>
     </div>
 
     <div class="statusbar">
@@ -157,7 +189,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v1.9-20260814-1900</footer>
+  <footer class="build-tag">BUILD: v2.0-20260815-1015</footer>
 
   <script src="js/config.js"></script>
   <script src="js/db.js"></script>

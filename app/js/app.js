@@ -114,8 +114,12 @@ const App = (() => {
     window.addEventListener('online', renderStatus);
     window.addEventListener('offline', renderStatus);
     bindEvents();
+    setInterval(() => { if (!$('screen-home').hidden) updateClock(); }, 20000);
 
     accounts = await DB.kvGet('accounts') || {};
+    if ('Notification' in window && Notification.permission === 'granted') {
+      registerPeriodicReminder();
+    }
     activeUid = await DB.kvGet('activeUid') || null;
     loadPlaces(); // async; stamp falls back gracefully until it arrives
     if (activeUid && !accounts[activeUid]) activeUid = Object.keys(accounts)[0] || null;
@@ -151,6 +155,7 @@ const App = (() => {
     $('btn-leave-submit').onclick = submitLeave;
     $('btn-test-reset').onclick = testReset;
     $('btn-refresh-app').onclick = refreshApp;
+    $('btn-notif').onclick = enableReminders;
   }
 
   /** Header ↻: check for a new version and reload — works on every screen. */
@@ -412,7 +417,142 @@ const App = (() => {
       $('btn-mark').hidden = true;
       $('mark-done').hidden = false;
     }
+    await renderHomeExtras(acc);
     renderStatus();
+  }
+
+  // ---------- home extras: clock, today's times, stats, 7-day trend ----------
+  function fmtDate(d) {
+    const p = n => String(n).padStart(2, '0');
+    return '' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate());
+  }
+
+  /** date(yyyymmdd) -> {IN:'HH:MM', OUT:'HH:MM'} for the active user, local stores only. */
+  async function myMarkMap() {
+    const map = {};
+    (await DB.all('queue')).concat(await DB.all('history')).forEach(r => {
+      const p = String(r.key).split('_');
+      if (p[0] !== activeUid) return;
+      (map[p[1]] = map[p[1]] || {})[p[2]] = String(r.clientTs || '').slice(11, 16);
+    });
+    return map;
+  }
+
+  function updateClock() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    $('home-clock').textContent = p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  async function renderHomeExtras(acc) {
+    updateClock();
+    const name = acc.user.name || '';
+    $('home-avatar').textContent =
+      name.split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '–';
+    const h = new Date().getHours();
+    $('home-greet').textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+
+    const map = await myMarkMap();
+    const today = map[todayCompact()] || {};
+    $('tt-in').textContent = today.IN || '–';
+    $('tt-out').textContent = today.OUT || '–';
+    let hrs = '–';
+    if (today.IN && today.OUT) {
+      const m = (Number(today.OUT.slice(0, 2)) * 60 + Number(today.OUT.slice(3))) -
+        (Number(today.IN.slice(0, 2)) * 60 + Number(today.IN.slice(3)));
+      if (m > 0) hrs = Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    }
+    $('tt-hrs').textContent = hrs;
+
+    // 7-day strip, today rightmost. Sundays shown neutral; a day with no mark
+    // is shown as '–' (could be leave/holiday — that data lives server-side).
+    const strip = $('week-strip');
+    strip.innerHTML = '';
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const m = map[fmtDate(d)] || {};
+      let cls = 'none', sym = '–';
+      if (d.getDay() === 0) { cls = 'sun'; sym = 'S'; }
+      else if (m.IN && m.OUT) { cls = 'full'; sym = '✓'; }
+      else if (m.IN) { cls = 'half'; sym = 'IN'; }
+      const cell = document.createElement('div');
+      cell.className = 'wd';
+      cell.innerHTML = 'SMTWTFS'[d.getDay()] + '<i class="' + cls + '">' + sym + '</i>';
+      strip.appendChild(cell);
+    }
+
+    const monthPrefix = todayCompact().slice(0, 6);
+    $('stat-month').textContent =
+      Object.keys(map).filter(k => k.startsWith(monthPrefix) && map[k].IN).length;
+
+    let streak = 0;
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      if (d.getDay() === 0) continue;              // Sundays never break a streak
+      const m = map[fmtDate(d)];
+      if (m && m.IN) streak++;
+      else if (i === 0) continue;                  // today may simply not be marked yet
+      else break;
+    }
+    $('stat-streak').textContent = streak;
+
+    const ins = [];
+    for (let i = 0; i < 7; i++) {
+      const m = map[fmtDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i))];
+      if (m && m.IN) ins.push(Number(m.IN.slice(0, 2)) * 60 + Number(m.IN.slice(3)));
+    }
+    if (ins.length) {
+      const avg = Math.round(ins.reduce((a, b) => a + b, 0) / ins.length);
+      const p = n => String(n).padStart(2, '0');
+      $('stat-avgin').textContent = p(Math.floor(avg / 60)) + ':' + p(avg % 60);
+    } else {
+      $('stat-avgin').textContent = '–';
+    }
+
+    renderReminder(acc, today);
+  }
+
+  /** In-app reminder banner + one-tap opt-in to background notifications. */
+  function renderReminder(acc, today) {
+    const txt = $('remind-text'), btn = $('btn-notif');
+    const sch = (acc.config && acc.config.schedule) || {};
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    const nowHM = p(d.getHours()) + ':' + p(d.getMinutes());
+    let msg = '';
+    if (d.getDay() !== 0) {
+      if (!today.IN && nowHM >= (sch.late_after || '09:30')) {
+        msg = '⏰ You have not marked IN yet today.';
+      } else if (today.IN && !today.OUT && nowHM >= (sch.out_end || '17:30')) {
+        msg = '⏰ Remember to mark OUT before leaving.';
+      }
+    }
+    const canAsk = ('Notification' in window) && Notification.permission === 'default';
+    btn.hidden = !canAsk;
+    txt.textContent = msg || (canAsk ? 'Get a reminder if you forget to mark IN or OUT.' : '');
+    $('remind-banner').hidden = !txt.textContent;
+  }
+
+  async function enableReminders() {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') await registerPeriodicReminder();
+    } catch (e) { /* older browser: the in-app banner still reminds */ }
+    const acc = active();
+    if (acc) await renderHomeExtras(acc);
+  }
+
+  /**
+   * Background reminders use Periodic Background Sync (Chrome, installed PWA).
+   * The browser decides actual firing times — best-effort by design; the
+   * in-app banner is the guaranteed path. No push service involved (₹0).
+   */
+  async function registerPeriodicReminder() {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if ('periodicSync' in reg) {
+        await reg.periodicSync.register('attendance-reminder', { minInterval: 60 * 60 * 1000 });
+      }
+    } catch (e) { /* unsupported browser: fine */ }
   }
 
   async function nextAction() {

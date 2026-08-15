@@ -7,7 +7,7 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v19';
+const CACHE = 'attendance-v20';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [
@@ -65,4 +65,81 @@ self.addEventListener('sync', e => {
       })
     );
   }
+});
+
+// ---------- attendance reminders ----------
+// Fired by Periodic Background Sync (Chrome, installed PWA, user opted in via
+// Notification permission). Timing is at the browser's discretion — this is
+// best-effort; the in-app banner is the guaranteed reminder. Reads the same
+// IndexedDB the app writes; notifies at most once per user per kind per day.
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('attendance_v1', 1);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+const idbReq = r => new Promise((res, rej) => {
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+
+async function reminderCheck() {
+  const now = new Date();
+  if (now.getDay() === 0) return; // Sunday
+  const p = n => String(n).padStart(2, '0');
+  const nowHM = p(now.getHours()) + ':' + p(now.getMinutes());
+  const today = '' + now.getFullYear() + p(now.getMonth() + 1) + p(now.getDate());
+
+  const db = await idbOpen();
+  const store = (name, mode) => db.transaction(name, mode || 'readonly').objectStore(name);
+  const accounts = (await idbReq(store('kv').get('accounts'))) || {};
+  const uids = Object.keys(accounts);
+  if (!uids.length) return;
+
+  const rows = (await idbReq(store('queue').getAll())).concat(await idbReq(store('history').getAll()));
+  const have = {}; // uid -> { IN:true, OUT:true } for today
+  rows.forEach(r => {
+    const q = String(r.key).split('_');
+    if (q[1] === today) (have[q[0]] = have[q[0]] || {})[q[2]] = true;
+  });
+
+  for (const uid of uids) {
+    const sch = (accounts[uid].config && accounts[uid].config.schedule) || {};
+    const name = (accounts[uid].user && accounts[uid].user.name) || '';
+    const h = have[uid] || {};
+    let kind = null, text = '';
+    if (!h.IN && nowHM >= (sch.late_after || '09:30') && nowHM <= '13:00') {
+      kind = 'IN'; text = name + ' — you have not marked IN attendance today.';
+    } else if (h.IN && !h.OUT && nowHM >= (sch.out_end || '17:30') && nowHM <= '21:00') {
+      kind = 'OUT'; text = name + ' — remember to mark OUT before the day ends.';
+    }
+    if (!kind) continue;
+    const flag = 'notified_' + uid + '_' + today + '_' + kind;
+    if (await idbReq(store('kv').get(flag))) continue;
+    await new Promise((res, rej) => {
+      const t = db.transaction('kv', 'readwrite');
+      t.objectStore('kv').put(Date.now(), flag);
+      t.oncomplete = res;
+      t.onerror = rej;
+    });
+    await self.registration.showNotification('Samridhi reminder', {
+      body: text,
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+      tag: flag
+    });
+  }
+}
+
+self.addEventListener('periodicsync', e => {
+  if (e.tag === 'attendance-reminder') e.waitUntil(reminderCheck().catch(() => {}));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(cs => cs.length ? cs[0].focus() : self.clients.openWindow('./'))
+  );
 });
