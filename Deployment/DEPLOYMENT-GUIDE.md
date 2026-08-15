@@ -8,11 +8,9 @@ needs to be reinstalled when the Play Store version arrives later.
 | What | Address |
 |---|---|
 | Field app (phones) | `https://districtjangaon.github.io/jangaon-attendance/app/` |
-| Monitoring console (office) | `https://districtjangaon.github.io/jangaon-attendance/console/` |
-| Privacy policy | `https://districtjangaon.github.io/jangaon-attendance/privacy.html` |
 
 **How to check which version a phone is running:** scroll to the bottom of any screen —
-the grey line reads `BUILD: v1.9-20260814-1900` (or newer). When reporting a problem,
+the grey line reads `BUILD: v2.1-20260815-1130` (or newer). When reporting a problem,
 always note this build number.
 
 ---
@@ -91,33 +89,7 @@ synced (✓) or pending.
 
 ---
 
-## Part D — Console operation (district admin team)
-
-Open the console address in Chrome on a PC (works on a phone too, in landscape).
-Sign in with your admin mobile number and PIN.
-
-- **Dashboard** — today's live picture: stat cards, in-time chart, sector top-10, geofence
-  verification, searchable staff table. The banner above the tabs shows **how fresh the
-  data is** (it regenerates every ~5 minutes on working days; the console never reads the
-  raw sheet directly).
-- **Analytics** — pick month + scope → Analyse (district-wide pulls all 27 sector files;
-  allow a few seconds).
-- **Flagged** — informational list: outside-geofence, GPS-unverified, fake-GPS suspects.
-  Attendance is auto-approved; nothing here blocks anyone's record.
-- **Monthly** — per-sector day-by-day grid; coloured cells, export CSV.
-- **Reports** — month × scope registers; working days exclude Sundays and state holidays.
-- **Leaves** — applications from the field app; rejecting one returns those days to
-  "not marked".
-- **Users & Admin** — search users; fix an AWC's geofence by standing at the centre and
-  capturing GPS.
-- **🌙 button** — dark mode for projector reviews.
-
-**After any backend change** (done by the technical admin): re-paste `COMBINED.gs` in the
-Apps Script editor and deploy a **New version** — the web app URL stays the same.
-
----
-
-## Part E — How updates reach phones
+## Part D — How updates reach phones
 
 The app updates itself. When a new build is published, each phone downloads it silently on
 the next open **with network** and reloads to the new version (never in the middle of a
@@ -131,7 +103,7 @@ Two things do **not** update automatically on already-installed phones:
 
 ---
 
-## Part F — Troubleshooting
+## Part E — Troubleshooting
 
 | # | Problem | Fix |
 |---|---------|-----|
@@ -146,10 +118,9 @@ Two things do **not** update automatically on already-installed phones:
 | 9 | Icon or app name still the old one after an update | Normal (see Part E). Remove the icon → Add to Home screen again. Login and pending marks survive. |
 | 10 | Phone was reset / Chrome data was cleared | The saved login and any **unsent** marks on that phone are gone (already-synced marks are safe on the server). Reinstall (Part A), log in again — the PIN is unchanged. |
 | 11 | Second worker can't log in on the shared phone | Home → **Switch user** → **+ Add another user** → her number and PIN. Each worker marks under her own name. |
-| 12 | Marked but console doesn't show it | Check the phone's Pending count (must be 0), then check the console banner's data age — the summary refreshes about every 5 minutes. Wait one refresh and press Refresh in the console. |
-| 13 | Console shows "delayed/stale data" banner | If it says the system is live but nothing new — that is normal on quiet hours. If it says delayed: the technical admin checks the Apps Script triggers (RUNBOOK). |
-| 14 | Wrong AWC location causing "outside geofence" flags for everyone at a centre | Admin: console → Users & Admin → "Fix an AWC's geofence" → stand at the centre → capture. |
-| 15 | Phone storage almost full | The app itself needs almost nothing, but Android may refuse the camera. Free some space (photos/videos), then retry. |
+| 12 | Marked, but the district office says it has not received it | Check the phone's Pending count on the home screen (must be 0). Office records refresh about every 5 minutes — ask them to check again after that. |
+| 13 | Every mark at a centre shows "outside geofence" | The centre's stored location is wrong or missing. Inform the district office — they can re-capture the centre's correct location; marks are never blocked meanwhile. |
+| 14 | Phone storage almost full | The app itself needs almost nothing, but Android may refuse the camera. Free some space (photos/videos), then retry. |
 
 **Escalation path:** worker → Anganwadi supervisor / sector → district office
 (district.jana@gmail.com) with: worker name, AWC, phone model, BUILD number, and a
@@ -157,7 +128,7 @@ screenshot of the problem.
 
 ---
 
-## Part G — Play Store track (running in parallel)
+## Part F — Play Store track (running in parallel)
 
 The Play Store version is the same app in an official wrapper. Until it is public,
 phones use Part A. Once published, new phones install from Play instead — both kinds
