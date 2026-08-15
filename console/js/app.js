@@ -474,6 +474,51 @@ const App = (() => {
   }
 
   // ---------------- Exceptions ----------------
+  let lastExc = []; // last rendered flagged list, so the tab click can mark it seen
+
+  function excSeenMap() {
+    try { return JSON.parse(localStorage.getItem('excSeen') || '{}'); } catch (e) { return {}; }
+  }
+
+  /** Badge counts only UNSEEN flagged marks; opening the tab clears it. */
+  function markExcSeen() {
+    const seen = excSeenMap();
+    lastExc.forEach(e => { seen[e.key] = Date.now(); });
+    const cut = Date.now() - 30 * 86400000; // keep the map bounded
+    Object.keys(seen).forEach(k => { if (seen[k] < cut) delete seen[k]; });
+    localStorage.setItem('excSeen', JSON.stringify(seen));
+    $('exc-count').hidden = true;
+  }
+
+  // Plain-language remark for each flagged mark; raw codes stay in the tooltip.
+  const FLAG_TEXT = {
+    NO_PHOTO: 'no photo captured',
+    NO_GPS: 'no GPS captured',
+    LATE_SYNC: 'synced more than a day late',
+    CLOCK_SKEW: 'phone clock wrong by 5+ minutes',
+    PERFECT_ACCURACY: 'GPS accuracy suspiciously perfect',
+    AT_CENTER_EXACT: 'exactly on the stored centre point',
+    REPEAT_COORDS: 'same coordinates as the previous mark',
+    REPEAT_COORDS_5D: 'identical coordinates 5 days in a row',
+    IMPOSSIBLE_VELOCITY: 'impossible travel speed between marks',
+    FAKE_GPS_SUSPECT: 'possible fake-GPS app',
+    OFFLINE_SYNC: 'marked offline, sent later'
+  };
+
+  function excRemark(e) {
+    const parts = [];
+    if (e.gf === 'OUTSIDE') parts.push('marked outside the centre geofence');
+    else if (e.gf === 'UNVERIFIED') parts.push('location could not be verified');
+    else if (e.gf === 'STATIC_COORDS') parts.push('coordinates never change');
+    String(e.fl || '').split(',').forEach(f => {
+      f = f.trim();
+      if (f) parts.push(FLAG_TEXT[f] || f.toLowerCase().replace(/_/g, ' '));
+    });
+    if (!parts.length) return '—';
+    const s = parts.join('; ');
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
   function renderExceptions() {
     const merged = [];
     const seen = {};
@@ -482,19 +527,28 @@ const App = (() => {
       seen[e.key] = 1;
       merged.push(e);
     });
-    $('exc-count').hidden = !merged.length;
-    $('exc-count').textContent = merged.length;
+    lastExc = merged;
+
+    const seenMap = excSeenMap();
+    const unseen = merged.filter(e => !seenMap[e.key]).length;
+    // Viewing the tab right now? Then everything on screen counts as seen.
+    if (unseen && !$('view-exceptions').hidden) markExcSeen();
+    else {
+      $('exc-count').hidden = !unseen;
+      $('exc-count').textContent = unseen;
+    }
 
     if (!merged.length) {
       $('exc-list').innerHTML = '<p class="info">Nothing to review. All marks inside geofence, no flags.</p>';
       return;
     }
     $('exc-list').innerHTML = '<table><tr><th>Name</th><th>Sector</th><th>Date</th><th>Type</th>' +
-      '<th>Time</th><th>Geofence</th><th>Flags</th><th>Photo</th></tr>' +
+      '<th>Time</th><th>Geofence</th><th>Remark</th><th>Photo</th></tr>' +
       merged.map(e =>
         '<tr><td>' + esc(userName(e.u)) + '</td><td>' + esc(sectorName(e.s)) + '</td><td>' +
         esc(e.d || (today && today.date) || '') + '</td><td>' + esc(e.t) + '</td><td>' + esc(e.at || '–') +
-        '</td><td>' + gfTag(e.gf) + '</td><td class="flags">' + esc(e.fl || '') + '</td><td>' +
+        '</td><td>' + gfTag(e.gf) + '</td><td class="remark" title="' + esc(e.fl || '') + '">' +
+        esc(excRemark(e)) + '</td><td>' +
         (e.ph ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(e.ph) + '">view</button>' : '') +
         '</td></tr>').join('') + '</table>';
 
@@ -1193,7 +1247,7 @@ const App = (() => {
       $('btn-theme').textContent = dark ? '☀️' : '🌙';
     };
     if (document.body.classList.contains('dark')) $('btn-theme').textContent = '☀️';
-    $('tab-exceptions').onclick = () => switchTab('exceptions');
+    $('tab-exceptions').onclick = () => { switchTab('exceptions'); markExcSeen(); };
     $('tab-monthly').onclick = () => switchTab('monthly');
     $('tab-reports').onclick = () => switchTab('reports');
     $('tab-leaves').onclick = () => switchTab('leaves');

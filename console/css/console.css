@@ -253,6 +253,7 @@ tr.click:hover { background: var(--primary-soft); }
 .tag.ON_LEAVE { background: var(--primary-soft); color: var(--primary-dark); }
 
 .flags { font-size: 11px; color: var(--warn); }
+td.remark { white-space: normal; min-width: 220px; max-width: 340px; font-size: 13px; color: #6b4e00; }
 
 .admin-block { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 6px; }
 
