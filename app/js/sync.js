@@ -22,7 +22,14 @@ const Sync = (() => {
   function schedule(reason) {
     const cfg = App.activeConfig;
     const jitterMax = (cfg && cfg.sync && cfg.sync.jitterMaxSec) || 90;
-    const delay = reason === 'manual' ? 0 : Math.floor(Math.random() * jitterMax * 1000);
+    // Fresh captures send almost immediately (0–8 s) — the user is watching.
+    // Herd triggers (online/foreground/bg/drain) keep the full jitter so
+    // hundreds of phones regaining network never stampede the endpoint;
+    // failure retries additionally back off exponentially below.
+    const capSec = reason === 'manual' ? 0
+      : reason === 'capture' ? Math.min(8, jitterMax)
+      : jitterMax;
+    const delay = Math.floor(Math.random() * capSec * 1000);
     clearTimeout(timer);
     timer = setTimeout(run, delay);
   }
