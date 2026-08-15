@@ -20,3 +20,6 @@ Error Snap/
 
 # Play Store packaging output — contains the signing keystore + passwords. NEVER commit.
 /Play/
+
+# Tester onboarding sheets — personal contact data, never public.
+/request/
