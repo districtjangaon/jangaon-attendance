@@ -7,14 +7,15 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v29';
+const CACHE = 'attendance-v30';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/config.js', './js/db.js', './js/api.js', './js/geo.js',
   './js/camera.js', './js/sync.js', './js/app.js',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.svg'
+  './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.svg',
+  './img/welcome.jpg'
 ];
 
 self.addEventListener('install', e => {

@@ -15,7 +15,7 @@ const App = (() => {
   const $ = id => document.getElementById(id);
   const screens = ['screen-login', 'screen-home', 'screen-users', 'screen-camera',
     'screen-success', 'screen-history', 'screen-menu', 'screen-leave', 'screen-dash',
-    'screen-report'];
+    'screen-report', 'screen-welcome'];
 
   let accounts = {};    // uid -> { token, user, config }
   let activeUid = null;
@@ -393,7 +393,7 @@ const App = (() => {
         await saveAccounts();
         resetLogin();
         await primePermissions();
-        await goHome();
+        showWelcome(res.config.user);
         Sync.schedule('login');
         return;
       }
@@ -423,6 +423,17 @@ const App = (() => {
     } finally {
       setBusy('btn-login', false);
     }
+  }
+
+  /** 10-second landing after login (photo + one line); tap skips straight home. */
+  let welcomeTimer = null;
+  function showWelcome(user) {
+    $('welcome-greet').textContent = 'Welcome, ' + (String(user.name || '').split(/\s+/)[0] || 'friend');
+    show('screen-welcome');
+    clearTimeout(welcomeTimer);
+    const done = () => { clearTimeout(welcomeTimer); goHome(); };
+    welcomeTimer = setTimeout(done, 10000);
+    $('screen-welcome').onclick = done;
   }
 
   /**

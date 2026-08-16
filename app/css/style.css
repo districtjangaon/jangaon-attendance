@@ -127,6 +127,42 @@ input:focus, select:focus {
 .info { margin: 8px 0; font-size: 17px; color: var(--muted); line-height: 1.5; }
 .hint { margin-top: 20px; font-size: 16px; color: var(--muted); line-height: 1.5; }
 
+/* Welcome landing — minimalist: one photo, one line, auto-continues. */
+.welcome-screen { text-align: center; padding-top: 26px; cursor: pointer; }
+.welcome-img {
+  width: 100%; max-height: 46vh; object-fit: cover;
+  border-radius: 16px; box-shadow: 0 14px 30px rgba(16, 20, 43, .18);
+  animation: fadeUp .6s ease backwards;
+}
+.welcome-greet {
+  margin-top: 22px; font-size: 28px; font-weight: 700; letter-spacing: -.02em;
+  animation: fadeUp .6s ease .15s backwards;
+}
+.welcome-text {
+  margin: 10px auto 0; max-width: 480px; font-size: 19px; line-height: 1.6;
+  color: var(--muted); animation: fadeUp .6s ease .3s backwards;
+}
+.welcome-sign {
+  margin-top: 16px; font-family: var(--font-mono); font-size: 11px;
+  font-weight: 500; letter-spacing: .18em; color: #b04a4a;
+  animation: fadeUp .6s ease .45s backwards;
+}
+.welcome-bar {
+  margin: 26px auto 0; width: min(320px, 70%); height: 4px;
+  border-radius: 999px; background: #e9ebf5; overflow: hidden;
+}
+.welcome-bar i { display: block; height: 100%; width: 0; background: #c62828;
+  animation: welcomeFill 10s linear forwards; }
+@keyframes welcomeFill { to { width: 100%; } }
+.welcome-hint {
+  margin-top: 10px; font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .1em; color: #a6abc2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-screen * { animation-duration: .01s !important; }
+  .welcome-bar i { animation: none; width: 100%; }
+}
+
 /* Home — punch-card layout: one primary action, live context around it */
 .home-screen { padding-top: 14px; }
 .hero { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
