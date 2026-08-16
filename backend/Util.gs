@@ -39,6 +39,9 @@ const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 
   'lat', 'lng', 'accuracy_m', 'geofence', 'awc_id', 'distance_m', 'photo_id',
   'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
+const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',
+  'lat', 'lng', 'accuracy_m', 'children', 'pregnant', 'others', 'meals',
+  'photo_child_id', 'photo_meal_id', 'flags'];
 
 // ---- policy constants ----
 const PIN_ITERATIONS = 4000;      // salted SHA-256 iterations (bcrypt does not exist in Apps Script)

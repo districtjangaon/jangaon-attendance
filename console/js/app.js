@@ -367,6 +367,16 @@ const App = (() => {
         bigcard('bc-grey', 'Flagged marks', agg.outside + agg.unverified,
           'outside fence ' + agg.outside + ' · GPS unverified ' + agg.unverified);
     }
+    // AWC daily reports (children / pregnant / others / meals) — district-wide
+    // totals from today.json; present only after the reporting backend ships.
+    if (today.rpt && drill.level === 'district') {
+      $('today-cards').innerHTML +=
+        bigcard('bc-teal', 'Children present', today.rpt.children,
+          'reported by ' + today.rpt.awcs + ' of ' + awcCount + ' AWCs') +
+        bigcard('bc-maroon', 'Pregnant women', today.rpt.pregnant,
+          'other beneficiaries ' + today.rpt.others) +
+        bigcard('bc-olive', 'Meals prepared', today.rpt.meals, 'as reported by centres');
+    }
     renderCharts(scopeRows);
 
     const crumb = [];

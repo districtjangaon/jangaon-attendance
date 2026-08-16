@@ -14,7 +14,8 @@
 const App = (() => {
   const $ = id => document.getElementById(id);
   const screens = ['screen-login', 'screen-home', 'screen-users', 'screen-camera',
-    'screen-success', 'screen-history', 'screen-menu', 'screen-leave', 'screen-dash'];
+    'screen-success', 'screen-history', 'screen-menu', 'screen-leave', 'screen-dash',
+    'screen-report'];
 
   let accounts = {};    // uid -> { token, user, config }
   let activeUid = null;
@@ -23,6 +24,9 @@ const App = (() => {
   let geoPromise = null;
   let geoResult = null;
   let markType = null;
+  let camMode = 'mark';                 // 'mark' | 'rpt-child' | 'rpt-meal'
+  let rptPhotos = { child: null, meal: null, geo: null };
+  let pendingOutAfterReport = false;    // OUT tapped before today's report existed
 
   const active = () => (activeUid && accounts[activeUid]) || null;
 
@@ -139,7 +143,10 @@ const App = (() => {
     });
     $('btn-mark').onclick = () => startMark();
     $('btn-capture').onclick = doCapture;
-    $('btn-cam-cancel').onclick = () => { Camera.stop(); goHome(); };
+    $('btn-cam-cancel').onclick = () => {
+      Camera.stop();
+      if (camMode === 'mark') goHome(); else openReport();
+    };
     $('btn-syncnow').onclick = () => { Sync.schedule('manual'); };
     $('btn-history').onclick = showHistory;
     $('btn-history-back').onclick = goHome;
@@ -159,6 +166,11 @@ const App = (() => {
     $('btn-dash').onclick = () => { show('screen-dash'); renderDash(); };
     $('btn-dash-refresh').onclick = renderDash;
     $('btn-dash-back').onclick = goHome;
+    $('report-chip').onclick = openReport;
+    $('btn-rp-back').onclick = () => { pendingOutAfterReport = false; goHome(); };
+    $('btn-rp-photo-child').onclick = () => openRptCamera('child');
+    $('btn-rp-photo-meal').onclick = () => openRptCamera('meal');
+    $('btn-rp-submit').onclick = submitReport;
   }
 
   /** Header ↻: check for a new version and reload — works on every screen. */
@@ -411,6 +423,16 @@ const App = (() => {
     $('home-date').textContent = new Date().toDateString();
     $('btn-users').hidden = false;
     $('btn-dash').hidden = acc.user.role !== 'ADMIN';
+    const chip = $('report-chip');
+    if (acc.user.role === 'FIELD') {
+      const done = await reportDoneToday();
+      chip.hidden = false;
+      chip.classList.toggle('done', done);
+      $('report-chip-text').textContent = done
+        ? '✓ Daily report submitted' : 'Daily report — fill before OUT';
+    } else {
+      chip.hidden = true;
+    }
     const next = await nextAction();
     if (next) {
       $('btn-mark').hidden = false;
@@ -615,6 +637,14 @@ const App = (() => {
       tile(d.outside, 'Outside fence', 'warn') + tile(d.unverified, 'GPS unverif.', '') +
       '</div>';
 
+    if (today.rpt) {
+      html += '<div class="dash-h">AWC daily reports · ' + today.rpt.awcs + ' centres reported</div>' +
+        '<div class="dash-grid">' +
+        tile(today.rpt.children, 'Children', 'ok') + tile(today.rpt.pregnant, 'Pregnant', '') +
+        tile(today.rpt.others, 'Others', '') + tile(today.rpt.meals, 'Meals', 'ok') +
+        '</div>';
+    }
+
     html += '<div class="dash-h">Projects</div>' + (today.projects || []).map(p => {
       const m = p.in + p.late, pc2 = p.expected ? Math.round(100 * m / p.expected) : 0;
       return dashRow(projName(p.code), m, p.expected, pc2);
@@ -703,11 +733,8 @@ const App = (() => {
   }
 
   // ---------- marking ----------
-  async function startMark() {
-    if (!active()) { resetLogin(); show('screen-login'); return; }
-    markType = await nextAction();
-    if (!markType) return;
-    $('cam-title').textContent = markType === 'IN' ? 'IN — take your photo' : 'OUT — take your photo';
+  async function openCamera(title) {
+    $('cam-title').textContent = title;
     $('cam-msg').textContent = '';
     show('screen-camera');
 
@@ -721,7 +748,7 @@ const App = (() => {
         gpsLine.textContent = 'GPS OK (±' + Math.round(g.accuracy) + ' m)';
         gpsLine.className = 'gps-line ok';
       } else {
-        gpsLine.textContent = 'GPS not available — attendance will still be saved';
+        gpsLine.textContent = 'GPS not available — the record will still be saved';
         gpsLine.className = 'gps-line bad';
       }
       return g;
@@ -730,14 +757,32 @@ const App = (() => {
     try {
       await Camera.start($('cam-video'));
     } catch (e) {
-      // Never block the mark: allow capture without photo, server flags NO_PHOTO.
-      $('cam-msg').textContent = 'Camera not available — you can still mark attendance.';
+      // Never block: allow capture without photo, server flags NO_PHOTO.
+      $('cam-msg').textContent = 'Camera not available — you can still save without a photo.';
     }
+  }
+
+  async function startMark() {
+    if (!active()) { resetLogin(); show('screen-login'); return; }
+    markType = await nextAction();
+    if (!markType) return;
+    // District rule: OUT requires today's centre report first. The report
+    // itself never blocks on GPS/photo failure, so this cannot lose a mark —
+    // after submit the OUT flow continues automatically.
+    if (markType === 'OUT' && !(await reportDoneToday())) {
+      pendingOutAfterReport = true;
+      openReport();
+      $('rpt-msg').textContent = 'Complete today\'s report — OUT continues after submit.';
+      return;
+    }
+    camMode = 'mark';
+    openCamera(markType === 'IN' ? 'IN — take your photo' : 'OUT — take your photo');
   }
 
   async function doCapture() {
     const acc = active();
     if (!acc) { Camera.stop(); resetLogin(); show('screen-login'); return; }
+    if (camMode !== 'mark') { await captureRptPhoto(acc); return; }
     $('btn-capture').disabled = true;
     try {
       const clientTs = localIso();
@@ -777,6 +822,123 @@ const App = (() => {
       setTimeout(goHome, 2500);
     } finally {
       $('btn-capture').disabled = false;
+    }
+  }
+
+  // ---------- daily report (children / pregnant / others / meals) ----------
+  /**
+   * Done when any account on this phone has today's RPT record for this AWC
+   * (queued or synced). A centre phone is shared by its AWT+AWH pair, so a
+   * device-local check covers the real sharing case; the server additionally
+   * dedupes per AWC when aggregating.
+   */
+  async function reportDoneToday() {
+    const acc = active();
+    const t = todayCompact();
+    const myAwc = String(acc.user.awcId || '');
+    const rows = (await DB.all('queue')).concat(await DB.all('history'));
+    return rows.some(r => {
+      const p = String(r.key).split('_');
+      if (p[1] !== t || p[2] !== 'RPT') return false;
+      return !r.awcId || !myAwc || String(r.awcId) === myAwc;
+    });
+  }
+
+  function openReport() {
+    $('rpt-msg').textContent = '';
+    updateRptPhotoButtons();
+    show('screen-report');
+  }
+
+  function updateRptPhotoButtons() {
+    $('btn-rp-photo-child').textContent = rptPhotos.child
+      ? '✓ Children photo taken — tap to retake' : '📷 Take children photo (live, geo-tagged)';
+    $('btn-rp-photo-child').classList.toggle('taken', !!rptPhotos.child);
+    $('btn-rp-photo-meal').textContent = rptPhotos.meal
+      ? '✓ Meal photo taken — tap to retake' : '📷 Take meal photo (live, geo-tagged)';
+    $('btn-rp-photo-meal').classList.toggle('taken', !!rptPhotos.meal);
+  }
+
+  function openRptCamera(kind) {
+    camMode = 'rpt-' + kind;
+    openCamera(kind === 'child' ? 'Children present — take photo' : 'Meal prepared — take photo');
+  }
+
+  async function captureRptPhoto(acc) {
+    $('btn-capture').disabled = true;
+    try {
+      const clientTs = localIso();
+      const g = geoResult ||
+        (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
+      const kind = camMode === 'rpt-child' ? 'child' : 'meal';
+      const video = $('cam-video');
+      if (video.srcObject && video.videoWidth > 0) {
+        const stamp = [
+          clientTs.slice(0, 16).replace('T', ' '),
+          placeLine(g, acc.config),
+          (kind === 'child' ? 'CHILDREN PRESENT' : 'MEAL PREPARED') + ' — ' + acc.user.name.slice(0, 20)
+        ];
+        rptPhotos[kind] = await Camera.capture(video, stamp,
+          (acc.config && acc.config.photoMaxKB) || 60);
+        if (g) rptPhotos.geo = g;
+      } else {
+        $('cam-msg').textContent = 'No camera image — go back and submit without this photo.';
+        return;
+      }
+      Camera.stop();
+      openReport();
+    } finally {
+      $('btn-capture').disabled = false;
+    }
+  }
+
+  async function submitReport() {
+    const acc = active();
+    if (!acc) { resetLogin(); show('screen-login'); return; }
+    const msg = $('rpt-msg');
+    msg.textContent = '';
+    if (await reportDoneToday()) {
+      msg.textContent = 'Today\'s report is already submitted for this centre.';
+      return;
+    }
+    const num = id => Math.min(999, Math.max(0, Math.round(Number($(id).value) || 0)));
+    const missing = [];
+    if (!rptPhotos.child) missing.push('children photo');
+    if (!rptPhotos.meal) missing.push('meal photo');
+    if (missing.length &&
+        !confirm('No ' + missing.join(' and no ') + '. Submit anyway? It will be flagged.')) {
+      return;
+    }
+    $('btn-rp-submit').disabled = true;
+    try {
+      const g = rptPhotos.geo || (await Geo.capture(5000));
+      const record = {
+        key: acc.user.id + '_' + todayCompact() + '_RPT',
+        type: 'RPT',
+        clientTs: localIso(),
+        lat: g ? Number(g.lat.toFixed(6)) : '',
+        lng: g ? Number(g.lng.toFixed(6)) : '',
+        accuracy: g ? Math.round(g.accuracy) : '',
+        netState: navigator.onLine ? 'ONLINE' : 'OFFLINE',
+        awcId: String(acc.user.awcId || ''),
+        children: num('rp-children'), pregnant: num('rp-pregnant'),
+        others: num('rp-others'), meals: num('rp-meals'),
+        photoBlob: rptPhotos.child, photoBlob2: rptPhotos.meal
+      };
+      await Sync.enqueue(record);
+      ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals'].forEach(id => { $(id).value = ''; });
+      rptPhotos = { child: null, meal: null, geo: null };
+
+      $('success-text').textContent = 'Daily report saved';
+      $('success-sub').textContent = navigator.onLine
+        ? 'Sending to server…'
+        : 'You are offline — it will be sent automatically when network returns.';
+      show('screen-success');
+      const continueOut = pendingOutAfterReport;
+      pendingOutAfterReport = false;
+      setTimeout(() => { if (continueOut) startMark(); else goHome(); }, 1800);
+    } finally {
+      $('btn-rp-submit').disabled = false;
     }
   }
 

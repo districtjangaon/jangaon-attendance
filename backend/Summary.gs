@@ -195,9 +195,34 @@ function buildToday_() {
     });
   });
 
+  // Today's AWC daily reports (children / pregnant women / others / meals).
+  // One report per AWC counts — if both workers of a centre submitted, the
+  // first row wins. Only the sheet tail is read (≤ ~800 rows), same budget
+  // philosophy as the marks read above.
+  const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0 };
+  const rsh = ss.getSheetByName('Reports');
+  if (rsh && rsh.getLastRow() >= 2) {
+    const rStart = Math.max(2, rsh.getLastRow() - 800);
+    const rvals = rsh.getRange(rStart, 1, rsh.getLastRow() - rStart + 1, RPT_H.length).getValues();
+    const rptByAwc = {};
+    for (const v of rvals) {
+      const o = rowToObj_(RPT_H, v);
+      if (String(o.date) !== todayCompact) continue;
+      const aid = String(o.awc_id) || String(o.user_id);
+      if (rptByAwc[aid]) continue;
+      rptByAwc[aid] = 1;
+      rpt.awcs++;
+      rpt.children += Number(o.children) || 0;
+      rpt.pregnant += Number(o.pregnant) || 0;
+      rpt.others += Number(o.others) || 0;
+      rpt.meals += Number(o.meals) || 0;
+    }
+  }
+
   const generatedAt = nowIso_();
   const todayJson = {
     generatedAt: generatedAt, date: today, holiday: holidayName || null, district: district,
+    rpt: rpt,
     projects: Object.keys(projects).sort().map(pc => Object.assign({ code: pc }, projects[pc])),
     sectors: Object.keys(sectors).sort().map(sc =>
       Object.assign({ code: sc, project: sectorProject[sc] || '' }, sectors[sc])),

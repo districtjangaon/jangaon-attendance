@@ -72,7 +72,12 @@ const Sync = (() => {
             deviceId: deviceId,
             appVersion: window.APP_CONFIG.VERSION,
             netState: item.netState,
-            photoB64: item.photoBlob ? await blobToB64(item.photoBlob) : ''
+            photoB64: item.photoBlob ? await blobToB64(item.photoBlob) : '',
+            // Daily-report (RPT) extras; undefined on plain marks, which
+            // JSON.stringify simply omits.
+            photo2B64: item.photoBlob2 ? await blobToB64(item.photoBlob2) : undefined,
+            children: item.children, pregnant: item.pregnant,
+            others: item.others, meals: item.meals
           });
         }
         let res;
@@ -90,12 +95,17 @@ const Sync = (() => {
             if (ack.status === 'OK' || ack.status === 'DUP') {
               if (item) {
                 await DB.put('history', {
-                  key: item.key, type: item.type, clientTs: item.clientTs, synced: true
+                  key: item.key, type: item.type, clientTs: item.clientTs,
+                  awcId: item.awcId, synced: true
                 });
               }
               await DB.del('queue', ack.key);
             } else if (ack.status === 'REJECTED') {
-              await DB.del('queue', ack.key); // malformed/foreign key: drop, never loops
+              // Malformed/foreign key: drop, never loops. EXCEPT daily-report
+              // records — a backend deployed before the report feature rejects
+              // their key format; keep them queued so nothing is lost across
+              // the upgrade window (the app only ever builds well-formed keys).
+              if (!/_RPT$/.test(ack.key)) await DB.del('queue', ack.key);
             }
           }
         } else if (res.code === 'BUSY') {

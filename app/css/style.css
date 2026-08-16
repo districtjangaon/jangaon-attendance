@@ -184,6 +184,16 @@ input:focus, select:focus {
 }
 .time-chip b { font-family: var(--font-mono); font-size: 16px; color: var(--ink); }
 
+.report-chip {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  margin-top: 12px; padding: 13px 16px; border-radius: 12px; cursor: pointer;
+  font-family: var(--font-display); font-size: 15px; font-weight: 600; text-align: left;
+  background: var(--warn-soft); color: #8a5200; border: 1px solid #f3ddb5;
+}
+.report-chip.done { background: var(--ok-soft); color: var(--ok); border-color: #cfe9da; }
+.rc-arrow { font-size: 22px; line-height: 1; opacity: .7; }
+.photo-btn.taken { background: var(--ok-soft); color: var(--ok); }
+
 .stats-row { display: flex; gap: 8px; margin-top: 12px; }
 .stat {
   flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;

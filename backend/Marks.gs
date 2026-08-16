@@ -25,7 +25,9 @@ function apiSync_(auth, req) {
   const prepared = [];
   for (const rec of records) {
     const key = String(rec.key || '');
-    const m = key.match(/^(U\d+)_(\d{8})_(IN|OUT)$/);
+    // RPT = the AWC daily report (children/pregnant/others/meals + 2 photos);
+    // same idempotency scheme as marks: one per user per day.
+    const m = key.match(/^(U\d+)_(\d{8})_(IN|OUT|RPT)$/);
     if (!m || m[1] !== String(user.user_id)) {
       // A client may only ever write its own marks — enforced from the token.
       // On a shared centre phone each user syncs under their own session.
@@ -43,7 +45,21 @@ function apiSync_(auth, req) {
   // and a failed photo upload must never block the attendance record.
   for (const it of prepared) {
     it.photoId = '';
+    it.photo2Id = '';
     it.photoFlag = '';
+    if (it.type === 'RPT') {
+      const fl = [];
+      if (it.rec.photoB64) {
+        try { it.photoId = storePhoto_(it.dateStr, it.key + '_C', String(it.rec.photoB64)); }
+        catch (err) { fl.push('UPLOAD_FAILED'); }
+      } else fl.push('NO_PHOTO_CHILDREN');
+      if (it.rec.photo2B64) {
+        try { it.photo2Id = storePhoto_(it.dateStr, it.key + '_M', String(it.rec.photo2B64)); }
+        catch (err) { fl.push('UPLOAD_FAILED_MEAL'); }
+      } else fl.push('NO_PHOTO_MEAL');
+      it.photoFlag = fl.join(',');
+      continue;
+    }
     if (it.rec.photoB64) {
       try {
         it.photoId = storePhoto_(it.dateStr, it.key, String(it.rec.photoB64));
@@ -72,10 +88,14 @@ function apiSync_(auth, req) {
     Object.keys(byMonth).forEach(ym => {
       const ss = getMonthSS_(ym);
       const sh = ss.getSheetByName('Marks');
-      const rows = [];
+      const rows = [], rrows = [];
       byMonth[ym].forEach(it => {
-        if (findRowByValue_(sh, 1, it.key)) {
+        const target = it.type === 'RPT' ? reportsSheet_(ss) : sh;
+        if (findRowByValue_(target, 1, it.key)) {
           acks.push({ key: it.key, status: 'DUP' });
+        } else if (it.type === 'RPT') {
+          rrows.push(buildReportRow_(user, it, serverMs));
+          acks.push({ key: it.key, status: 'OK' });
         } else {
           rows.push(buildMarkRow_(user, it, skewSec, serverMs));
           acks.push({ key: it.key, status: 'OK' });
@@ -84,6 +104,10 @@ function apiSync_(auth, req) {
       });
       if (rows.length) {
         sh.getRange(sh.getLastRow() + 1, 1, rows.length, MARKS_H.length).setValues(rows);
+      }
+      if (rrows.length) {
+        const rsh = reportsSheet_(ss);
+        rsh.getRange(rsh.getLastRow() + 1, 1, rrows.length, RPT_H.length).setValues(rrows);
       }
     });
   } finally {
@@ -194,6 +218,36 @@ function getDailyFolder_(day) {
  * gets here (LockService locks are not reentrant); trigger paths must acquire
  * the lock before calling with creation enabled.
  */
+/** Reports tab of a monthly file; created on demand so pre-existing month
+ *  files (made before the daily-report feature) work without migration. */
+function reportsSheet_(ss) {
+  let sh = ss.getSheetByName('Reports');
+  if (!sh) {
+    sh = ss.insertSheet('Reports');
+    sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
+    sh.getRange('A:Q').setNumberFormat('@');
+  }
+  return sh;
+}
+
+function buildReportRow_(user, it, serverMs) {
+  const rec = it.rec;
+  const hasFix = rec.lat != null && rec.lat !== '' && rec.lng != null && rec.lng !== '';
+  const n = v => {
+    const x = Math.round(Number(v));
+    return isFinite(x) && x >= 0 ? Math.min(x, 999) : 0;
+  };
+  return [
+    it.key, String(user.user_id), String(user.sector_code), String(user.awc_id),
+    it.dateStr, String(rec.clientTs || ''), fmtIso_(serverMs),
+    hasFix ? Number(Number(rec.lat).toFixed(6)) : '',
+    hasFix ? Number(Number(rec.lng).toFixed(6)) : '',
+    rec.accuracy != null && rec.accuracy !== '' ? Math.round(Number(rec.accuracy)) : '',
+    n(rec.children), n(rec.pregnant), n(rec.others), n(rec.meals),
+    it.photoId, it.photo2Id, it.photoFlag
+  ];
+}
+
 function getMonthSS_(ym, noCreate) {
   const prop = 'ATT_' + ym;
   let id = PROPS.getProperty(prop);
