@@ -375,6 +375,7 @@ const App = (() => {
         activeUid = uid;
         await saveAccounts();
         resetLogin();
+        await primePermissions();
         await goHome();
         Sync.schedule('login');
         return;
@@ -405,6 +406,25 @@ const App = (() => {
     } finally {
       setBusy('btn-login', false);
     }
+  }
+
+  /**
+   * Ask for camera + location up front, right after the first login on this
+   * device, so the first real attendance mark is never interrupted by
+   * permission popups. One-time; denial never blocks anything — the marking
+   * flow already degrades gracefully (NO_PHOTO / GPS UNVERIFIED).
+   */
+  async function primePermissions() {
+    if (await DB.kvGet('permsPrimed')) return;
+    await DB.kvSet('permsPrimed', 1);
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: true });
+      s.getTracks().forEach(t => t.stop());
+    } catch (e) { /* denied or no camera: fine */ }
+    try {
+      await new Promise(res => navigator.geolocation.getCurrentPosition(
+        () => res(), () => res(), { timeout: 8000, maximumAge: 60000 }));
+    } catch (e) { /* no geolocation API: fine */ }
   }
 
   async function doLogout() {
