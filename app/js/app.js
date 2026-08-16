@@ -371,6 +371,23 @@ const App = (() => {
       const res = await Api.post(body);
       if (res.ok) {
         const uid = res.config.user.id;
+        // Device policy: one phone carries at most its centre pair — exactly
+        // one AWT and one AWH. (Admin/console accounts are not restricted.)
+        if (!accounts[uid] && res.config.user.role === 'FIELD') {
+          const fieldUsers = Object.values(accounts).map(a => a.user)
+            .filter(u => u.role === 'FIELD');
+          if (fieldUsers.length >= 2) {
+            msg.textContent = 'This phone already has its two users (AWT + AWH). Logout one first.';
+            return;
+          }
+          if (fieldUsers.some(u => u.cadre === res.config.user.cadre)) {
+            msg.textContent = 'Only one ' +
+              (res.config.user.cadre === 'AWT' ? 'Teacher (AWT)' : 'Helper (AWH)') +
+              ' can use this phone — the second user must be the ' +
+              (res.config.user.cadre === 'AWT' ? 'Helper (AWH)' : 'Teacher (AWT)') + '.';
+            return;
+          }
+        }
         accounts[uid] = { token: res.token, user: res.config.user, config: res.config };
         activeUid = uid;
         await saveAccounts();
@@ -768,6 +785,8 @@ const App = (() => {
   async function showUsers() {
     const list = $('users-list');
     list.innerHTML = '';
+    $('btn-adduser').hidden = Object.values(accounts)
+      .filter(a => a.user.role === 'FIELD').length >= 2; // AWT + AWH only
     const queue = await DB.all('queue');
     Object.keys(accounts).forEach(uid => {
       const u = accounts[uid].user;
@@ -969,9 +988,18 @@ const App = (() => {
     }
     const num = id => Math.min(999, Math.max(0, Math.round(Number($(id).value) || 0)));
     const kg = id => Math.min(9999, Math.max(0, Math.round((Number($(id).value) || 0) * 10) / 10));
-    const missing = Object.keys(RPT_KINDS).filter(k => !rptPhotos[k]).map(k => RPT_KINDS[k].label);
-    if (missing.length &&
-        !confirm('Missing: ' + missing.join(', ') + '. Submit anyway? It will be flagged.')) {
+    // District rule: EVERY field and ALL FOUR photos are compulsory. A value
+    // of 0 is fine, but it must be typed — blanks don't pass.
+    const FIELD_LABELS = {
+      'rp-children': 'children count', 'rp-pregnant': 'pregnant women count',
+      'rp-others': 'other beneficiaries count', 'rp-meals': 'meals count',
+      'rp-eggs': 'eggs count', 'rp-rice': 'rice KG', 'rp-pulses': 'pulses KG'
+    };
+    const missing = Object.keys(FIELD_LABELS)
+      .filter(id => $(id).value.trim() === '').map(id => FIELD_LABELS[id])
+      .concat(Object.keys(RPT_KINDS).filter(k => !rptPhotos[k]).map(k => RPT_KINDS[k].label));
+    if (missing.length) {
+      msg.textContent = 'Required: ' + missing.join(', ') + '.';
       return;
     }
     setBusy('btn-rp-submit', true, 'Saving report…');
