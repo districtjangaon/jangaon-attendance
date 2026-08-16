@@ -23,3 +23,8 @@ Error Snap/
 
 # Tester onboarding sheets — personal contact data, never public.
 /request/
+
+# clasp deploy plumbing: script id lives in .clasp.json (never commit ids);
+# Code.gs is a generated copy of COMBINED.gs
+backend/clasp/.clasp.json
+backend/clasp/Code.gs
