@@ -7,7 +7,7 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v24';
+const CACHE = 'attendance-v25';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [
@@ -107,10 +107,13 @@ async function reminderCheck() {
   for (const uid of uids) {
     const sch = (accounts[uid].config && accounts[uid].config.schedule) || {};
     const name = (accounts[uid].user && accounts[uid].user.name) || '';
+    const cadre = (accounts[uid].user && accounts[uid].user.cadre) || '';
     const h = have[uid] || {};
     let kind = null, text = '';
     if (!h.IN && nowHM >= (sch.late_after || '09:30') && nowHM <= '13:00') {
       kind = 'IN'; text = name + ' — you have not marked IN attendance today.';
+    } else if (cadre === 'AWT' && h.IN && !h.RPT && nowHM >= '12:00' && nowHM <= '17:00') {
+      kind = 'RPT'; text = name + ' — today\'s centre report (children, meals, stock) is not filled yet.';
     } else if (h.IN && !h.OUT && nowHM >= (sch.out_end || '17:30') && nowHM <= '21:00') {
       kind = 'OUT'; text = name + ' — remember to mark OUT before the day ends.';
     }

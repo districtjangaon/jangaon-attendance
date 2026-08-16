@@ -26,7 +26,6 @@ const App = (() => {
   let markType = null;
   let camMode = 'mark';                 // 'mark' | 'rpt-child'|'rpt-preg'|'rpt-others'|'rpt-meal'
   let rptPhotos = { child: null, preg: null, others: null, meal: null, geo: null };
-  let pendingOutAfterReport = false;    // OUT tapped before today's report existed
 
   const active = () => (activeUid && accounts[activeUid]) || null;
 
@@ -167,7 +166,7 @@ const App = (() => {
     $('btn-dash-refresh').onclick = renderDash;
     $('btn-dash-back').onclick = goHome;
     $('report-chip').onclick = openReport;
-    $('btn-rp-back').onclick = () => { pendingOutAfterReport = false; goHome(); };
+    $('btn-rp-back').onclick = goHome;
     $('btn-rp-photo-child').onclick = () => openRptCamera('child');
     $('btn-rp-photo-preg').onclick = () => openRptCamera('preg');
     $('btn-rp-photo-others').onclick = () => openRptCamera('others');
@@ -537,11 +536,13 @@ const App = (() => {
       $('stat-avgin').textContent = '–';
     }
 
-    renderReminder(acc, today);
+    const rptDone = acc.user.cadre === 'AWT' ? await reportDoneToday() : true;
+    renderReminder(acc, today, rptDone);
   }
 
-  /** In-app reminder banner + one-tap opt-in to background notifications. */
-  function renderReminder(acc, today) {
+  /** In-app reminder banner (IN / daily report / OUT, most urgent first)
+   *  + one-tap opt-in to background notifications. */
+  function renderReminder(acc, today, rptDone) {
     const txt = $('remind-text'), btn = $('btn-notif');
     const sch = (acc.config && acc.config.schedule) || {};
     const d = new Date(), p = n => String(n).padStart(2, '0');
@@ -550,6 +551,8 @@ const App = (() => {
     if (d.getDay() !== 0) {
       if (!today.IN && nowHM >= (sch.late_after || '09:30')) {
         msg = '⏰ You have not marked IN yet today.';
+      } else if (today.IN && !rptDone && nowHM >= '12:00') {
+        msg = '📝 Today\'s report is not filled yet — needed before OUT.';
       } else if (today.IN && !today.OUT && nowHM >= (sch.out_end || '17:30')) {
         msg = '⏰ Remember to mark OUT before leaving.';
       }
@@ -774,13 +777,13 @@ const App = (() => {
     if (!active()) { resetLogin(); show('screen-login'); return; }
     markType = await nextAction();
     if (!markType) return;
-    // District rule: OUT requires today's centre report first — AWT (Teacher)
-    // only; the AWH is exempt. The report itself never blocks on GPS/photo
-    // failure, so this cannot lose a mark — after submit OUT continues.
+    // District rule: OUT requires today's centre report to exist — AWT
+    // (Teacher) only; the AWH is exempt. The report can be filled any time
+    // of day; OUT is NOT chained after it — the worker marks OUT whenever
+    // she actually leaves.
     if (markType === 'OUT' && active().user.cadre === 'AWT' && !(await reportDoneToday())) {
-      pendingOutAfterReport = true;
       openReport();
-      $('rpt-msg').textContent = 'Complete today\'s report — OUT continues after submit.';
+      $('rpt-msg').textContent = 'Complete today\'s report first — then mark OUT anytime.';
       return;
     }
     camMode = 'mark';
@@ -952,9 +955,7 @@ const App = (() => {
         ? 'Sending to server…'
         : 'You are offline — it will be sent automatically when network returns.';
       show('screen-success');
-      const continueOut = pendingOutAfterReport;
-      pendingOutAfterReport = false;
-      setTimeout(() => { if (continueOut) startMark(); else goHome(); }, 1800);
+      setTimeout(goHome, 1800);
     } finally {
       $('btn-rp-submit').disabled = false;
     }
