@@ -155,6 +155,7 @@ const App = (() => {
     renderStale();
     renderToday();
     renderExceptions();
+    renderRpts();
   }
 
   function renderStale() {
@@ -563,6 +564,66 @@ const App = (() => {
         '</td></tr>').join('') + '</table>';
 
     bindPhotoButtons($('exc-list'));
+  }
+
+  // ---------------- Daily Reports (AWC diary: children / pregnant / others / meals) ----------------
+  function rptRowsFiltered() {
+    const q = ($('rpts-search').value || '').trim().toLowerCase();
+    return ((today && today.rpts) || []).filter(r => {
+      if (!inScopeUid(r.u)) return false;
+      if (!q) return true;
+      return (awcName(r.a) + ' ' + sectorName(r.s) + ' ' + userName(r.u)).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function renderRpts() {
+    const wrap = $('rpts-table'), info = $('rpts-summary');
+    const agg = today && today.rpt;
+    const awcTotal = Object.keys(names.awcs || {}).length;
+    if (!agg) {
+      info.textContent = '';
+      wrap.innerHTML = '<p class="info">No report data published yet. AWC daily reports appear here ' +
+        'within ~5 minutes of centres submitting them from the app (backend v2.3+).</p>';
+      return;
+    }
+    info.innerHTML = '<b>' + agg.awcs + '</b> of ' + awcTotal + ' AWCs reported today &middot; ' +
+      'children <b>' + agg.children + '</b> &middot; pregnant women <b>' + agg.pregnant + '</b> &middot; ' +
+      'other beneficiaries <b>' + agg.others + '</b> &middot; meals <b>' + agg.meals + '</b>';
+
+    const rows = rptRowsFiltered();
+    if (!rows.length) {
+      wrap.innerHTML = '<p class="info">' + (agg.awcs ? 'No reports match the search.'
+        : 'No centre has submitted today\'s report yet.') + '</p>';
+      return;
+    }
+    wrap.innerHTML = '<table><tr><th>Sector</th><th>AWC</th><th>Reported by</th><th>Time</th>' +
+      '<th>Children</th><th>Pregnant</th><th>Others</th><th>Meals</th><th>Flags</th><th>Photos</th></tr>' +
+      rows.map(r =>
+        '<tr><td>' + esc(sectorName(r.s)) + '</td><td>' + esc(awcName(r.a)) + '</td><td>' +
+        esc(userName(r.u)) + '</td><td>' + esc(r.at || '–') + '</td><td><b>' + r.c + '</b></td><td>' +
+        r.p + '</td><td>' + r.o + '</td><td><b>' + r.m + '</b></td><td class="flags">' +
+        esc(r.f || '') + '</td><td>' +
+        (r.ph1 ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(r.ph1) + '">children</button> ' : '') +
+        (r.ph2 ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(r.ph2) + '">meal</button>' : '') +
+        '</td></tr>').join('') + '</table>';
+    bindPhotoButtons(wrap);
+  }
+
+  function rptsCsv() {
+    const rows = [['sector', 'awc', 'reported_by', 'time', 'children', 'pregnant', 'others', 'meals', 'flags']];
+    rptRowsFiltered().forEach(r => rows.push([sectorName(r.s), awcName(r.a), userName(r.u),
+      r.at || '', r.c, r.p, r.o, r.m, r.f || '']));
+    downloadCsv('daily-reports-' + ((today && today.date) || '') + '.csv', rows);
+  }
+
+  function rptsMissingCsv() {
+    const reported = {};
+    ((today && today.rpts) || []).forEach(r => { reported[r.a] = 1; });
+    const rows = [['awc_id', 'awc_name', 'sector']];
+    Object.keys(names.awcs || {}).forEach(id => {
+      if (!reported[id]) rows.push([id, awcName(id), sectorName(names.awcs[id].sc)]);
+    });
+    downloadCsv('awcs-not-reported-' + ((today && today.date) || '') + '.csv', rows);
   }
 
   function bindPhotoButtons(root) {
@@ -1227,7 +1288,7 @@ const App = (() => {
 
   // ---------------- tabs & events ----------------
   function switchTab(name) {
-    ['today', 'analytics', 'exceptions', 'monthly', 'reports', 'leaves', 'admin'].forEach(t => {
+    ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'admin'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
@@ -1258,6 +1319,10 @@ const App = (() => {
     };
     if (document.body.classList.contains('dark')) $('btn-theme').textContent = '☀️';
     $('tab-exceptions').onclick = () => { switchTab('exceptions'); markExcSeen(); };
+    $('tab-rpts').onclick = () => switchTab('rpts');
+    $('rpts-search').oninput = renderRpts;
+    $('btn-rpts-csv').onclick = rptsCsv;
+    $('btn-rpts-missing-csv').onclick = rptsMissingCsv;
     $('tab-monthly').onclick = () => switchTab('monthly');
     $('tab-reports').onclick = () => switchTab('reports');
     $('tab-leaves').onclick = () => switchTab('leaves');

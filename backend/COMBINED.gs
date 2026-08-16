@@ -1342,8 +1342,9 @@ function summaryTick() {
   const ym = Utilities.formatDate(now, TZ, 'yyyy-MM');
   const ss = getMonthSS_(ym, true);
   if (!ss) return;
+  const rptSh = ss.getSheetByName('Reports');
   const marker = fmtDay_(Date.now()) + '|' + ss.getSheetByName('Marks').getLastRow() +
-    '|' + leavesSheet_().getLastRow();
+    '|' + leavesSheet_().getLastRow() + '|' + (rptSh ? rptSh.getLastRow() : 0);
   if (CACHE.get('sumMarker') === marker) {
     // Nothing new — but prove we are alive: heartbeat meta.json at most
     // every 30 min so the console can tell "idle" apart from "dead".
@@ -1514,6 +1515,7 @@ function buildToday_() {
   // first row wins. Only the sheet tail is read (≤ ~800 rows), same budget
   // philosophy as the marks read above.
   const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0 };
+  const rptRows = []; // per-AWC detail for the console's Daily Reports tab
   const rsh = ss.getSheetByName('Reports');
   if (rsh && rsh.getLastRow() >= 2) {
     const rStart = Math.max(2, rsh.getLastRow() - 800);
@@ -1530,13 +1532,21 @@ function buildToday_() {
       rpt.pregnant += Number(o.pregnant) || 0;
       rpt.others += Number(o.others) || 0;
       rpt.meals += Number(o.meals) || 0;
+      rptRows.push({
+        u: String(o.user_id), s: String(o.sector_code), a: aid,
+        at: String(o.client_ts).slice(11, 16),
+        c: Number(o.children) || 0, p: Number(o.pregnant) || 0,
+        o: Number(o.others) || 0, m: Number(o.meals) || 0,
+        f: String(o.flags || ''),
+        ph1: String(o.photo_child_id) || null, ph2: String(o.photo_meal_id) || null
+      });
     }
   }
 
   const generatedAt = nowIso_();
   const todayJson = {
     generatedAt: generatedAt, date: today, holiday: holidayName || null, district: district,
-    rpt: rpt,
+    rpt: rpt, rpts: rptRows,
     projects: Object.keys(projects).sort().map(pc => Object.assign({ code: pc }, projects[pc])),
     sectors: Object.keys(sectors).sort().map(sc =>
       Object.assign({ code: sc, project: sectorProject[sc] || '' }, sectors[sc])),

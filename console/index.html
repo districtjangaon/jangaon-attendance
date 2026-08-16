@@ -60,6 +60,7 @@
       <button id="tab-today" class="tab sel">Dashboard</button>
       <button id="tab-analytics" class="tab">Analytics</button>
       <button id="tab-exceptions" class="tab">Flagged <span id="exc-count" class="pill" hidden></span></button>
+      <button id="tab-rpts" class="tab">Daily Reports</button>
       <button id="tab-monthly" class="tab">Monthly</button>
       <button id="tab-reports" class="tab">Reports</button>
       <button id="tab-leaves" class="tab">Leaves</button>
@@ -143,6 +144,17 @@
       <div id="exc-list" class="tablewrap"></div>
     </section>
 
+    <!-- Daily AWC reports (children / pregnant women / others / meals) -->
+    <section id="view-rpts" class="view" hidden>
+      <p id="rpts-summary" class="info"></p>
+      <div class="toolbar">
+        <input id="rpts-search" type="search" placeholder="Search AWC / sector / name…">
+        <button id="btn-rpts-csv" class="btn btn-plain btn-inline">Export reported CSV</button>
+        <button id="btn-rpts-missing-csv" class="btn btn-plain btn-inline">Export not-reported CSV</button>
+      </div>
+      <div id="rpts-table" class="tablewrap"></div>
+    </section>
+
     <!-- Reports -->
     <section id="view-reports" class="view" hidden>
       <div class="toolbar">
@@ -198,7 +210,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v2.3-20260816-1230</footer>
+  <footer class="build-tag">BUILD: v2.4-20260816-1330</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
