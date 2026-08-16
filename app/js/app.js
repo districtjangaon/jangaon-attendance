@@ -29,6 +29,22 @@ const App = (() => {
 
   const active = () => (activeUid && accounts[activeUid]) || null;
 
+  /** Busy state for slow actions: disables the button, swaps its label and
+   *  shows a spinner — Apps Script calls can take several seconds cold. */
+  function setBusy(id, on, label) {
+    const b = $(id);
+    if (on) {
+      b.dataset.txt = b.textContent;
+      if (label) b.textContent = label;
+      b.classList.add('busy');
+      b.disabled = true;
+    } else {
+      if (b.dataset.txt) b.textContent = b.dataset.txt;
+      b.classList.remove('busy');
+      b.disabled = false;
+    }
+  }
+
   function show(id) {
     screens.forEach(s => { $(s).hidden = (s !== id); });
     $('btn-menu').hidden = (id === 'screen-login');
@@ -145,6 +161,14 @@ const App = (() => {
     $('btn-cam-cancel').onclick = () => {
       Camera.stop();
       if (camMode === 'mark') goHome(); else openReport();
+    };
+    $('btn-cam-flip').onclick = async () => {
+      try {
+        await Camera.flip($('cam-video'));
+        $('cam-video').classList.toggle('rear', Camera.facing() !== 'user');
+      } catch (e) {
+        $('cam-msg').textContent = 'Could not switch camera on this phone.';
+      }
     };
     $('btn-syncnow').onclick = () => { Sync.schedule('manual'); };
     $('btn-history').onclick = showHistory;
@@ -342,7 +366,7 @@ const App = (() => {
     // is on first login (SET_PIN_REQUIRED), shared (CHOOSE_USER) or needs its
     // PIN (PIN_REQUIRED). Demanding a PIN first deadlocks brand-new users.
 
-    $('btn-login').disabled = true;
+    setBusy('btn-login', true, 'Checking… please wait');
     try {
       const res = await Api.post(body);
       if (res.ok) {
@@ -379,7 +403,7 @@ const App = (() => {
     } catch (e) {
       msg.textContent = 'No connection. Login needs internet the first time.';
     } finally {
-      $('btn-login').disabled = false;
+      setBusy('btn-login', false);
     }
   }
 
@@ -424,12 +448,13 @@ const App = (() => {
     $('home-date').textContent = new Date().toDateString();
     $('btn-users').hidden = false;
     $('btn-dash').hidden = acc.user.role !== 'ADMIN';
+    // One store scan feeds both the chip and the reminder banner.
+    const rptDone = acc.user.cadre === 'AWT' ? await reportDoneToday() : true;
     const chip = $('report-chip');
     if (acc.user.cadre === 'AWT') { // the daily report is the Teacher's duty
-      const done = await reportDoneToday();
       chip.hidden = false;
-      chip.classList.toggle('done', done);
-      $('report-chip-text').textContent = done
+      chip.classList.toggle('done', rptDone);
+      $('report-chip-text').textContent = rptDone
         ? '✓ Daily report submitted' : 'Daily report — fill before OUT';
     } else {
       chip.hidden = true;
@@ -444,7 +469,7 @@ const App = (() => {
       $('btn-mark').hidden = true;
       $('mark-done').hidden = false;
     }
-    await renderHomeExtras(acc);
+    await renderHomeExtras(acc, rptDone);
     renderStatus();
   }
 
@@ -470,7 +495,7 @@ const App = (() => {
     $('home-clock').textContent = p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
-  async function renderHomeExtras(acc) {
+  async function renderHomeExtras(acc, rptDone) {
     updateClock();
     const name = acc.user.name || '';
     $('home-avatar').textContent =
@@ -536,7 +561,7 @@ const App = (() => {
       $('stat-avgin').textContent = '–';
     }
 
-    const rptDone = acc.user.cadre === 'AWT' ? await reportDoneToday() : true;
+    if (rptDone == null) rptDone = acc.user.cadre === 'AWT' ? await reportDoneToday() : true;
     renderReminder(acc, today, rptDone);
   }
 
@@ -744,7 +769,7 @@ const App = (() => {
   }
 
   // ---------- marking ----------
-  async function openCamera(title) {
+  async function openCamera(title, face) {
     $('cam-title').textContent = title;
     $('cam-msg').textContent = '';
     show('screen-camera');
@@ -766,7 +791,8 @@ const App = (() => {
     });
 
     try {
-      await Camera.start($('cam-video'));
+      await Camera.start($('cam-video'), face);
+      $('cam-video').classList.toggle('rear', Camera.facing() !== 'user');
     } catch (e) {
       // Never block: allow capture without photo, server flags NO_PHOTO.
       $('cam-msg').textContent = 'Camera not available — you can still save without a photo.';
@@ -787,14 +813,14 @@ const App = (() => {
       return;
     }
     camMode = 'mark';
-    openCamera(markType === 'IN' ? 'IN — take your photo' : 'OUT — take your photo');
+    openCamera(markType === 'IN' ? 'IN — take your photo' : 'OUT — take your photo', 'user');
   }
 
   async function doCapture() {
     const acc = active();
     if (!acc) { Camera.stop(); resetLogin(); show('screen-login'); return; }
     if (camMode !== 'mark') { await captureRptPhoto(acc); return; }
-    $('btn-capture').disabled = true;
+    setBusy('btn-capture', true, 'Saving…');
     try {
       const clientTs = localIso();
       const g = geoResult || (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
@@ -832,7 +858,7 @@ const App = (() => {
       show('screen-success');
       setTimeout(goHome, 2500);
     } finally {
-      $('btn-capture').disabled = false;
+      setBusy('btn-capture', false);
     }
   }
 
@@ -880,11 +906,12 @@ const App = (() => {
 
   function openRptCamera(kind) {
     camMode = 'rpt-' + kind;
-    openCamera(RPT_KINDS[kind].title);
+    // Report photos shoot the room/food, not a selfie: default to the rear camera.
+    openCamera(RPT_KINDS[kind].title, 'environment');
   }
 
   async function captureRptPhoto(acc) {
-    $('btn-capture').disabled = true;
+    setBusy('btn-capture', true, 'Saving…');
     try {
       const clientTs = localIso();
       const g = geoResult ||
@@ -907,7 +934,7 @@ const App = (() => {
       Camera.stop();
       openReport();
     } finally {
-      $('btn-capture').disabled = false;
+      setBusy('btn-capture', false);
     }
   }
 
@@ -927,7 +954,7 @@ const App = (() => {
         !confirm('Missing: ' + missing.join(', ') + '. Submit anyway? It will be flagged.')) {
       return;
     }
-    $('btn-rp-submit').disabled = true;
+    setBusy('btn-rp-submit', true, 'Saving report…');
     try {
       const g = rptPhotos.geo || (await Geo.capture(5000));
       const record = {
@@ -957,7 +984,7 @@ const App = (() => {
       show('screen-success');
       setTimeout(goHome, 1800);
     } finally {
-      $('btn-rp-submit').disabled = false;
+      setBusy('btn-rp-submit', false);
     }
   }
 

@@ -10,15 +10,22 @@
  */
 const Camera = (() => {
   let stream = null;
+  let facing = 'user';
 
-  async function start(videoEl) {
+  async function start(videoEl, face) {
     stop();
+    if (face) facing = face;
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+      video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 640 } },
       audio: false
     });
     videoEl.srcObject = stream;
     await videoEl.play();
+  }
+
+  /** Front <-> rear. Some phones lack one side — caller catches and keeps going. */
+  async function flip(videoEl) {
+    await start(videoEl, facing === 'user' ? 'environment' : 'user');
   }
 
   function stop() {
@@ -56,5 +63,5 @@ const Camera = (() => {
     return last; // smallest attempt; better slightly over than no photo
   }
 
-  return { start, stop, capture };
+  return { start, stop, capture, flip, facing: () => facing };
 })();
