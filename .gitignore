@@ -28,3 +28,4 @@ Error Snap/
 # Code.gs is a generated copy of COMBINED.gs
 backend/clasp/.clasp.json
 backend/clasp/Code.gs
+backend/clasp/appsscript.json
