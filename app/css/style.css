@@ -38,14 +38,14 @@ body {
   margin: 0 auto;
 }
 
-/* Header — navy band, emblem, mono eyebrow, gradient rule (per Ref) */
+/* Header — minimalist light-red banner (district direction, 2026-08-16):
+   light theme end-to-end, emblem on soft rose, no dark band. */
 .gov-header {
-  background: var(--ink);
-  color: #fff;
+  background: #fbeaea;
+  color: var(--ink);
   padding: 10px 92px 10px 14px; /* right side reserved for the ↻ / ☰ buttons */
   display: flex; align-items: center; gap: 10px;
-  border-bottom: 3px solid transparent;
-  border-image: var(--grad) 1;
+  border-bottom: 1px solid #f2cfcf;
   position: relative;
 }
 .gov-emblem { height: 38px; width: auto; flex: none; }
@@ -54,16 +54,16 @@ body {
   font-family: var(--font-mono);
   font-size: 9px; font-weight: 500;
   letter-spacing: .18em; text-transform: uppercase;
-  color: #aab4ff;
+  color: #b04a4a;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .app-title {
-  font-size: 18px; font-weight: 700; letter-spacing: -.01em;
+  font-size: 18px; font-weight: 700; letter-spacing: -.01em; color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .menu-btn {
   position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-  background: none; border: none; color: #fff; font-size: 24px; padding: 8px;
+  background: none; border: none; color: var(--ink); font-size: 24px; padding: 8px;
 }
 .refresh-btn { right: 52px; }
 .refresh-btn.spinning { animation: spin 1s linear infinite; }
@@ -101,8 +101,14 @@ input:focus, select:focus {
 .btn {
   display: block; width: 100%; margin-top: 16px; padding: 16px; font-size: 17px;
   font-family: var(--font-display); font-weight: 700; letter-spacing: .02em;
-  border: none; border-radius: 12px; cursor: pointer;
+  border: none; border-radius: 14px; cursor: pointer;
+  transition: filter .15s ease, transform .06s ease;
 }
+@media (hover: hover) {
+  .btn:hover { filter: brightness(.95); }
+  .whoami-btn:hover, .report-chip:hover { border-color: var(--primary); }
+}
+.btn:active { transform: scale(.985); }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-primary:active { background: var(--primary-dark); }
 .btn-danger { background: var(--err); color: #fff; }
@@ -289,7 +295,17 @@ input:focus, select:focus {
 .user-awc { font-size: 14px; color: var(--muted); }
 .privacy-note {
   margin-top: 14px; padding: 10px 12px; background: var(--primary-soft);
-  border-radius: 10px; font-size: 12px; color: var(--muted); line-height: 1.5;
+  border-radius: 12px; font-size: 12px; color: var(--muted); line-height: 1.5;
+}
+.role-note {
+  margin-top: 16px; padding: 11px 13px; border-radius: 12px;
+  background: #fbeaea; border: 1px solid #f2cfcf;
+  font-size: 13px; color: #7c3a3a; line-height: 1.55;
+}
+.role-note b { color: #5f2626; }
+.rpt-stock-h {
+  margin: 22px 0 2px; font-size: 17px;
+  padding-top: 14px; border-top: 1px solid var(--line);
 }
 .build-tag {
   text-align: center; font-family: var(--font-mono); font-size: 10px;

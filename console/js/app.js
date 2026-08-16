@@ -376,7 +376,9 @@ const App = (() => {
           'reported by ' + today.rpt.awcs + ' of ' + awcCount + ' AWCs') +
         bigcard('bc-maroon', 'Pregnant women', today.rpt.pregnant,
           'other beneficiaries ' + today.rpt.others) +
-        bigcard('bc-olive', 'Meals prepared', today.rpt.meals, 'as reported by centres');
+        bigcard('bc-olive', 'Meals prepared', today.rpt.meals, 'as reported by centres') +
+        bigcard('bc-blue', 'Eggs in stock', today.rpt.eggs || 0,
+          'rice ' + (today.rpt.riceKg || 0) + ' kg · pulses ' + (today.rpt.pulsesKg || 0) + ' kg');
     }
     renderCharts(scopeRows);
 
@@ -588,7 +590,9 @@ const App = (() => {
     }
     info.innerHTML = '<b>' + agg.awcs + '</b> of ' + awcTotal + ' AWCs reported today &middot; ' +
       'children <b>' + agg.children + '</b> &middot; pregnant women <b>' + agg.pregnant + '</b> &middot; ' +
-      'other beneficiaries <b>' + agg.others + '</b> &middot; meals <b>' + agg.meals + '</b>';
+      'other beneficiaries <b>' + agg.others + '</b> &middot; meals <b>' + agg.meals + '</b>' +
+      ' &middot; stock: eggs <b>' + (agg.eggs || 0) + '</b>, rice <b>' + (agg.riceKg || 0) +
+      ' kg</b>, pulses <b>' + (agg.pulsesKg || 0) + ' kg</b>';
 
     const rows = rptRowsFiltered();
     if (!rows.length) {
@@ -596,23 +600,28 @@ const App = (() => {
         : 'No centre has submitted today\'s report yet.') + '</p>';
       return;
     }
+    const phBtn = (id, label) => id
+      ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(id) + '">' + label + '</button> ' : '';
     wrap.innerHTML = '<table><tr><th>Sector</th><th>AWC</th><th>Reported by</th><th>Time</th>' +
-      '<th>Children</th><th>Pregnant</th><th>Others</th><th>Meals</th><th>Flags</th><th>Photos</th></tr>' +
+      '<th>Children</th><th>Pregnant</th><th>Others</th><th>Meals</th>' +
+      '<th>Eggs</th><th>Rice kg</th><th>Pulses kg</th><th>Flags</th><th>Photos</th></tr>' +
       rows.map(r =>
         '<tr><td>' + esc(sectorName(r.s)) + '</td><td>' + esc(awcName(r.a)) + '</td><td>' +
         esc(userName(r.u)) + '</td><td>' + esc(r.at || '–') + '</td><td><b>' + r.c + '</b></td><td>' +
-        r.p + '</td><td>' + r.o + '</td><td><b>' + r.m + '</b></td><td class="flags">' +
-        esc(r.f || '') + '</td><td>' +
-        (r.ph1 ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(r.ph1) + '">children</button> ' : '') +
-        (r.ph2 ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(r.ph2) + '">meal</button>' : '') +
+        r.p + '</td><td>' + r.o + '</td><td><b>' + r.m + '</b></td><td>' +
+        (r.eg || 0) + '</td><td>' + (r.rk || 0) + '</td><td>' + (r.pk || 0) + '</td>' +
+        '<td class="flags">' + esc(r.f || '') + '</td><td>' +
+        phBtn(r.ph1, 'children') + phBtn(r.ph3, 'pregnant') +
+        phBtn(r.ph4, 'others') + phBtn(r.ph2, 'meal') +
         '</td></tr>').join('') + '</table>';
     bindPhotoButtons(wrap);
   }
 
   function rptsCsv() {
-    const rows = [['sector', 'awc', 'reported_by', 'time', 'children', 'pregnant', 'others', 'meals', 'flags']];
+    const rows = [['sector', 'awc', 'reported_by', 'time', 'children', 'pregnant', 'others',
+      'meals', 'eggs', 'rice_kg', 'pulses_kg', 'flags']];
     rptRowsFiltered().forEach(r => rows.push([sectorName(r.s), awcName(r.a), userName(r.u),
-      r.at || '', r.c, r.p, r.o, r.m, r.f || '']));
+      r.at || '', r.c, r.p, r.o, r.m, r.eg || 0, r.rk || 0, r.pk || 0, r.f || '']));
     downloadCsv('daily-reports-' + ((today && today.date) || '') + '.csv', rows);
   }
 

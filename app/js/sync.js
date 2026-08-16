@@ -76,8 +76,11 @@ const Sync = (() => {
             // Daily-report (RPT) extras; undefined on plain marks, which
             // JSON.stringify simply omits.
             photo2B64: item.photoBlob2 ? await blobToB64(item.photoBlob2) : undefined,
+            photo3B64: item.photoBlob3 ? await blobToB64(item.photoBlob3) : undefined,
+            photo4B64: item.photoBlob4 ? await blobToB64(item.photoBlob4) : undefined,
             children: item.children, pregnant: item.pregnant,
-            others: item.others, meals: item.meals
+            others: item.others, meals: item.meals,
+            eggs: item.eggs, riceKg: item.riceKg, pulsesKg: item.pulsesKg
           });
         }
         let res;

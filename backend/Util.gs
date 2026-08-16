@@ -39,9 +39,12 @@ const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 
   'lat', 'lng', 'accuracy_m', 'geofence', 'awc_id', 'distance_m', 'photo_id',
   'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
+// New columns are APPENDED only (column order is the contract): the
+// pregnant/others photos and the stock tracker landed after first ship.
 const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',
   'lat', 'lng', 'accuracy_m', 'children', 'pregnant', 'others', 'meals',
-  'photo_child_id', 'photo_meal_id', 'flags'];
+  'photo_child_id', 'photo_meal_id', 'flags',
+  'photo_pregnant_id', 'photo_others_id', 'eggs', 'rice_kg', 'pulses_kg'];
 
 // ---- policy constants ----
 const PIN_ITERATIONS = 4000;      // salted SHA-256 iterations (bcrypt does not exist in Apps Script)

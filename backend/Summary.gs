@@ -200,7 +200,8 @@ function buildToday_() {
   // One report per AWC counts — if both workers of a centre submitted, the
   // first row wins. Only the sheet tail is read (≤ ~800 rows), same budget
   // philosophy as the marks read above.
-  const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0 };
+  const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0,
+    eggs: 0, riceKg: 0, pulsesKg: 0 };
   const rptRows = []; // per-AWC detail for the console's Daily Reports tab
   const rsh = ss.getSheetByName('Reports');
   if (rsh && rsh.getLastRow() >= 2) {
@@ -218,13 +219,18 @@ function buildToday_() {
       rpt.pregnant += Number(o.pregnant) || 0;
       rpt.others += Number(o.others) || 0;
       rpt.meals += Number(o.meals) || 0;
+      rpt.eggs += Number(o.eggs) || 0;
+      rpt.riceKg = Math.round((rpt.riceKg + (Number(o.rice_kg) || 0)) * 10) / 10;
+      rpt.pulsesKg = Math.round((rpt.pulsesKg + (Number(o.pulses_kg) || 0)) * 10) / 10;
       rptRows.push({
         u: String(o.user_id), s: String(o.sector_code), a: aid,
         at: String(o.client_ts).slice(11, 16),
         c: Number(o.children) || 0, p: Number(o.pregnant) || 0,
         o: Number(o.others) || 0, m: Number(o.meals) || 0,
+        eg: Number(o.eggs) || 0, rk: Number(o.rice_kg) || 0, pk: Number(o.pulses_kg) || 0,
         f: String(o.flags || ''),
-        ph1: String(o.photo_child_id) || null, ph2: String(o.photo_meal_id) || null
+        ph1: String(o.photo_child_id) || null, ph2: String(o.photo_meal_id) || null,
+        ph3: String(o.photo_pregnant_id) || null, ph4: String(o.photo_others_id) || null
       });
     }
   }

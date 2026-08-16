@@ -50,9 +50,12 @@ const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 
   'lat', 'lng', 'accuracy_m', 'geofence', 'awc_id', 'distance_m', 'photo_id',
   'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
+// New columns are APPENDED only (column order is the contract): the
+// pregnant/others photos and the stock tracker landed after first ship.
 const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',
   'lat', 'lng', 'accuracy_m', 'children', 'pregnant', 'others', 'meals',
-  'photo_child_id', 'photo_meal_id', 'flags'];
+  'photo_child_id', 'photo_meal_id', 'flags',
+  'photo_pregnant_id', 'photo_others_id', 'eggs', 'rice_kg', 'pulses_kg'];
 
 // ---- policy constants ----
 const PIN_ITERATIONS = 4000;      // salted SHA-256 iterations (bcrypt does not exist in Apps Script)
@@ -582,14 +585,20 @@ function apiSync_(auth, req) {
     it.photoFlag = '';
     if (it.type === 'RPT') {
       const fl = [];
-      if (it.rec.photoB64) {
-        try { it.photoId = storePhoto_(it.dateStr, it.key + '_C', String(it.rec.photoB64)); }
-        catch (err) { fl.push('UPLOAD_FAILED'); }
-      } else fl.push('NO_PHOTO_CHILDREN');
-      if (it.rec.photo2B64) {
-        try { it.photo2Id = storePhoto_(it.dateStr, it.key + '_M', String(it.rec.photo2B64)); }
-        catch (err) { fl.push('UPLOAD_FAILED_MEAL'); }
-      } else fl.push('NO_PHOTO_MEAL');
+      const shots = [
+        ['photoB64', 'photoId', '_C', 'NO_PHOTO_CHILDREN', 'UPLOAD_FAILED'],
+        ['photo2B64', 'photo2Id', '_M', 'NO_PHOTO_MEAL', 'UPLOAD_FAILED_MEAL'],
+        ['photo3B64', 'photo3Id', '_P', 'NO_PHOTO_PREGNANT', 'UPLOAD_FAILED_PREGNANT'],
+        ['photo4B64', 'photo4Id', '_O', 'NO_PHOTO_OTHERS', 'UPLOAD_FAILED_OTHERS']
+      ];
+      it.photo3Id = '';
+      it.photo4Id = '';
+      shots.forEach(s => {
+        if (it.rec[s[0]]) {
+          try { it[s[1]] = storePhoto_(it.dateStr, it.key + s[2], String(it.rec[s[0]])); }
+          catch (err) { fl.push(s[4]); }
+        } else fl.push(s[3]);
+      });
       it.photoFlag = fl.join(',');
       continue;
     }
@@ -758,7 +767,12 @@ function reportsSheet_(ss) {
   if (!sh) {
     sh = ss.insertSheet('Reports');
     sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
-    sh.getRange('A:Q').setNumberFormat('@');
+    sh.getRange('A:V').setNumberFormat('@');
+  } else if (String(sh.getRange(1, RPT_H.length).getValue()) !== RPT_H[RPT_H.length - 1]) {
+    // Sheet created by an older build with fewer columns: heal the header.
+    // Data columns were only ever appended, so old rows stay aligned.
+    sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
+    sh.getRange('A:V').setNumberFormat('@');
   }
   return sh;
 }
@@ -770,6 +784,14 @@ function buildReportRow_(user, it, serverMs) {
     const x = Math.round(Number(v));
     return isFinite(x) && x >= 0 ? Math.min(x, 999) : 0;
   };
+  const kg = v => {
+    const x = Math.round(Number(v) * 10) / 10;
+    return isFinite(x) && x >= 0 ? Math.min(x, 9999) : 0;
+  };
+  const n9999_ = v => {
+    const x = Math.round(Number(v));
+    return isFinite(x) && x >= 0 ? x : 0;
+  };
   return [
     it.key, String(user.user_id), String(user.sector_code), String(user.awc_id),
     it.dateStr, String(rec.clientTs || ''), fmtIso_(serverMs),
@@ -777,7 +799,9 @@ function buildReportRow_(user, it, serverMs) {
     hasFix ? Number(Number(rec.lng).toFixed(6)) : '',
     rec.accuracy != null && rec.accuracy !== '' ? Math.round(Number(rec.accuracy)) : '',
     n(rec.children), n(rec.pregnant), n(rec.others), n(rec.meals),
-    it.photoId, it.photo2Id, it.photoFlag
+    it.photoId, it.photo2Id, it.photoFlag,
+    it.photo3Id, it.photo4Id,
+    Math.min(9999, n9999_(rec.eggs)), kg(rec.riceKg), kg(rec.pulsesKg)
   ];
 }
 
@@ -1514,7 +1538,8 @@ function buildToday_() {
   // One report per AWC counts — if both workers of a centre submitted, the
   // first row wins. Only the sheet tail is read (≤ ~800 rows), same budget
   // philosophy as the marks read above.
-  const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0 };
+  const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0,
+    eggs: 0, riceKg: 0, pulsesKg: 0 };
   const rptRows = []; // per-AWC detail for the console's Daily Reports tab
   const rsh = ss.getSheetByName('Reports');
   if (rsh && rsh.getLastRow() >= 2) {
@@ -1532,13 +1557,18 @@ function buildToday_() {
       rpt.pregnant += Number(o.pregnant) || 0;
       rpt.others += Number(o.others) || 0;
       rpt.meals += Number(o.meals) || 0;
+      rpt.eggs += Number(o.eggs) || 0;
+      rpt.riceKg = Math.round((rpt.riceKg + (Number(o.rice_kg) || 0)) * 10) / 10;
+      rpt.pulsesKg = Math.round((rpt.pulsesKg + (Number(o.pulses_kg) || 0)) * 10) / 10;
       rptRows.push({
         u: String(o.user_id), s: String(o.sector_code), a: aid,
         at: String(o.client_ts).slice(11, 16),
         c: Number(o.children) || 0, p: Number(o.pregnant) || 0,
         o: Number(o.others) || 0, m: Number(o.meals) || 0,
+        eg: Number(o.eggs) || 0, rk: Number(o.rice_kg) || 0, pk: Number(o.pulses_kg) || 0,
         f: String(o.flags || ''),
-        ph1: String(o.photo_child_id) || null, ph2: String(o.photo_meal_id) || null
+        ph1: String(o.photo_child_id) || null, ph2: String(o.photo_meal_id) || null,
+        ph3: String(o.photo_pregnant_id) || null, ph4: String(o.photo_others_id) || null
       });
     }
   }

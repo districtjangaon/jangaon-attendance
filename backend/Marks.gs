@@ -49,14 +49,20 @@ function apiSync_(auth, req) {
     it.photoFlag = '';
     if (it.type === 'RPT') {
       const fl = [];
-      if (it.rec.photoB64) {
-        try { it.photoId = storePhoto_(it.dateStr, it.key + '_C', String(it.rec.photoB64)); }
-        catch (err) { fl.push('UPLOAD_FAILED'); }
-      } else fl.push('NO_PHOTO_CHILDREN');
-      if (it.rec.photo2B64) {
-        try { it.photo2Id = storePhoto_(it.dateStr, it.key + '_M', String(it.rec.photo2B64)); }
-        catch (err) { fl.push('UPLOAD_FAILED_MEAL'); }
-      } else fl.push('NO_PHOTO_MEAL');
+      const shots = [
+        ['photoB64', 'photoId', '_C', 'NO_PHOTO_CHILDREN', 'UPLOAD_FAILED'],
+        ['photo2B64', 'photo2Id', '_M', 'NO_PHOTO_MEAL', 'UPLOAD_FAILED_MEAL'],
+        ['photo3B64', 'photo3Id', '_P', 'NO_PHOTO_PREGNANT', 'UPLOAD_FAILED_PREGNANT'],
+        ['photo4B64', 'photo4Id', '_O', 'NO_PHOTO_OTHERS', 'UPLOAD_FAILED_OTHERS']
+      ];
+      it.photo3Id = '';
+      it.photo4Id = '';
+      shots.forEach(s => {
+        if (it.rec[s[0]]) {
+          try { it[s[1]] = storePhoto_(it.dateStr, it.key + s[2], String(it.rec[s[0]])); }
+          catch (err) { fl.push(s[4]); }
+        } else fl.push(s[3]);
+      });
       it.photoFlag = fl.join(',');
       continue;
     }
@@ -225,7 +231,12 @@ function reportsSheet_(ss) {
   if (!sh) {
     sh = ss.insertSheet('Reports');
     sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
-    sh.getRange('A:Q').setNumberFormat('@');
+    sh.getRange('A:V').setNumberFormat('@');
+  } else if (String(sh.getRange(1, RPT_H.length).getValue()) !== RPT_H[RPT_H.length - 1]) {
+    // Sheet created by an older build with fewer columns: heal the header.
+    // Data columns were only ever appended, so old rows stay aligned.
+    sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
+    sh.getRange('A:V').setNumberFormat('@');
   }
   return sh;
 }
@@ -237,6 +248,14 @@ function buildReportRow_(user, it, serverMs) {
     const x = Math.round(Number(v));
     return isFinite(x) && x >= 0 ? Math.min(x, 999) : 0;
   };
+  const kg = v => {
+    const x = Math.round(Number(v) * 10) / 10;
+    return isFinite(x) && x >= 0 ? Math.min(x, 9999) : 0;
+  };
+  const n9999_ = v => {
+    const x = Math.round(Number(v));
+    return isFinite(x) && x >= 0 ? x : 0;
+  };
   return [
     it.key, String(user.user_id), String(user.sector_code), String(user.awc_id),
     it.dateStr, String(rec.clientTs || ''), fmtIso_(serverMs),
@@ -244,7 +263,9 @@ function buildReportRow_(user, it, serverMs) {
     hasFix ? Number(Number(rec.lng).toFixed(6)) : '',
     rec.accuracy != null && rec.accuracy !== '' ? Math.round(Number(rec.accuracy)) : '',
     n(rec.children), n(rec.pregnant), n(rec.others), n(rec.meals),
-    it.photoId, it.photo2Id, it.photoFlag
+    it.photoId, it.photo2Id, it.photoFlag,
+    it.photo3Id, it.photo4Id,
+    Math.min(9999, n9999_(rec.eggs)), kg(rec.riceKg), kg(rec.pulsesKg)
   ];
 }
 

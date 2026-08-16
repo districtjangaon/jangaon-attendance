@@ -24,8 +24,8 @@ const App = (() => {
   let geoPromise = null;
   let geoResult = null;
   let markType = null;
-  let camMode = 'mark';                 // 'mark' | 'rpt-child' | 'rpt-meal'
-  let rptPhotos = { child: null, meal: null, geo: null };
+  let camMode = 'mark';                 // 'mark' | 'rpt-child'|'rpt-preg'|'rpt-others'|'rpt-meal'
+  let rptPhotos = { child: null, preg: null, others: null, meal: null, geo: null };
   let pendingOutAfterReport = false;    // OUT tapped before today's report existed
 
   const active = () => (activeUid && accounts[activeUid]) || null;
@@ -169,6 +169,8 @@ const App = (() => {
     $('report-chip').onclick = openReport;
     $('btn-rp-back').onclick = () => { pendingOutAfterReport = false; goHome(); };
     $('btn-rp-photo-child').onclick = () => openRptCamera('child');
+    $('btn-rp-photo-preg').onclick = () => openRptCamera('preg');
+    $('btn-rp-photo-others').onclick = () => openRptCamera('others');
     $('btn-rp-photo-meal').onclick = () => openRptCamera('meal');
     $('btn-rp-submit').onclick = submitReport;
   }
@@ -424,7 +426,7 @@ const App = (() => {
     $('btn-users').hidden = false;
     $('btn-dash').hidden = acc.user.role !== 'ADMIN';
     const chip = $('report-chip');
-    if (acc.user.role === 'FIELD') {
+    if (acc.user.cadre === 'AWT') { // the daily report is the Teacher's duty
       const done = await reportDoneToday();
       chip.hidden = false;
       chip.classList.toggle('done', done);
@@ -642,6 +644,12 @@ const App = (() => {
         '<div class="dash-grid">' +
         tile(today.rpt.children, 'Children', 'ok') + tile(today.rpt.pregnant, 'Pregnant', '') +
         tile(today.rpt.others, 'Others', '') + tile(today.rpt.meals, 'Meals', 'ok') +
+        '</div>' +
+        '<div class="dash-h">Stock at centres</div>' +
+        '<div class="dash-grid">' +
+        tile(today.rpt.eggs || 0, 'Eggs', '') + tile((today.rpt.riceKg || 0) + 'kg', 'Rice', '') +
+        tile((today.rpt.pulsesKg || 0) + 'kg', 'Pulses', '') +
+        tile(today.rpt.awcs, 'Reported', 'ok') +
         '</div>';
     }
 
@@ -766,10 +774,10 @@ const App = (() => {
     if (!active()) { resetLogin(); show('screen-login'); return; }
     markType = await nextAction();
     if (!markType) return;
-    // District rule: OUT requires today's centre report first. The report
-    // itself never blocks on GPS/photo failure, so this cannot lose a mark —
-    // after submit the OUT flow continues automatically.
-    if (markType === 'OUT' && !(await reportDoneToday())) {
+    // District rule: OUT requires today's centre report first — AWT (Teacher)
+    // only; the AWH is exempt. The report itself never blocks on GPS/photo
+    // failure, so this cannot lose a mark — after submit OUT continues.
+    if (markType === 'OUT' && active().user.cadre === 'AWT' && !(await reportDoneToday())) {
       pendingOutAfterReport = true;
       openReport();
       $('rpt-msg').textContent = 'Complete today\'s report — OUT continues after submit.';
@@ -850,18 +858,26 @@ const App = (() => {
     show('screen-report');
   }
 
+  const RPT_KINDS = {
+    child:  { btn: 'btn-rp-photo-child',  label: 'children photo',            stamp: 'CHILDREN PRESENT',    title: 'Children present — take photo' },
+    preg:   { btn: 'btn-rp-photo-preg',   label: 'pregnant women photo',      stamp: 'PREGNANT WOMEN',      title: 'Pregnant women — take photo' },
+    others: { btn: 'btn-rp-photo-others', label: 'other beneficiaries photo', stamp: 'OTHER BENEFICIARIES', title: 'Other beneficiaries — take photo' },
+    meal:   { btn: 'btn-rp-photo-meal',   label: 'meal photo',                stamp: 'MEAL PREPARED',       title: 'Meal prepared — take photo' }
+  };
+
   function updateRptPhotoButtons() {
-    $('btn-rp-photo-child').textContent = rptPhotos.child
-      ? '✓ Children photo taken — tap to retake' : '📷 Take children photo (live, geo-tagged)';
-    $('btn-rp-photo-child').classList.toggle('taken', !!rptPhotos.child);
-    $('btn-rp-photo-meal').textContent = rptPhotos.meal
-      ? '✓ Meal photo taken — tap to retake' : '📷 Take meal photo (live, geo-tagged)';
-    $('btn-rp-photo-meal').classList.toggle('taken', !!rptPhotos.meal);
+    Object.keys(RPT_KINDS).forEach(k => {
+      const d = RPT_KINDS[k], b = $(d.btn);
+      b.textContent = rptPhotos[k]
+        ? '✓ ' + d.label.charAt(0).toUpperCase() + d.label.slice(1) + ' taken — tap to retake'
+        : '📷 Take ' + d.label + ' (live, geo-tagged)';
+      b.classList.toggle('taken', !!rptPhotos[k]);
+    });
   }
 
   function openRptCamera(kind) {
     camMode = 'rpt-' + kind;
-    openCamera(kind === 'child' ? 'Children present — take photo' : 'Meal prepared — take photo');
+    openCamera(RPT_KINDS[kind].title);
   }
 
   async function captureRptPhoto(acc) {
@@ -870,13 +886,13 @@ const App = (() => {
       const clientTs = localIso();
       const g = geoResult ||
         (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
-      const kind = camMode === 'rpt-child' ? 'child' : 'meal';
+      const kind = camMode.slice(4); // 'rpt-child' -> 'child'
       const video = $('cam-video');
       if (video.srcObject && video.videoWidth > 0) {
         const stamp = [
           clientTs.slice(0, 16).replace('T', ' '),
           placeLine(g, acc.config),
-          (kind === 'child' ? 'CHILDREN PRESENT' : 'MEAL PREPARED') + ' — ' + acc.user.name.slice(0, 20)
+          RPT_KINDS[kind].stamp + ' — ' + acc.user.name.slice(0, 20)
         ];
         rptPhotos[kind] = await Camera.capture(video, stamp,
           (acc.config && acc.config.photoMaxKB) || 60);
@@ -902,11 +918,10 @@ const App = (() => {
       return;
     }
     const num = id => Math.min(999, Math.max(0, Math.round(Number($(id).value) || 0)));
-    const missing = [];
-    if (!rptPhotos.child) missing.push('children photo');
-    if (!rptPhotos.meal) missing.push('meal photo');
+    const kg = id => Math.min(9999, Math.max(0, Math.round((Number($(id).value) || 0) * 10) / 10));
+    const missing = Object.keys(RPT_KINDS).filter(k => !rptPhotos[k]).map(k => RPT_KINDS[k].label);
     if (missing.length &&
-        !confirm('No ' + missing.join(' and no ') + '. Submit anyway? It will be flagged.')) {
+        !confirm('Missing: ' + missing.join(', ') + '. Submit anyway? It will be flagged.')) {
       return;
     }
     $('btn-rp-submit').disabled = true;
@@ -923,11 +938,14 @@ const App = (() => {
         awcId: String(acc.user.awcId || ''),
         children: num('rp-children'), pregnant: num('rp-pregnant'),
         others: num('rp-others'), meals: num('rp-meals'),
-        photoBlob: rptPhotos.child, photoBlob2: rptPhotos.meal
+        eggs: num('rp-eggs'), riceKg: kg('rp-rice'), pulsesKg: kg('rp-pulses'),
+        photoBlob: rptPhotos.child, photoBlob2: rptPhotos.meal,
+        photoBlob3: rptPhotos.preg, photoBlob4: rptPhotos.others
       };
       await Sync.enqueue(record);
-      ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals'].forEach(id => { $(id).value = ''; });
-      rptPhotos = { child: null, meal: null, geo: null };
+      ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals',
+        'rp-eggs', 'rp-rice', 'rp-pulses'].forEach(id => { $(id).value = ''; });
+      rptPhotos = { child: null, preg: null, others: null, meal: null, geo: null };
 
       $('success-text').textContent = 'Daily report saved';
       $('success-sub').textContent = navigator.onLine

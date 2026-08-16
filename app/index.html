@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#10142b">
+  <meta name="theme-color" content="#fbeaea">
   <title>Sisu&amp;MahilaSamridhi</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
@@ -58,6 +58,9 @@
     </div>
     <button id="btn-login" class="btn btn-primary">LOGIN</button>
     <p id="login-msg" class="msg"></p>
+    <div class="role-note"><b>Helper (AWH) without her own phone?</b> Mark your attendance
+      on the Teacher's (AWT) phone: after the AWT logs in, open
+      <b>Switch user &rarr; + Add another user</b> and login with your own number and PIN.</div>
     <p class="hint">Forgot PIN? Call the district office to reset it, then login again and set a new PIN.</p>
   </section>
 
@@ -189,13 +192,23 @@
 
     <label for="rp-pregnant">Pregnant women present</label>
     <input id="rp-pregnant" type="number" inputmode="numeric" min="0" max="999" placeholder="0">
+    <button id="btn-rp-photo-preg" class="btn btn-plain photo-btn">&#128247; Take pregnant women photo (live, geo-tagged)</button>
 
     <label for="rp-others">Other beneficiaries present</label>
     <input id="rp-others" type="number" inputmode="numeric" min="0" max="999" placeholder="0">
+    <button id="btn-rp-photo-others" class="btn btn-plain photo-btn">&#128247; Take other beneficiaries photo (live, geo-tagged)</button>
 
     <label for="rp-meals">Meals prepared today</label>
     <input id="rp-meals" type="number" inputmode="numeric" min="0" max="999" placeholder="0">
     <button id="btn-rp-photo-meal" class="btn btn-plain photo-btn">&#128247; Take meal photo (live, geo-tagged)</button>
+
+    <h2 class="rpt-stock-h">Stock tracker</h2>
+    <label for="rp-eggs">Eggs available (count)</label>
+    <input id="rp-eggs" type="number" inputmode="numeric" min="0" max="9999" placeholder="0">
+    <label for="rp-rice">Rice available (KG)</label>
+    <input id="rp-rice" type="number" inputmode="decimal" min="0" max="9999" step="0.5" placeholder="0.0">
+    <label for="rp-pulses">Pulses available (KG)</label>
+    <input id="rp-pulses" type="number" inputmode="decimal" min="0" max="9999" step="0.5" placeholder="0.0">
 
     <button id="btn-rp-submit" class="btn btn-primary">SUBMIT REPORT</button>
     <p id="rpt-msg" class="msg"></p>
@@ -228,7 +241,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v2.3-20260816-1230</footer>
+  <footer class="build-tag">BUILD: v2.5-20260816-1430</footer>
 
   <script src="js/config.js"></script>
   <script src="js/db.js"></script>
