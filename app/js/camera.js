@@ -13,13 +13,24 @@ const Camera = (() => {
   let facing = 'user';
 
   async function start(videoEl, face) {
-    stop();
-    if (face) facing = face;
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 640 } },
+    const want = face || facing;
+    // Acquire the new stream BEFORE stopping the old one: if getUserMedia
+    // throws (sensor busy, missing side), the working preview keeps running
+    // instead of freezing on a dead frame that capture would happily save.
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: want, width: { ideal: 640 }, height: { ideal: 640 } },
       audio: false
     });
-    videoEl.srcObject = stream;
+    stop();
+    stream = s;
+    // Report the camera we actually got, not the one we asked for — a bare
+    // facingMode constraint is a preference, so single-camera phones hand
+    // back the same sensor without erroring.
+    const st = s.getVideoTracks()[0] && s.getVideoTracks()[0].getSettings();
+    facing = (st && st.facingMode)
+      ? (st.facingMode === 'environment' ? 'environment' : 'user')
+      : want;
+    videoEl.srcObject = s;
     await videoEl.play();
   }
 

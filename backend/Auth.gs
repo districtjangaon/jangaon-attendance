@@ -84,6 +84,17 @@ function apiLogin_(req) {
       return { ok: false, code: 'DEVICE_MISMATCH' };
     }
     if (!user.device_id) {
+      // Device pair policy: a centre phone carries at most one AWT + one AWH.
+      // Enforced HERE, before binding, so a refused login leaves the account
+      // free to bind to the right phone later (client-side-only enforcement
+      // would strand the account: the bind would already have happened).
+      const bound = getUsersAll_().filter(u =>
+        String(u.device_id) === deviceId && String(u.role) === 'FIELD' &&
+        String(u.status) === 'ACTIVE' && String(u.user_id) !== String(user.user_id));
+      if (bound.length >= 2) return { ok: false, code: 'DEVICE_FULL' };
+      if (bound.some(u => String(u.cadre) === String(user.cadre))) {
+        return { ok: false, code: 'DEVICE_CADRE', cadre: String(user.cadre) };
+      }
       updateUser_(user, { device_id: deviceId, device_bound_at: nowIso_() });
       audit_(user.user_id, 'DEVICE_BIND', user.user_id, '', deviceId);
     }

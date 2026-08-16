@@ -94,19 +94,21 @@ function apiSync_(auth, req) {
     Object.keys(byMonth).forEach(ym => {
       const ss = getMonthSS_(ym);
       const sh = ss.getSheetByName('Marks');
-      const rows = [], rrows = [];
+      const rows = [], rrows = [], writtenKeys = [];
       byMonth[ym].forEach(it => {
         const target = it.type === 'RPT' ? reportsSheet_(ss) : sh;
         if (findRowByValue_(target, 1, it.key)) {
           acks.push({ key: it.key, status: 'DUP' });
+          CACHE.put('mk_' + it.key, '1', 21600); // truly in the sheet: safe
         } else if (it.type === 'RPT') {
           rrows.push(buildReportRow_(user, it, serverMs));
           acks.push({ key: it.key, status: 'OK' });
+          writtenKeys.push(it.key);
         } else {
           rows.push(buildMarkRow_(user, it, skewSec, serverMs));
           acks.push({ key: it.key, status: 'OK' });
+          writtenKeys.push(it.key);
         }
-        CACHE.put('mk_' + it.key, '1', 21600);
       });
       if (rows.length) {
         sh.getRange(sh.getLastRow() + 1, 1, rows.length, MARKS_H.length).setValues(rows);
@@ -115,6 +117,10 @@ function apiSync_(auth, req) {
         const rsh = reportsSheet_(ss);
         rsh.getRange(rsh.getLastRow() + 1, 1, rrows.length, RPT_H.length).setValues(rrows);
       }
+      // Cache the idempotency markers only AFTER the sheet writes succeeded —
+      // caching first would turn a failed setValues + client retry into a
+      // false DUP ack, silently losing the record.
+      writtenKeys.forEach(k => CACHE.put('mk_' + k, '1', 21600));
     });
   } finally {
     lock.releaseLock();

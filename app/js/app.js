@@ -26,6 +26,7 @@ const App = (() => {
   let markType = null;
   let camMode = 'mark';                 // 'mark' | 'rpt-child'|'rpt-preg'|'rpt-others'|'rpt-meal'
   let rptPhotos = { child: null, preg: null, others: null, meal: null, geo: null };
+  let rptCamFail = {}; // kinds the camera could not photograph (broken/denied)
 
   const active = () => (activeUid && accounts[activeUid]) || null;
 
@@ -335,6 +336,11 @@ const App = (() => {
       b.onclick = () => {
         loginSel = u.id;
         renderWhoami(users);
+        // Re-selecting a name resets the PIN blocks: the previous selection
+        // may have flipped the form into first-login mode, which otherwise
+        // dead-ends a user whose PIN already exists.
+        $('newpin-block').hidden = true;
+        $('pin-block').hidden = false;
         $('login-msg').textContent = '';
       };
       list.appendChild(b);
@@ -370,24 +376,11 @@ const App = (() => {
     try {
       const res = await Api.post(body);
       if (res.ok) {
+        // The one-AWT-plus-one-AWH-per-phone policy is enforced SERVER-side
+        // (DEVICE_FULL / DEVICE_CADRE below), before any device binding — a
+        // client-side refusal here would come after the server had already
+        // bound the account to this phone, stranding it.
         const uid = res.config.user.id;
-        // Device policy: one phone carries at most its centre pair — exactly
-        // one AWT and one AWH. (Admin/console accounts are not restricted.)
-        if (!accounts[uid] && res.config.user.role === 'FIELD') {
-          const fieldUsers = Object.values(accounts).map(a => a.user)
-            .filter(u => u.role === 'FIELD');
-          if (fieldUsers.length >= 2) {
-            msg.textContent = 'This phone already has its two users (AWT + AWH). Logout one first.';
-            return;
-          }
-          if (fieldUsers.some(u => u.cadre === res.config.user.cadre)) {
-            msg.textContent = 'Only one ' +
-              (res.config.user.cadre === 'AWT' ? 'Teacher (AWT)' : 'Helper (AWH)') +
-              ' can use this phone — the second user must be the ' +
-              (res.config.user.cadre === 'AWT' ? 'Helper (AWH)' : 'Teacher (AWT)') + '.';
-            return;
-          }
-        }
         accounts[uid] = { token: res.token, user: res.config.user, config: res.config };
         activeUid = uid;
         await saveAccounts();
@@ -404,6 +397,8 @@ const App = (() => {
         WRONG_PIN: 'Wrong PIN.' + (res.left ? ' Attempts left: ' + res.left : ''),
         LOCKED: 'Too many wrong attempts. Try again after 15 minutes.',
         DEVICE_MISMATCH: 'This account is active on another phone. Ask the district office to approve this phone.',
+        DEVICE_FULL: 'This phone already has its two users (AWT + AWH). Use your own phone, or ask the district office.',
+        DEVICE_CADRE: 'Only one Teacher and one Helper can use each phone. Use your own phone, or ask the district office.',
         RATE_LIMIT: 'Too many attempts. Please wait an hour.',
         BAD_PIN_FORMAT: 'PIN must be exactly 4 digits.'
       };
@@ -475,9 +470,12 @@ const App = (() => {
    * everything in the queue stay untouched — their marks sync as usual.
    */
   async function onAuthLost(uid, code) {
+    const wasActive = activeUid === uid;
     delete accounts[uid];
-    if (activeUid === uid) activeUid = Object.keys(accounts)[0] || null;
+    if (wasActive) activeUid = Object.keys(accounts)[0] || null;
     await saveAccounts();
+    if (!wasActive) { renderStatus(); return; } // background account: never yank the UI
+    Camera.stop(); // may have been mid-capture; don't leave the stream running
     if (active()) { await goHome(); return; }
     resetLogin();
     $('login-msg').textContent = code === 'DEVICE_MISMATCH'
@@ -796,9 +794,8 @@ const App = (() => {
   async function showUsers() {
     const list = $('users-list');
     list.innerHTML = '';
-    $('btn-adduser').hidden = Object.values(accounts)
-      .filter(a => a.user.role === 'FIELD').length >= 2; // AWT + AWH only
-    const queue = await DB.all('queue');
+    const queue = await DB.all('queue'); // add-user stays visible: the server
+    // enforces the AWT+AWH pair limit and admins are legitimately unrestricted
     Object.keys(accounts).forEach(uid => {
       const u = accounts[uid].user;
       const pend = queue.filter(r => String(r.key).split('_')[0] === uid).length;
@@ -876,7 +873,7 @@ const App = (() => {
       const g = geoResult || (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
       let photoBlob = null;
       const video = $('cam-video');
-      if (video.srcObject && video.videoWidth > 0) {
+      if (video.srcObject && video.srcObject.active && video.videoWidth > 0) {
         // Burnt-in stamp reads like a register entry: place name (own AWC,
         // else nearest known centre) and the person's name — never raw
         // coordinates. Coordinates still travel inside the record.
@@ -949,7 +946,9 @@ const App = (() => {
       const d = RPT_KINDS[k], b = $(d.btn);
       b.textContent = rptPhotos[k]
         ? '✓ ' + d.label.charAt(0).toUpperCase() + d.label.slice(1) + ' taken — tap to retake'
-        : '📷 Take ' + d.label + ' (live, geo-tagged)';
+        : rptCamFail[k]
+          ? '⚠ Camera unavailable — ' + d.label + ' will be flagged'
+          : '📷 Take ' + d.label + ' (live, geo-tagged)';
       b.classList.toggle('taken', !!rptPhotos[k]);
     });
   }
@@ -968,7 +967,7 @@ const App = (() => {
         (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
       const kind = camMode.slice(4); // 'rpt-child' -> 'child'
       const video = $('cam-video');
-      if (video.srcObject && video.videoWidth > 0) {
+      if (video.srcObject && video.srcObject.active && video.videoWidth > 0) {
         const stamp = [
           clientTs.slice(0, 16).replace('T', ' '),
           placeLine(g, acc.config),
@@ -976,13 +975,18 @@ const App = (() => {
         ];
         rptPhotos[kind] = await Camera.capture(video, stamp,
           (acc.config && acc.config.photoMaxKB) || 60);
+        delete rptCamFail[kind];
         if (g) rptPhotos.geo = g;
       } else {
-        $('cam-msg').textContent = 'No camera image — go back and submit without this photo.';
-        return;
+        // Camera broken/denied: never-block escape — the report may be
+        // submitted without this photo and the server flags NO_PHOTO_*.
+        rptCamFail[kind] = true;
       }
       Camera.stop();
       openReport();
+      if (rptCamFail[kind]) {
+        $('rpt-msg').textContent = 'No camera available — the report can be submitted; the missing photo will be flagged.';
+      }
     } finally {
       setBusy('btn-capture', false);
     }
@@ -998,19 +1002,24 @@ const App = (() => {
       return;
     }
     const num = id => Math.min(999, Math.max(0, Math.round(Number($(id).value) || 0)));
+    const big = id => Math.min(9999, Math.max(0, Math.round(Number($(id).value) || 0)));
     const kg = id => Math.min(9999, Math.max(0, Math.round((Number($(id).value) || 0) * 10) / 10));
     // District rule: EVERY field and ALL FOUR photos are compulsory. A value
-    // of 0 is fine, but it must be typed — blanks don't pass.
+    // of 0 is fine, but it must be typed — blank, negative or non-numeric
+    // does not pass. Photos are excused only when the camera itself is
+    // broken/denied (never-block): those sync flagged NO_PHOTO_*.
     const FIELD_LABELS = {
       'rp-children': 'children count', 'rp-pregnant': 'pregnant women count',
       'rp-others': 'other beneficiaries count', 'rp-meals': 'meals count',
       'rp-eggs': 'eggs count', 'rp-rice': 'rice KG', 'rp-pulses': 'pulses KG'
     };
+    const badValue = v => v.trim() === '' || isNaN(Number(v)) || Number(v) < 0;
     const missing = Object.keys(FIELD_LABELS)
-      .filter(id => $(id).value.trim() === '').map(id => FIELD_LABELS[id])
-      .concat(Object.keys(RPT_KINDS).filter(k => !rptPhotos[k]).map(k => RPT_KINDS[k].label));
+      .filter(id => badValue($(id).value)).map(id => FIELD_LABELS[id])
+      .concat(Object.keys(RPT_KINDS)
+        .filter(k => !rptPhotos[k] && !rptCamFail[k]).map(k => RPT_KINDS[k].label));
     if (missing.length) {
-      msg.textContent = 'Required: ' + missing.join(', ') + '.';
+      msg.textContent = 'Required (0 allowed, blank/negative not): ' + missing.join(', ') + '.';
       return;
     }
     setBusy('btn-rp-submit', true, 'Saving report…');
@@ -1027,7 +1036,7 @@ const App = (() => {
         awcId: String(acc.user.awcId || ''),
         children: num('rp-children'), pregnant: num('rp-pregnant'),
         others: num('rp-others'), meals: num('rp-meals'),
-        eggs: num('rp-eggs'), riceKg: kg('rp-rice'), pulsesKg: kg('rp-pulses'),
+        eggs: big('rp-eggs'), riceKg: kg('rp-rice'), pulsesKg: kg('rp-pulses'),
         photoBlob: rptPhotos.child, photoBlob2: rptPhotos.meal,
         photoBlob3: rptPhotos.preg, photoBlob4: rptPhotos.others
       };
@@ -1035,6 +1044,7 @@ const App = (() => {
       ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals',
         'rp-eggs', 'rp-rice', 'rp-pulses'].forEach(id => { $(id).value = ''; });
       rptPhotos = { child: null, preg: null, others: null, meal: null, geo: null };
+      rptCamFail = {};
 
       $('success-text').textContent = 'Daily report saved';
       $('success-sub').textContent = navigator.onLine
