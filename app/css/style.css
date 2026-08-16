@@ -33,39 +33,41 @@ html, body { height: 100%; }
 body {
   font-family: var(--font-display);
   color: var(--ink);
-  background: var(--bg);
+  /* soft gradient ground so the glass header has something to blur */
+  background: linear-gradient(165deg, #fdecec 0%, #f5f6fb 45%, #eef0fe 100%) fixed;
   margin: 0 auto; /* full-width: the app fills the whole screen */
 }
 
-/* Header — solid red banner, white BOLD title (district direction, final). */
+/* Header — centered glass banner: emblem in the middle, spaced title,
+   translucent blur over the gradient ground (district redesign). */
 .gov-header {
-  background: #c62828;
-  color: #fff;
-  padding: 10px 92px 10px 14px; /* right side reserved for the ↻ / ☰ buttons */
-  display: flex; align-items: center; gap: 10px;
-  border-bottom: 3px solid #a31f1f;
-  position: relative;
+  position: sticky; top: 0; z-index: 30;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  text-align: center;
+  padding: 14px 64px 12px;
+  background: rgba(255, 255, 255, .55);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-bottom: 1px solid rgba(198, 40, 40, .22);
+  color: var(--ink);
 }
-.gov-emblem { height: 38px; width: auto; flex: none; }
-.gov-head-text { min-width: 0; }
+.gov-emblem { height: 52px; width: auto; }
 .gov-line {
   font-family: var(--font-mono);
-  font-size: 11px; font-weight: 500;
+  font-size: 12px; font-weight: 500;
   letter-spacing: .18em; text-transform: uppercase;
-  color: #ffd6d6;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: #b04a4a;
 }
 .app-title {
-  font-size: 22px; font-weight: 800; letter-spacing: -.01em; color: #fff;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 24px; font-weight: 800; letter-spacing: .01em; color: var(--ink);
 }
 .menu-btn {
-  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-  background: none; border: none; color: #fff; font-size: 29px; padding: 8px;
+  position: absolute; right: 10px; top: 14px;
+  background: none; border: none; color: var(--ink); font-size: 29px; padding: 8px;
 }
-.refresh-btn { right: 52px; }
+.refresh-btn { right: 56px; }
 .refresh-btn.spinning { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .banner { padding: 10px 14px; font-size: 17px; text-align: center; }
 .banner-offline { background: var(--warn-soft); color: #8a5200; border-bottom: 1px solid #f3ddb5; }

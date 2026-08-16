@@ -7,7 +7,7 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v31';
+const CACHE = 'attendance-v32';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [
