@@ -1934,6 +1934,32 @@ function bootstrapAdmin_() {
   }, 'SETUP');
 }
 
+/**
+ * One-click TEST FIXTURES (run from the editor; idempotent):
+ * a TRAINING centre A9990 (no coordinates -> marks classify UNVERIFIED,
+ * never falsely OUTSIDE) plus its AWT+AWH pair BOTH on phone 9999999901 —
+ * the shared-centre-phone case (~190 real AWCs), so the who-am-I picker,
+ * switch-user, the AWT-only daily report and the AWH exemption are all
+ * testable end to end. When testing ends, set both users INACTIVE from the
+ * console (they count in district expected totals while ACTIVE).
+ */
+function seedTestUsers() {
+  const sh = masterSS_().getSheetByName('AWCs');
+  if (!findRowByValue_(sh, 1, 'A9990')) {
+    sh.appendRow(['A9990', 'S01', 'JGN', 'TEST CENTRE (TRAINING)', '', '', 200, 'TRUE']);
+    CACHE.remove('awc_A9990');
+    CACHE.remove('sawcs_S01');
+  }
+  const mk = (id, name, cadre) => upsertUser_({
+    user_id: id, allowCreateWithId: true, phone: '9999999901', name: name,
+    cadre: cadre, role: 'FIELD', project_code: 'JGN', sector_code: 'S01', awc_id: 'A9990'
+  }, 'SEED_TEST');
+  const awt = mk('U9901', 'Test Teacher (AWT)', 'AWT');
+  const awh = mk('U9902', 'Test Helper (AWH)', 'AWH');
+  return 'Seeded: A9990 + ' + JSON.stringify(awt) + ' + ' + JSON.stringify(awh) +
+    ' — login with phone 9999999901, pick your name, set a PIN.';
+}
+
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
