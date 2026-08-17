@@ -92,6 +92,28 @@ function seedTestUsers() {
     ' — login with phone 9999999901, pick your name, set a PIN.';
 }
 
+/**
+ * One-click Collector account (run from the editor; idempotent).
+ * The Collector & District Magistrate gets full ADMIN — console
+ * administration, complete monitoring, and the app's District Dashboard.
+ * ADMIN is this system's highest role: district-wide scope, no device
+ * binding restrictions, all admin actions. If the phone already exists
+ * (e.g. an old register row), that user is upgraded in place.
+ */
+function seedCollector() {
+  const phone = '9063753622';
+  const existing = getUsersByPhone_(phone);
+  const res = upsertUser_({
+    user_id: existing.length ? String(existing[0].user_id) : 'U2002',
+    allowCreateWithId: true,
+    phone: phone,
+    name: 'Collector & District Magistrate',
+    cadre: 'OTHER', role: 'ADMIN', status: 'ACTIVE'
+  }, 'SEED_COLLECTOR');
+  return JSON.stringify(res) +
+    ' — Collector logs in on app and console with ' + phone + ' and sets a PIN on first login.';
+}
+
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
