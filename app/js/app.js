@@ -773,7 +773,7 @@ const App = (() => {
             tile(stk.eggs.cb, 'Eggs', '') + tile(stk.rice.cb + 'kg', 'Rice', '') +
             tile(stk.pulses.cb + 'kg', 'Pulses', '') + tile(stk.milk.cb + 'L', 'Milk', '') +
             '</div><div class="dash-grid">' +
-            tile(stk.bal.cb + 'kg', 'Balamrutham', '') + tile(stk.balp.cb + 'kg', 'Balam. +', '') +
+            tile(stk.bal.cb + 'ml', 'Balamrutham', '') + tile(stk.balp.cb + 'ml', 'Balam. +', '') +
             tile(stk.eggs.used, 'Eggs used', 'warn') + tile(today.rpt.awcs, 'Reported', 'ok') +
             '</div>'
           : '<div class="dash-grid">' +
@@ -995,8 +995,8 @@ const App = (() => {
     { k: 'eggs', label: 'Eggs', unit: 'count', dec: false },
     { k: 'rice', label: 'Rice', unit: 'KG', dec: true },
     { k: 'pulses', label: 'Pulses', unit: 'KG', dec: true },
-    { k: 'bal', label: 'Balamrutham', unit: 'KG', dec: true },
-    { k: 'balp', label: 'Balamrutham +', unit: 'KG', dec: true },
+    { k: 'bal', label: 'Balamrutham', unit: 'ml', dec: false },
+    { k: 'balp', label: 'Balamrutham +', unit: 'ml', dec: false },
     { k: 'milk', label: 'Milk', unit: 'litres', dec: true }
   ];
   const ST_COLS = ['ob', 'used', 'recd'];

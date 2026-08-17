@@ -595,7 +595,7 @@ const App = (() => {
       (stk
         ? ' &middot; closing stock: eggs <b>' + stk.eggs.cb + '</b>, rice <b>' + stk.rice.cb +
           ' kg</b>, pulses <b>' + stk.pulses.cb + ' kg</b>, Balamrutham <b>' + stk.bal.cb +
-          ' kg</b>, Balamrutham+ <b>' + stk.balp.cb + ' kg</b>, milk <b>' + stk.milk.cb + ' L</b>'
+          ' ml</b>, Balamrutham+ <b>' + stk.balp.cb + ' ml</b>, milk <b>' + stk.milk.cb + ' L</b>'
         : ' &middot; stock: eggs <b>' + (agg.eggs || 0) + '</b>, rice <b>' + (agg.riceKg || 0) +
           ' kg</b>, pulses <b>' + (agg.pulsesKg || 0) + ' kg</b>');
 
@@ -616,7 +616,7 @@ const App = (() => {
         '</td><td>–</td><td>–</td><td>–</td>';
     wrap.innerHTML = '<table><tr><th>Sector</th><th>AWC</th><th>Reported by</th><th>Time</th>' +
       '<th>Children</th><th>Pregnant</th><th>Others</th><th>Meals</th>' +
-      '<th>Eggs</th><th>Rice kg</th><th>Pulses kg</th><th>Balam. kg</th><th>Balam+ kg</th><th>Milk L</th>' +
+      '<th>Eggs</th><th>Rice kg</th><th>Pulses kg</th><th>Balam. ml</th><th>Balam+ ml</th><th>Milk L</th>' +
       '<th>Flags</th><th>Photos</th></tr>' +
       rows.map(r =>
         '<tr><td>' + esc(sectorName(r.s)) + '</td><td>' + esc(awcName(r.a)) + '</td><td>' +
