@@ -7,7 +7,7 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v37';
+const CACHE = 'attendance-v38';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [
@@ -19,7 +19,14 @@ const SHELL = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache:'reload' bypasses the browser HTTP cache (GitHub Pages max-age=600):
+  // without it a new shell can be sealed with a stale stylesheet fetched
+  // minutes earlier — new HTML, old CSS.
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
