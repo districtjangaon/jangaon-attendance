@@ -1,9 +1,8 @@
 # Sisu&MahilaSamridhi — Deployment, Operation & Troubleshooting Guide
 
 **WD&CW Jangaon · Government of Telangana**
-This guide covers the web (PWA) channel, which is live today and runs in parallel with the
-Google Play rollout. Phones installed this way get every update automatically — nothing
-needs to be reinstalled when the Play Store version arrives later.
+This guide explains how to install, use and troubleshoot the Sisu Mahila Samridhi app.
+Installed phones receive every update automatically — nothing ever needs reinstalling.
 
 Installation is by **QR code only** — every sector receives the official printed QR
 poster (`INSTALL-POSTER.png` in this folder). No address is typed and no link is shared
@@ -99,8 +98,6 @@ capture or sync). No reinstall, no visit to any store. Verify by checking the BU
 Two things do **not** update automatically on already-installed phones:
 - The **home-screen icon and name** — frozen at install time. To refresh them: remove the
   icon and Add to Home screen again (login and pending marks are kept).
-- The **Play Store version**, once installed, updates its shell through Play — but the
-  screens inside come from the web and stay current automatically.
 
 ---
 
@@ -128,10 +125,3 @@ Two things do **not** update automatically on already-installed phones:
 screenshot of the problem.
 
 ---
-
-## Part F — Play Store track (running in parallel)
-
-The Play Store version is the same app in an official wrapper. Until it is public,
-phones use Part A. Once published, new phones install from Play instead — both kinds
-of installation work side by side and show identical data. Testers for the Play closed
-test are onboarded via the `request/` folder's tester sheet.
