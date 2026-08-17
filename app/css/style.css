@@ -57,7 +57,7 @@ body {
   color: #b04a4a;
 }
 .app-title {
-  font-size: 24px; font-weight: 800; letter-spacing: .01em; color: var(--ink);
+  font-size: 24px; font-weight: 800; letter-spacing: .01em; color: #c2185b; /* dark pink */
 }
 .menu-btn {
   position: absolute; right: 10px; top: 14px;
