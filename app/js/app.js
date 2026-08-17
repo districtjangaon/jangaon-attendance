@@ -341,7 +341,7 @@ const App = (() => {
     $('whoami-block').hidden = true;
     $('whoami-list').innerHTML = '';
     $('newpin-block').hidden = true;
-    $('pin-block').hidden = false;
+    $('pin-block').hidden = true; // shown only when the server asks for a PIN
     $('in-pin').value = '';
     $('in-newpin').value = '';
     $('in-newpin2').value = '';
@@ -360,11 +360,10 @@ const App = (() => {
       b.onclick = () => {
         loginSel = u.id;
         renderWhoami(users);
-        // Re-selecting a name resets the PIN blocks: the previous selection
-        // may have flipped the form into first-login mode, which otherwise
-        // dead-ends a user whose PIN already exists.
+        // Re-selecting a name resets the PIN blocks: the server will say on
+        // the next LOGIN tap whether this person enters or sets a PIN.
         $('newpin-block').hidden = true;
-        $('pin-block').hidden = false;
+        $('pin-block').hidden = true;
         $('login-msg').textContent = '';
       };
       list.appendChild(b);
@@ -435,6 +434,11 @@ const App = (() => {
         $('pin-block').hidden = true;
         msg.textContent = 'First login: choose your PIN below.';
       } else {
+        if (['PIN_REQUIRED', 'WRONG_PIN', 'LOCKED'].indexOf(res.code) >= 0) {
+          $('pin-block').hidden = false;
+          $('newpin-block').hidden = true;
+          $('in-pin').focus();
+        }
         msg.textContent = texts[res.code] || ('Login failed (' + res.code + ').');
       }
     } catch (e) {

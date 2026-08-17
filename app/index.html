@@ -39,7 +39,9 @@
       <div id="whoami-list" class="whoami-list"></div>
     </div>
 
-    <div id="pin-block">
+    <!-- Hidden until the server actually asks for a PIN: first-time users
+         set their PIN on the next step and must not be asked for one here. -->
+    <div id="pin-block" hidden>
       <label for="in-pin">PIN</label>
       <input id="in-pin" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit PIN">
     </div>
@@ -252,7 +254,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v4.0-20260817-1030</footer>
+  <footer class="build-tag">BUILD: v4.1-20260817-1100</footer>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button id="nav-home"><span>&#127968;</span>Home</button>

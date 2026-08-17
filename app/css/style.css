@@ -292,6 +292,14 @@ input:focus, select:focus {
 .wd i.none { background: #eef0f6; color: #a6abc2; }
 .wd i.sun { background: transparent; border: 1px dashed var(--line); color: #c4c8da; line-height: 34px; }
 
+/* Login screen — soft watermark background (protective hands artwork). */
+#screen-login {
+  min-height: calc(100vh - 120px);
+  background:
+    linear-gradient(rgba(250, 250, 250, .88), rgba(250, 250, 250, .95)),
+    url('../img/login-bg.jpg') center 20% / min(88vw, 420px) auto no-repeat;
+}
+
 /* Login screen — gentle staggered entrance (skipped for reduced-motion). */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(16px); }
