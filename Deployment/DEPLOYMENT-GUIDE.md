@@ -5,12 +5,12 @@ This guide covers the web (PWA) channel, which is live today and runs in paralle
 Google Play rollout. Phones installed this way get every update automatically — nothing
 needs to be reinstalled when the Play Store version arrives later.
 
-| What | Address |
-|---|---|
-| Field app (phones) | `https://districtjangaon.github.io/jangaon-attendance/app/` |
+Installation is by **QR code only** — every sector receives the official printed QR
+poster (`INSTALL-POSTER.png` in this folder). No address is typed and no link is shared
+on WhatsApp: the poster's QR is the single official entry point.
 
 **How to check which version a phone is running:** scroll to the bottom of any screen —
-the grey line reads `BUILD: v2.1-20260815-1130` (or newer). When reporting a problem,
+the grey line reads `BUILD: v4.2` (or newer) with a date. When reporting a problem,
 always note this build number.
 
 ---
@@ -20,17 +20,18 @@ always note this build number.
 Requirements: any Android phone with **Chrome** and a working internet connection
 (only for the first install and for syncing — daily marking works offline).
 
-1. Open **Chrome** on the phone (the round red/yellow/green/blue icon).
-2. Type the app address into the top bar:
-   `districtjangaon.github.io/jangaon-attendance/app/` and press Go.
-3. Wait for the login screen to appear fully (navy header with the Telangana emblem).
-4. Tap the **⋮** (three dots) at the top-right of Chrome.
-5. Tap **"Add to Home screen"** (on some phones: **"Install app"**).
-6. Tap **Install / Add**. The **Samridhi** icon (green emblem on dark blue) appears on the
-   home screen.
-7. From now on, always open the app **from that icon**, not from Chrome.
+1. Point the phone **camera** at the official QR poster and tap the link that pops up
+   (choose **Chrome** if asked).
+2. Wait for the login screen to appear (emblem on top, "Sisu Mahila Samridhi").
+3. A green **"⬇ Install this app on the phone"** button appears at the top —
+   tap it, then tap **Install** on the confirmation. Done: the **Samridhi** icon
+   appears on the home screen.
+4. If the green button does not appear on an older phone: tap Chrome's **⋮** menu
+   (top-right) → **"Add to Home screen"** → Install.
+5. From now on, always open the app **from the icon**, not from Chrome.
 
-> ⚠️ **Never install from any other link.** Only the address above is the official app.
+> ⚠️ **Install only by scanning the official QR poster.** Never from a forwarded
+> link or message.
 
 ### What NOT to do on an installed phone
 - Do **not** clear Chrome's "browsing data / storage" — that deletes the saved login and

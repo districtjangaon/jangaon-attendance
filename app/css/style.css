@@ -292,6 +292,8 @@ input:focus, select:focus {
 .wd i.none { background: #eef0f6; color: #a6abc2; }
 .wd i.sun { background: transparent; border: 1px dashed var(--line); color: #c4c8da; line-height: 34px; }
 
+.install-btn { margin: 0 0 18px; background: var(--ok); }
+
 /* Login screen — soft watermark background (protective hands artwork). */
 #screen-login {
   min-height: calc(100vh - 120px);

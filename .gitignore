@@ -29,3 +29,7 @@ Error Snap/
 backend/clasp/.clasp.json
 backend/clasp/Code.gs
 backend/clasp/appsscript.json
+
+# Commercial documents — keep out of the public repo
+Deployment/BOQ.xlsx
+Deployment/BOQ.docx

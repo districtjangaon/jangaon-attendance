@@ -216,6 +216,13 @@ const App = (() => {
     $('nav-users').onclick = showUsers;
     $('nav-dash').onclick = () => { show('screen-dash'); renderDash(); };
     $('nav-menu').onclick = showMenu;
+    $('btn-install').onclick = async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+      installPrompt = null;
+      $('btn-install').hidden = true;
+    };
     $('btn-rp-photo-child').onclick = () => openRptCamera('child');
     $('btn-rp-photo-preg').onclick = () => openRptCamera('preg');
     $('btn-rp-photo-others').onclick = () => openRptCamera('others');
@@ -447,6 +454,18 @@ const App = (() => {
       setBusy('btn-login', false);
     }
   }
+
+  // One-tap install: after a QR scan opens this page, Chrome fires
+  // beforeinstallprompt when installable — we surface a big Install button
+  // instead of making the user hunt the ⋮ menu. (A silent install from a QR
+  // scan is not possible on Android; one confirmation tap is the minimum.)
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    installPrompt = e;
+    $('btn-install').hidden = false;
+  });
+  window.addEventListener('appinstalled', () => { $('btn-install').hidden = true; });
 
   /** 10-second landing after login (photo + one line); tap skips straight home. */
   let welcomeTimer = null;
