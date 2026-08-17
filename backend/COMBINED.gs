@@ -55,7 +55,16 @@ const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
 const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',
   'lat', 'lng', 'accuracy_m', 'children', 'pregnant', 'others', 'meals',
   'photo_child_id', 'photo_meal_id', 'flags',
-  'photo_pregnant_id', 'photo_others_id', 'eggs', 'rice_kg', 'pulses_kg'];
+  'photo_pregnant_id', 'photo_others_id', 'eggs', 'rice_kg', 'pulses_kg',
+  // stock register v2: per-item opening / used / received / closing.
+  // The legacy eggs/rice_kg/pulses_kg columns above now carry closing values.
+  'eggs_ob', 'eggs_used', 'eggs_recd', 'eggs_cb',
+  'rice_ob', 'rice_used', 'rice_recd', 'rice_cb',
+  'pulses_ob', 'pulses_used', 'pulses_recd', 'pulses_cb',
+  'bal_ob', 'bal_used', 'bal_recd', 'bal_cb',
+  'balp_ob', 'balp_used', 'balp_recd', 'balp_cb',
+  'milk_ob', 'milk_used', 'milk_recd', 'milk_cb'];
+const STOCK_KEYS = ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'];
 
 // ---- policy constants ----
 const PIN_ITERATIONS = 4000;      // salted SHA-256 iterations (bcrypt does not exist in Apps Script)
@@ -784,12 +793,12 @@ function reportsSheet_(ss) {
   if (!sh) {
     sh = ss.insertSheet('Reports');
     sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
-    sh.getRange('A:V').setNumberFormat('@');
+    sh.getRange('A:AT').setNumberFormat('@');
   } else if (String(sh.getRange(1, RPT_H.length).getValue()) !== RPT_H[RPT_H.length - 1]) {
     // Sheet created by an older build with fewer columns: heal the header.
     // Data columns were only ever appended, so old rows stay aligned.
     sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
-    sh.getRange('A:V').setNumberFormat('@');
+    sh.getRange('A:AT').setNumberFormat('@');
   }
   return sh;
 }
@@ -819,7 +828,23 @@ function buildReportRow_(user, it, serverMs) {
     it.photoId, it.photo2Id, it.photoFlag,
     it.photo3Id, it.photo4Id,
     Math.min(9999, n9999_(rec.eggs)), kg(rec.riceKg), kg(rec.pulsesKg)
-  ];
+  ].concat(stockCols_(rec.stock));
+}
+
+/** 24 stock-register cells (item × ob/used/recd/cb), tolerant of old clients
+ *  that send no stock object at all (all blanks then). */
+function stockCols_(stock) {
+  const out = [];
+  const s = stock || null;
+  STOCK_KEYS.forEach(k => {
+    const o = (s && s[k]) || null;
+    ['ob', 'used', 'recd', 'cb'].forEach(c => {
+      if (!o || o[c] == null || o[c] === '' || isNaN(Number(o[c]))) { out.push(''); return; }
+      const x = Math.round(Number(o[c]) * 10) / 10;
+      out.push(x >= 0 ? Math.min(9999, x) : 0);
+    });
+  });
+  return out;
 }
 
 function getMonthSS_(ym, noCreate) {
@@ -1556,7 +1581,9 @@ function buildToday_() {
   // first row wins. Only the sheet tail is read (≤ ~800 rows), same budget
   // philosophy as the marks read above.
   const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0,
-    eggs: 0, riceKg: 0, pulsesKg: 0 };
+    eggs: 0, riceKg: 0, pulsesKg: 0, stock: {} };
+  STOCK_KEYS.forEach(k => { rpt.stock[k] = { ob: 0, used: 0, recd: 0, cb: 0 }; });
+  const r1_ = v => Math.round(v * 10) / 10;
   const rptRows = []; // per-AWC detail for the console's Daily Reports tab
   const rsh = ss.getSheetByName('Reports');
   if (rsh && rsh.getLastRow() >= 2) {
@@ -1577,7 +1604,16 @@ function buildToday_() {
       rpt.eggs += Number(o.eggs) || 0;
       rpt.riceKg = Math.round((rpt.riceKg + (Number(o.rice_kg) || 0)) * 10) / 10;
       rpt.pulsesKg = Math.round((rpt.pulsesKg + (Number(o.pulses_kg) || 0)) * 10) / 10;
+      // stock register: per-row [ob,used,recd,cb] per item + district totals
+      const st = STOCK_KEYS.map(k => ['ob', 'used', 'recd', 'cb'].map(c =>
+        Number(o[k + '_' + c]) || 0));
+      st.forEach((vals, i) => {
+        const t = rpt.stock[STOCK_KEYS[i]];
+        t.ob = r1_(t.ob + vals[0]); t.used = r1_(t.used + vals[1]);
+        t.recd = r1_(t.recd + vals[2]); t.cb = r1_(t.cb + vals[3]);
+      });
       rptRows.push({
+        st: st,
         u: String(o.user_id), s: String(o.sector_code), a: aid,
         at: String(o.client_ts).slice(11, 16),
         c: Number(o.children) || 0, p: Number(o.pregnant) || 0,

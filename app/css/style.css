@@ -33,22 +33,20 @@ html, body { height: 100%; }
 body {
   font-family: var(--font-display);
   color: var(--ink);
-  /* soft gradient ground so the glass header has something to blur */
-  background: linear-gradient(165deg, #fdecec 0%, #f5f6fb 45%, #eef0fe 100%) fixed;
+  background: #fafafa; /* flat light grey, Instagram-style ground */
   margin: 0 auto; /* full-width: the app fills the whole screen */
 }
 
-/* Header — centered glass banner: emblem in the middle, spaced title,
-   translucent blur over the gradient ground (district redesign). */
+/* Header — centered, WHITE and STATIC (scrolls away with the page: a frozen
+   header over the camera/report flow caused real capture trouble in the
+   field). Instagram-style hairline separation. */
 .gov-header {
-  position: sticky; top: 0; z-index: 30;
+  position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   text-align: center;
-  padding: 14px 64px 12px;
-  background: rgba(255, 255, 255, .55);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  border-bottom: 1px solid rgba(198, 40, 40, .22);
+  padding: 12px 64px 10px;
+  background: #fff;
+  border-bottom: 1px solid #dbdbdb;
   color: var(--ink);
 }
 .gov-emblem { height: 52px; width: auto; }
@@ -66,6 +64,24 @@ body {
   background: none; border: none; color: var(--ink); font-size: 29px; padding: 8px;
 }
 .refresh-btn { right: 56px; }
+
+/* Bottom navigation — Instagram-style: icons + labels, white bar, hairline. */
+.bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex; justify-content: space-around; align-items: stretch;
+  background: #fff; border-top: 1px solid #dbdbdb;
+  padding: 6px 0 max(8px, env(safe-area-inset-bottom));
+}
+.bottom-nav button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  padding: 4px 0;
+}
+.bottom-nav button span { font-size: 24px; line-height: 1.15; }
+.bottom-nav button.sel { color: var(--ink); font-weight: 700; }
+.screen { padding-bottom: 100px; } /* keep content clear of the nav bar */
 .refresh-btn.spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -375,6 +391,31 @@ input:focus, select:focus {
   font-size: 16px; color: #7c3a3a; line-height: 1.55;
 }
 .role-note b { color: #5f2626; }
+.stock-wrap { overflow-x: auto; margin-top: 10px; }
+.stock-table {
+  border-collapse: collapse; width: 100%; background: #fff;
+  border: 1px solid #dbdbdb; border-radius: 12px; overflow: hidden;
+}
+.stock-table th {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  background: #fafafa; padding: 8px 4px; border-bottom: 1px solid #dbdbdb;
+}
+.stock-table td { border-bottom: 1px solid #efefef; padding: 4px; text-align: center; }
+.stock-table td.item {
+  text-align: left; font-size: 14px; font-weight: 600; padding-left: 10px;
+  white-space: nowrap;
+}
+.stock-table td.item small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.stock-table input {
+  width: 62px; padding: 8px 4px; font-size: 16px; letter-spacing: 0;
+  text-align: center; border-radius: 8px; border-width: 1px;
+}
+.stock-table td.cb {
+  font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--ok);
+  min-width: 54px;
+}
+.stock-table td.cb.neg { color: var(--err); }
 .rpt-stock-h {
   margin: 22px 0 2px; font-size: 20px;
   padding-top: 14px; border-top: 1px solid var(--line);

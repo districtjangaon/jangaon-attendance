@@ -588,11 +588,16 @@ const App = (() => {
         'within ~5 minutes of centres submitting them from the app (backend v2.3+).</p>';
       return;
     }
+    const stk = agg.stock;
     info.innerHTML = '<b>' + agg.awcs + '</b> of ' + awcTotal + ' AWCs reported today &middot; ' +
       'children <b>' + agg.children + '</b> &middot; pregnant women <b>' + agg.pregnant + '</b> &middot; ' +
       'other beneficiaries <b>' + agg.others + '</b> &middot; meals <b>' + agg.meals + '</b>' +
-      ' &middot; stock: eggs <b>' + (agg.eggs || 0) + '</b>, rice <b>' + (agg.riceKg || 0) +
-      ' kg</b>, pulses <b>' + (agg.pulsesKg || 0) + ' kg</b>';
+      (stk
+        ? ' &middot; closing stock: eggs <b>' + stk.eggs.cb + '</b>, rice <b>' + stk.rice.cb +
+          ' kg</b>, pulses <b>' + stk.pulses.cb + ' kg</b>, Balamrutham <b>' + stk.bal.cb +
+          ' kg</b>, Balamrutham+ <b>' + stk.balp.cb + ' kg</b>, milk <b>' + stk.milk.cb + ' L</b>'
+        : ' &middot; stock: eggs <b>' + (agg.eggs || 0) + '</b>, rice <b>' + (agg.riceKg || 0) +
+          ' kg</b>, pulses <b>' + (agg.pulsesKg || 0) + ' kg</b>');
 
     const rows = rptRowsFiltered();
     if (!rows.length) {
@@ -602,14 +607,21 @@ const App = (() => {
     }
     const phBtn = (id, label) => id
       ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(id) + '">' + label + '</button> ' : '';
+    // stock cells show the CLOSING balance; hover reveals open/used/received
+    const stCell = v => '<td title="opening ' + v[0] + ' · used ' + v[1] +
+      ' · received ' + v[2] + '"><b>' + v[3] + '</b></td>';
+    const stCells = r => r.st
+      ? r.st.map(stCell).join('')
+      : '<td>' + (r.eg || 0) + '</td><td>' + (r.rk || 0) + '</td><td>' + (r.pk || 0) +
+        '</td><td>–</td><td>–</td><td>–</td>';
     wrap.innerHTML = '<table><tr><th>Sector</th><th>AWC</th><th>Reported by</th><th>Time</th>' +
       '<th>Children</th><th>Pregnant</th><th>Others</th><th>Meals</th>' +
-      '<th>Eggs</th><th>Rice kg</th><th>Pulses kg</th><th>Flags</th><th>Photos</th></tr>' +
+      '<th>Eggs</th><th>Rice kg</th><th>Pulses kg</th><th>Balam. kg</th><th>Balam+ kg</th><th>Milk L</th>' +
+      '<th>Flags</th><th>Photos</th></tr>' +
       rows.map(r =>
         '<tr><td>' + esc(sectorName(r.s)) + '</td><td>' + esc(awcName(r.a)) + '</td><td>' +
         esc(userName(r.u)) + '</td><td>' + esc(r.at || '–') + '</td><td><b>' + r.c + '</b></td><td>' +
-        r.p + '</td><td>' + r.o + '</td><td><b>' + r.m + '</b></td><td>' +
-        (r.eg || 0) + '</td><td>' + (r.rk || 0) + '</td><td>' + (r.pk || 0) + '</td>' +
+        r.p + '</td><td>' + r.o + '</td><td><b>' + r.m + '</b></td>' + stCells(r) +
         '<td class="flags">' + esc(r.f || '') + '</td><td>' +
         phBtn(r.ph1, 'children') + phBtn(r.ph3, 'pregnant') +
         phBtn(r.ph4, 'others') + phBtn(r.ph2, 'meal') +
@@ -618,10 +630,18 @@ const App = (() => {
   }
 
   function rptsCsv() {
-    const rows = [['sector', 'awc', 'reported_by', 'time', 'children', 'pregnant', 'others',
-      'meals', 'eggs', 'rice_kg', 'pulses_kg', 'flags']];
-    rptRowsFiltered().forEach(r => rows.push([sectorName(r.s), awcName(r.a), userName(r.u),
-      r.at || '', r.c, r.p, r.o, r.m, r.eg || 0, r.rk || 0, r.pk || 0, r.f || '']));
+    const SKEYS = ['eggs', 'rice', 'pulses', 'balamrutham', 'balamrutham_plus', 'milk'];
+    const head = ['sector', 'awc', 'reported_by', 'time', 'children', 'pregnant', 'others', 'meals'];
+    SKEYS.forEach(k => head.push(k + '_open', k + '_used', k + '_received', k + '_closing'));
+    head.push('flags');
+    const rows = [head];
+    rptRowsFiltered().forEach(r => {
+      const base = [sectorName(r.s), awcName(r.a), userName(r.u), r.at || '', r.c, r.p, r.o, r.m];
+      const st = r.st || SKEYS.map(() => ['', '', '', '']);
+      st.forEach(v => base.push(v[0], v[1], v[2], v[3]));
+      base.push(r.f || '');
+      rows.push(base);
+    });
     downloadCsv('daily-reports-' + ((today && today.date) || '') + '.csv', rows);
   }
 

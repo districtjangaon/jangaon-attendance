@@ -80,7 +80,8 @@ const Sync = (() => {
             photo4B64: item.photoBlob4 ? await blobToB64(item.photoBlob4) : undefined,
             children: item.children, pregnant: item.pregnant,
             others: item.others, meals: item.meals,
-            eggs: item.eggs, riceKg: item.riceKg, pulsesKg: item.pulsesKg
+            eggs: item.eggs, riceKg: item.riceKg, pulsesKg: item.pulsesKg,
+            stock: item.stock
           });
         }
         let res;

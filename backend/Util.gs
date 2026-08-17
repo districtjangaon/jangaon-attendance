@@ -44,7 +44,16 @@ const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
 const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',
   'lat', 'lng', 'accuracy_m', 'children', 'pregnant', 'others', 'meals',
   'photo_child_id', 'photo_meal_id', 'flags',
-  'photo_pregnant_id', 'photo_others_id', 'eggs', 'rice_kg', 'pulses_kg'];
+  'photo_pregnant_id', 'photo_others_id', 'eggs', 'rice_kg', 'pulses_kg',
+  // stock register v2: per-item opening / used / received / closing.
+  // The legacy eggs/rice_kg/pulses_kg columns above now carry closing values.
+  'eggs_ob', 'eggs_used', 'eggs_recd', 'eggs_cb',
+  'rice_ob', 'rice_used', 'rice_recd', 'rice_cb',
+  'pulses_ob', 'pulses_used', 'pulses_recd', 'pulses_cb',
+  'bal_ob', 'bal_used', 'bal_recd', 'bal_cb',
+  'balp_ob', 'balp_used', 'balp_recd', 'balp_cb',
+  'milk_ob', 'milk_used', 'milk_recd', 'milk_cb'];
+const STOCK_KEYS = ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'];
 
 // ---- policy constants ----
 const PIN_ITERATIONS = 4000;      // salted SHA-256 iterations (bcrypt does not exist in Apps Script)

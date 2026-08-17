@@ -237,12 +237,12 @@ function reportsSheet_(ss) {
   if (!sh) {
     sh = ss.insertSheet('Reports');
     sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
-    sh.getRange('A:V').setNumberFormat('@');
+    sh.getRange('A:AT').setNumberFormat('@');
   } else if (String(sh.getRange(1, RPT_H.length).getValue()) !== RPT_H[RPT_H.length - 1]) {
     // Sheet created by an older build with fewer columns: heal the header.
     // Data columns were only ever appended, so old rows stay aligned.
     sh.getRange(1, 1, 1, RPT_H.length).setValues([RPT_H]);
-    sh.getRange('A:V').setNumberFormat('@');
+    sh.getRange('A:AT').setNumberFormat('@');
   }
   return sh;
 }
@@ -272,7 +272,23 @@ function buildReportRow_(user, it, serverMs) {
     it.photoId, it.photo2Id, it.photoFlag,
     it.photo3Id, it.photo4Id,
     Math.min(9999, n9999_(rec.eggs)), kg(rec.riceKg), kg(rec.pulsesKg)
-  ];
+  ].concat(stockCols_(rec.stock));
+}
+
+/** 24 stock-register cells (item × ob/used/recd/cb), tolerant of old clients
+ *  that send no stock object at all (all blanks then). */
+function stockCols_(stock) {
+  const out = [];
+  const s = stock || null;
+  STOCK_KEYS.forEach(k => {
+    const o = (s && s[k]) || null;
+    ['ob', 'used', 'recd', 'cb'].forEach(c => {
+      if (!o || o[c] == null || o[c] === '' || isNaN(Number(o[c]))) { out.push(''); return; }
+      const x = Math.round(Number(o[c]) * 10) / 10;
+      out.push(x >= 0 ? Math.min(9999, x) : 0);
+    });
+  });
+  return out;
 }
 
 function getMonthSS_(ym, noCreate) {

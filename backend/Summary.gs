@@ -201,7 +201,9 @@ function buildToday_() {
   // first row wins. Only the sheet tail is read (≤ ~800 rows), same budget
   // philosophy as the marks read above.
   const rpt = { awcs: 0, children: 0, pregnant: 0, others: 0, meals: 0,
-    eggs: 0, riceKg: 0, pulsesKg: 0 };
+    eggs: 0, riceKg: 0, pulsesKg: 0, stock: {} };
+  STOCK_KEYS.forEach(k => { rpt.stock[k] = { ob: 0, used: 0, recd: 0, cb: 0 }; });
+  const r1_ = v => Math.round(v * 10) / 10;
   const rptRows = []; // per-AWC detail for the console's Daily Reports tab
   const rsh = ss.getSheetByName('Reports');
   if (rsh && rsh.getLastRow() >= 2) {
@@ -222,7 +224,16 @@ function buildToday_() {
       rpt.eggs += Number(o.eggs) || 0;
       rpt.riceKg = Math.round((rpt.riceKg + (Number(o.rice_kg) || 0)) * 10) / 10;
       rpt.pulsesKg = Math.round((rpt.pulsesKg + (Number(o.pulses_kg) || 0)) * 10) / 10;
+      // stock register: per-row [ob,used,recd,cb] per item + district totals
+      const st = STOCK_KEYS.map(k => ['ob', 'used', 'recd', 'cb'].map(c =>
+        Number(o[k + '_' + c]) || 0));
+      st.forEach((vals, i) => {
+        const t = rpt.stock[STOCK_KEYS[i]];
+        t.ob = r1_(t.ob + vals[0]); t.used = r1_(t.used + vals[1]);
+        t.recd = r1_(t.recd + vals[2]); t.cb = r1_(t.cb + vals[3]);
+      });
       rptRows.push({
+        st: st,
         u: String(o.user_id), s: String(o.sector_code), a: aid,
         at: String(o.client_ts).slice(11, 16),
         c: Number(o.children) || 0, p: Number(o.pregnant) || 0,

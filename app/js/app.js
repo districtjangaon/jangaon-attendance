@@ -46,9 +46,26 @@ const App = (() => {
     }
   }
 
+  const NAV_MAP = {
+    'screen-home': 'nav-home', 'screen-report': 'nav-report',
+    'screen-history': 'nav-history', 'screen-users': 'nav-users',
+    'screen-dash': 'nav-dash', 'screen-menu': 'nav-menu'
+  };
+
   function show(id) {
     screens.forEach(s => { $(s).hidden = (s !== id); });
     $('btn-menu').hidden = (id === 'screen-login');
+    // Bottom nav: hidden on login/welcome and during full-attention flows
+    // (camera, success); Report is the Teacher's duty, Stats is admin-only.
+    const acc = active();
+    const nav = $('bottom-nav');
+    nav.hidden = !acc ||
+      ['screen-login', 'screen-welcome', 'screen-camera', 'screen-success'].indexOf(id) >= 0;
+    if (!nav.hidden) {
+      $('nav-report').hidden = acc.user.cadre !== 'AWT';
+      $('nav-dash').hidden = acc.user.role !== 'ADMIN';
+      Object.keys(NAV_MAP).forEach(s => $(NAV_MAP[s]).classList.toggle('sel', s === id));
+    }
   }
 
   function localIso() {
@@ -133,6 +150,7 @@ const App = (() => {
     Sync.init();
     window.addEventListener('online', renderStatus);
     window.addEventListener('offline', renderStatus);
+    buildStockTable();
     bindEvents();
     setInterval(() => { if (!$('screen-home').hidden) updateClock(); }, 20000);
 
@@ -192,6 +210,12 @@ const App = (() => {
     $('btn-dash-back').onclick = goHome;
     $('report-chip').onclick = openReport;
     $('btn-rp-back').onclick = goHome;
+    $('nav-home').onclick = goHome;
+    $('nav-report').onclick = openReport;
+    $('nav-history').onclick = showHistory;
+    $('nav-users').onclick = showUsers;
+    $('nav-dash').onclick = () => { show('screen-dash'); renderDash(); };
+    $('nav-menu').onclick = showMenu;
     $('btn-rp-photo-child').onclick = () => openRptCamera('child');
     $('btn-rp-photo-preg').onclick = () => openRptCamera('preg');
     $('btn-rp-photo-others').onclick = () => openRptCamera('others');
@@ -714,17 +738,25 @@ const App = (() => {
       '</div>';
 
     if (today.rpt) {
+      const stk = today.rpt.stock;
       html += '<div class="dash-h">AWC daily reports · ' + today.rpt.awcs + ' centres reported</div>' +
         '<div class="dash-grid">' +
         tile(today.rpt.children, 'Children', 'ok') + tile(today.rpt.pregnant, 'Pregnant', '') +
         tile(today.rpt.others, 'Others', '') + tile(today.rpt.meals, 'Meals', 'ok') +
         '</div>' +
-        '<div class="dash-h">Stock at centres</div>' +
-        '<div class="dash-grid">' +
-        tile(today.rpt.eggs || 0, 'Eggs', '') + tile((today.rpt.riceKg || 0) + 'kg', 'Rice', '') +
-        tile((today.rpt.pulsesKg || 0) + 'kg', 'Pulses', '') +
-        tile(today.rpt.awcs, 'Reported', 'ok') +
-        '</div>';
+        '<div class="dash-h">Closing stock at centres</div>' +
+        (stk
+          ? '<div class="dash-grid">' +
+            tile(stk.eggs.cb, 'Eggs', '') + tile(stk.rice.cb + 'kg', 'Rice', '') +
+            tile(stk.pulses.cb + 'kg', 'Pulses', '') + tile(stk.milk.cb + 'L', 'Milk', '') +
+            '</div><div class="dash-grid">' +
+            tile(stk.bal.cb + 'kg', 'Balamrutham', '') + tile(stk.balp.cb + 'kg', 'Balam. +', '') +
+            tile(stk.eggs.used, 'Eggs used', 'warn') + tile(today.rpt.awcs, 'Reported', 'ok') +
+            '</div>'
+          : '<div class="dash-grid">' +
+            tile(today.rpt.eggs || 0, 'Eggs', '') + tile((today.rpt.riceKg || 0) + 'kg', 'Rice', '') +
+            tile((today.rpt.pulsesKg || 0) + 'kg', 'Pulses', '') + tile(today.rpt.awcs, 'Reported', 'ok') +
+            '</div>');
     }
 
     html += '<div class="dash-h">Projects</div>' + (today.projects || []).map(p => {
@@ -934,6 +966,52 @@ const App = (() => {
     show('screen-report');
   }
 
+  // ---------- stock register: 6 items, Opening/Used/Received editable,
+  // Closing auto-calculated (Opening + Received − Used) ----------
+  const STOCK_ITEMS = [
+    { k: 'eggs', label: 'Eggs', unit: 'count', dec: false },
+    { k: 'rice', label: 'Rice', unit: 'KG', dec: true },
+    { k: 'pulses', label: 'Pulses', unit: 'KG', dec: true },
+    { k: 'bal', label: 'Balamrutham', unit: 'KG', dec: true },
+    { k: 'balp', label: 'Balamrutham +', unit: 'KG', dec: true },
+    { k: 'milk', label: 'Milk', unit: 'litres', dec: true }
+  ];
+  const ST_COLS = ['ob', 'used', 'recd'];
+
+  function buildStockTable() {
+    const t = $('stock-table');
+    STOCK_ITEMS.forEach(it => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td class="item">' + it.label + '<small>' + it.unit + '</small></td>' +
+        ST_COLS.map(c => '<td><input id="st-' + it.k + '-' + c +
+          '" type="number" inputmode="' + (it.dec ? 'decimal' : 'numeric') +
+          '" min="0" max="9999"' + (it.dec ? ' step="0.5"' : '') +
+          ' placeholder="0"></td>').join('') +
+        '<td class="cb" id="st-' + it.k + '-cb">&ndash;</td>';
+      t.appendChild(tr);
+      ST_COLS.forEach(c => $('st-' + it.k + '-' + c)
+        .addEventListener('input', () => updateStockCb(it)));
+    });
+  }
+
+  const stockVal = (it, c) => {
+    const v = $('st-' + it.k + '-' + c).value.trim();
+    return v === '' || isNaN(Number(v)) ? null : Number(v);
+  };
+
+  function stockCb(it) {
+    const ob = stockVal(it, 'ob'), used = stockVal(it, 'used'), recd = stockVal(it, 'recd');
+    if (ob == null || used == null || recd == null) return null;
+    return Math.round((ob + recd - used) * 10) / 10;
+  }
+
+  function updateStockCb(it) {
+    const cb = stockCb(it);
+    const cell = $('st-' + it.k + '-cb');
+    cell.textContent = cb == null ? '–' : cb;
+    cell.classList.toggle('neg', cb != null && cb < 0);
+  }
+
   const RPT_KINDS = {
     child:  { btn: 'btn-rp-photo-child',  label: 'children photo',            stamp: 'CHILDREN PRESENT',    title: 'Children present — take photo' },
     preg:   { btn: 'btn-rp-photo-preg',   label: 'pregnant women photo',      stamp: 'PREGNANT WOMEN',      title: 'Pregnant women — take photo' },
@@ -1002,26 +1080,45 @@ const App = (() => {
       return;
     }
     const num = id => Math.min(999, Math.max(0, Math.round(Number($(id).value) || 0)));
-    const big = id => Math.min(9999, Math.max(0, Math.round(Number($(id).value) || 0)));
-    const kg = id => Math.min(9999, Math.max(0, Math.round((Number($(id).value) || 0) * 10) / 10));
     // District rule: EVERY field and ALL FOUR photos are compulsory. A value
     // of 0 is fine, but it must be typed — blank, negative or non-numeric
     // does not pass. Photos are excused only when the camera itself is
     // broken/denied (never-block): those sync flagged NO_PHOTO_*.
     const FIELD_LABELS = {
       'rp-children': 'children count', 'rp-pregnant': 'pregnant women count',
-      'rp-others': 'other beneficiaries count', 'rp-meals': 'meals count',
-      'rp-eggs': 'eggs count', 'rp-rice': 'rice KG', 'rp-pulses': 'pulses KG'
+      'rp-others': 'other beneficiaries count', 'rp-meals': 'meals count'
     };
     const badValue = v => v.trim() === '' || isNaN(Number(v)) || Number(v) < 0;
     const missing = Object.keys(FIELD_LABELS)
       .filter(id => badValue($(id).value)).map(id => FIELD_LABELS[id])
       .concat(Object.keys(RPT_KINDS)
         .filter(k => !rptPhotos[k] && !rptCamFail[k]).map(k => RPT_KINDS[k].label));
+    STOCK_ITEMS.forEach(it => {
+      ST_COLS.forEach(c => {
+        if (badValue($('st-' + it.k + '-' + c).value)) {
+          missing.push(it.label + ' ' + (c === 'ob' ? 'opening' : c === 'used' ? 'used' : 'received'));
+        }
+      });
+    });
     if (missing.length) {
       msg.textContent = 'Required (0 allowed, blank/negative not): ' + missing.join(', ') + '.';
       return;
     }
+    const shortItem = STOCK_ITEMS.find(it => (stockCb(it) || 0) < 0);
+    if (shortItem) {
+      msg.textContent = shortItem.label + ': used is more than opening + received. Please correct.';
+      return;
+    }
+    const round1 = (v, dec) => dec ? Math.round(v * 10) / 10 : Math.round(v);
+    const stock = {};
+    STOCK_ITEMS.forEach(it => {
+      stock[it.k] = {
+        ob: Math.min(9999, round1(stockVal(it, 'ob'), it.dec)),
+        used: Math.min(9999, round1(stockVal(it, 'used'), it.dec)),
+        recd: Math.min(9999, round1(stockVal(it, 'recd'), it.dec)),
+        cb: Math.min(9999, round1(stockCb(it), it.dec))
+      };
+    });
     setBusy('btn-rp-submit', true, 'Saving report…');
     try {
       const g = rptPhotos.geo || (await Geo.capture(5000));
@@ -1036,13 +1133,19 @@ const App = (() => {
         awcId: String(acc.user.awcId || ''),
         children: num('rp-children'), pregnant: num('rp-pregnant'),
         others: num('rp-others'), meals: num('rp-meals'),
-        eggs: big('rp-eggs'), riceKg: kg('rp-rice'), pulsesKg: kg('rp-pulses'),
+        // legacy single-value stock columns keep older consumers working:
+        // they now carry the CLOSING balances
+        eggs: stock.eggs.cb, riceKg: stock.rice.cb, pulsesKg: stock.pulses.cb,
+        stock: stock,
         photoBlob: rptPhotos.child, photoBlob2: rptPhotos.meal,
         photoBlob3: rptPhotos.preg, photoBlob4: rptPhotos.others
       };
       await Sync.enqueue(record);
-      ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals',
-        'rp-eggs', 'rp-rice', 'rp-pulses'].forEach(id => { $(id).value = ''; });
+      ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals'].forEach(id => { $(id).value = ''; });
+      STOCK_ITEMS.forEach(it => {
+        ST_COLS.forEach(c => { $('st-' + it.k + '-' + c).value = ''; });
+        updateStockCb(it);
+      });
       rptPhotos = { child: null, preg: null, others: null, meal: null, geo: null };
       rptCamFail = {};
 

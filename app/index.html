@@ -212,13 +212,14 @@
     <input id="rp-meals" type="number" inputmode="numeric" min="0" max="999" placeholder="0">
     <button id="btn-rp-photo-meal" class="btn btn-plain photo-btn">&#128247; Take meal photo (live, geo-tagged)</button>
 
-    <h2 class="rpt-stock-h">Stock tracker</h2>
-    <label for="rp-eggs">Eggs available (count)</label>
-    <input id="rp-eggs" type="number" inputmode="numeric" min="0" max="9999" placeholder="0">
-    <label for="rp-rice">Rice available (KG)</label>
-    <input id="rp-rice" type="number" inputmode="decimal" min="0" max="9999" step="0.5" placeholder="0.0">
-    <label for="rp-pulses">Pulses available (KG)</label>
-    <input id="rp-pulses" type="number" inputmode="decimal" min="0" max="9999" step="0.5" placeholder="0.0">
+    <h2 class="rpt-stock-h">Stock register</h2>
+    <p class="info">Fill Opening, Used and Received for every item —
+      <b>Closing is calculated automatically</b> (Opening + Received &minus; Used).</p>
+    <div class="stock-wrap">
+      <table class="stock-table" id="stock-table">
+        <tr><th>Item</th><th>Opening</th><th>Used</th><th>Received</th><th>Closing</th></tr>
+      </table>
+    </div>
 
     <button id="btn-rp-submit" class="btn btn-primary">SUBMIT REPORT</button>
     <p id="rpt-msg" class="msg"></p>
@@ -251,7 +252,16 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v3.3-20260817-0110</footer>
+  <footer class="build-tag">BUILD: v4.0-20260817-1030</footer>
+
+  <nav id="bottom-nav" class="bottom-nav" hidden>
+    <button id="nav-home"><span>&#127968;</span>Home</button>
+    <button id="nav-report"><span>&#128221;</span>Report</button>
+    <button id="nav-history"><span>&#128337;</span>Record</button>
+    <button id="nav-users"><span>&#128101;</span>Users</button>
+    <button id="nav-dash" hidden><span>&#128202;</span>Stats</button>
+    <button id="nav-menu"><span>&#9776;</span>Menu</button>
+  </nav>
 
   <script src="js/config.js"></script>
   <script src="js/db.js"></script>
