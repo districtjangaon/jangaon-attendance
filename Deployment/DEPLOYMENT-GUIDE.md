@@ -120,8 +120,8 @@ Two things do **not** update automatically on already-installed phones:
 | 13 | Every mark at a centre shows "outside geofence" | The centre's stored location is wrong or missing. Inform the district office — they can re-capture the centre's correct location; marks are never blocked meanwhile. |
 | 14 | Phone storage almost full | The app itself needs almost nothing, but Android may refuse the camera. Free some space (photos/videos), then retry. |
 
-**Escalation path:** worker → Anganwadi supervisor / sector → district office
-(district.jana@gmail.com) with: worker name, AWC, phone model, BUILD number, and a
-screenshot of the problem.
+**Escalation path:** worker → Anganwadi supervisor / sector → **connect with the EDM
+(e-District Manager) at the district office**, sharing: worker name, AWC, phone model,
+BUILD number, and a screenshot of the problem.
 
 ---
