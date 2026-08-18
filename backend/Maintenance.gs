@@ -165,6 +165,33 @@ function importSupervisors() {
   return results.join(' | ');
 }
 
+/**
+ * One-click E2E AUTOMATION PAIR (run from the editor; idempotent):
+ * U9903/U9904 on phone 9999999902 at the TRAINING centre A9990. Each run
+ * RESETS their PINs and device binding, so the automated browser test can
+ * always complete a fresh first-login. Keep INACTIVE outside test windows
+ * if their rows in the dashboards bother anyone.
+ */
+function seedE2ePair() {
+  const sh = masterSS_().getSheetByName('AWCs');
+  if (!findRowByValue_(sh, 1, 'A9990')) {
+    sh.appendRow(['A9990', 'S01', 'JGN', 'TEST CENTRE (TRAINING)', '', '', 200, 'TRUE']);
+    CACHE.remove('awc_A9990');
+    CACHE.remove('sawcs_S01');
+  }
+  const mk = (id, name, cadre) => upsertUser_({
+    user_id: id, allowCreateWithId: true, phone: '9999999902', name: name,
+    cadre: cadre, role: 'FIELD', project_code: 'JGN', sector_code: 'S01', awc_id: 'A9990'
+  }, 'SEED_E2E');
+  mk('U9903', 'E2E Teacher (AWT)', 'AWT');
+  mk('U9904', 'E2E Helper (AWH)', 'AWH');
+  ['U9903', 'U9904'].forEach(function (id) {
+    const u = getUserById_(id);
+    if (u) updateUser_(u, { pin_hash: '', pin_salt: '', device_id: '', failed_attempts: '0', locked_until: '' });
+  });
+  return 'E2E pair ready on 9999999902 — PINs and device binding reset.';
+}
+
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
