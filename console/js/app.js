@@ -377,6 +377,12 @@ const App = (() => {
         bigcard('bc-grey', 'Flagged marks', agg.outside + agg.unverified,
           'outside fence ' + agg.outside + ' · GPS unverified ' + agg.unverified);
     }
+    // Launch adoption: staff who completed first login + device-bound phones.
+    if (today.adopt && drill.level === 'district') {
+      $('today-cards').innerHTML +=
+        bigcard('bc-blue', 'App adoption — logged in', today.adopt.onboarded + ' / ' + today.adopt.staff,
+          'completed first login · devices bound ' + today.adopt.devices);
+    }
     // AWC daily reports (children / pregnant / others / meals) — district-wide
     // totals from today.json; present only after the reporting backend ships.
     if (today.rpt && drill.level === 'district') {

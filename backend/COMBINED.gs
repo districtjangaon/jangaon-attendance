@@ -1766,9 +1766,18 @@ function buildToday_() {
     }
   }
 
+  // App adoption since launch: how many of the attendance-owing staff have
+  // completed a first login (PIN set) and how many phones are device-bound.
+  const adopt = { staff: users.length, onboarded: 0, devices: 0 };
+  users.forEach(function (u) {
+    if (String(u.pin_hash || '')) adopt.onboarded++;
+    if (String(u.device_id || '')) adopt.devices++;
+  });
+
   const generatedAt = nowIso_();
   const todayJson = {
     generatedAt: generatedAt, date: today, holiday: holidayName || null, district: district,
+    adopt: adopt,
     rpt: rpt, rpts: rptRows,
     projects: Object.keys(projects).sort().map(pc => Object.assign({ code: pc }, projects[pc])),
     sectors: Object.keys(sectors).sort().map(sc =>
