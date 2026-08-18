@@ -34,3 +34,6 @@ backend/clasp/appsscript.json
 Deployment/BOQ.xlsx
 Deployment/BOQ.docx
 Deployment/BOQ.pdf
+
+# E2E evidence runs (screenshots of test data)
+artifacts/
