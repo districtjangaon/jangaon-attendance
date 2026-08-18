@@ -207,6 +207,13 @@ const App = (() => {
     const s = (names.sectors || []).find(x => x.code === sc);
     return s ? s.name : sc;
   };
+  /** Multi-sector charge lists render compactly, never as a wall of codes. */
+  const sectorDisplay = sc => {
+    const parts = String(sc || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (parts.length <= 1) return sectorName(sc);
+    if (parts.length >= 27) return 'All sectors (27)';
+    return sectorName(parts[0]) + ' +' + (parts.length - 1) + ' more';
+  };
   const projectName = pc => {
     const p = (names.projects || []).find(x => x.code === pc);
     return p ? p.name : pc;
@@ -1252,12 +1259,14 @@ const App = (() => {
 
     const isAdmin = me.role === 'ADMIN';
     $('admin-table').innerHTML = '<table><tr><th>ID</th><th>Name</th><th>Cadre</th><th>Phone</th>' +
-      '<th>AWC / Sector</th><th>Role</th><th>Status</th><th>Actions</th></tr>' +
+      '<th>AWC / Sector</th><th>Role</th><th>Status</th><th>Login Status</th><th>Actions</th></tr>' +
       uids.map(uid => {
         const u = names.users[uid];
         return '<tr><td>' + esc(uid) + '</td><td>' + esc(u.n) + '</td><td>' + esc(u.c) + '</td><td>' +
-          esc(u.p || 'NO PHONE') + '</td><td>' + esc(u.a ? awcName(u.a) : sectorName(u.sc)) + '</td><td>' +
+          esc(u.p || 'NO PHONE') + '</td><td>' + esc(u.a ? awcName(u.a) : sectorDisplay(u.sc)) + '</td><td>' +
           esc(u.r) + '</td><td>' + esc(u.s) + '</td><td>' +
+          (u.pn ? '<span class="tag OK">REGISTERED &amp; LOGGED</span>'
+                : '<span class="tag ERR">NOT REGISTERED</span>') + '</td><td>' +
           '<button class="btn btn-plain btn-inline" data-do="pinReset" data-uid="' + esc(uid) + '">Reset PIN</button> ' +
           '<button class="btn btn-plain btn-inline" data-do="deviceUnbind" data-uid="' + esc(uid) + '">Unbind phone</button>' +
           (isAdmin ? ' <button class="btn btn-plain btn-inline" data-do="toggle" data-uid="' + esc(uid) + '">' +

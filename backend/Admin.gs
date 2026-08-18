@@ -160,7 +160,8 @@ function apiNameMap_(auth, req) {
     map[String(u.user_id)] = {
       n: String(u.name), p: String(u.phone), c: String(u.cadre),
       pj: String(u.project_code), sc: String(u.sector_code), a: String(u.awc_id),
-      r: String(u.role), s: String(u.status)
+      r: String(u.role), s: String(u.status),
+      pn: String(u.pin_hash || '') ? 1 : 0 // completed first login (registered)
     };
   });
   const awcs = {};

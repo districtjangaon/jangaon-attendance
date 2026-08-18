@@ -217,7 +217,7 @@ function seedMySupervisor() {
   const res = upsertUser_({
     user_id: existing.length ? String(existing[0].user_id) : 'U2099',
     allowCreateWithId: true, phone: phone,
-    name: String(PROPS.getProperty('ADMIN_NAME') || 'District Admin') + ' (Supervisor view)',
+    name: 'Test Sup',
     cadre: 'SUPERVISOR', role: 'SUPERVISOR',
     project_code: 'JGN', sector_code: allSecs, status: 'ACTIVE'
   }, 'SEED_MY_SUP');
