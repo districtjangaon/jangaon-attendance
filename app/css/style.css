@@ -45,7 +45,7 @@ body {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   text-align: center;
   padding: 12px 16px 10px;
-  background: linear-gradient(150deg, #a8e1fb 0%, #87ceeb 55%, #6fc0e8 100%); /* sky-blue neo gradient */
+  background: linear-gradient(135deg, #c9ecff 0%, #87ceeb 45%, #4fa3dd 100%); /* sky-blue neo gradient */
   border-bottom: 1px solid #5fb8e0;
   color: var(--ink);
 }
@@ -138,7 +138,7 @@ input:focus, select:focus {
   animation: spin360 .7s linear infinite;
 }
 @keyframes spin360 { to { transform: rotate(360deg); } }
-.btn-primary { background: linear-gradient(135deg, #4f5ce5 0%, #7a5ce8 100%); color: #fff; }
+.btn-primary { background: linear-gradient(135deg, #4f5ce5 0%, #8b5cf6 55%, #c026d3 100%); color: #fff; }
 .btn-primary:active { background: var(--primary-dark); }
 .btn-danger { background: var(--err); color: #fff; }
 .btn-plain { background: #e9ebf5; color: var(--ink); }
@@ -202,9 +202,14 @@ input:focus, select:focus {
 .user-name { font-size: 23px; font-weight: 700; letter-spacing: -.01em; }
 
 .punch-card {
+  position: relative; overflow: hidden;
   background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
-  padding: 18px 16px 16px; text-align: center;
-  box-shadow: 0 10px 26px rgba(16, 20, 43, .06);
+  padding: 22px 16px 16px; text-align: center;
+  box-shadow: 0 10px 26px rgba(79, 92, 229, .10);
+}
+.punch-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px;
+  background: linear-gradient(90deg, #4f5ce5, #8b5cf6, #c026d3, #14b8a6);
 }
 .clock { font-family: var(--font-mono); font-size: 48px; font-weight: 700; line-height: 1.1; }
 .today-date {
