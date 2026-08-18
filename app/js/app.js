@@ -719,10 +719,56 @@ const App = (() => {
   const dashTile = (v, k, cls) =>
     '<div class="dtile ' + (cls || '') + '"><b>' + v + '</b><span>' + k + '</span></div>';
 
+  // Issue categories a supervisor files against a worker (district list).
+  const ISSUE_CATLIST = [
+    ['NO_REPORT', 'No report'],
+    ['INCOMPLETE_REPORT', 'Incomplete report'],
+    ['QTY_ANOMALY', 'Quantity anomaly (stock)'],
+    ['NOT_PRESENT', 'Not present'],
+    ['LATE', 'Not logged on time'],
+    ['OTHER', 'Other issue…']
+  ];
+  const CAT_LABEL = {};
+  ISSUE_CATLIST.forEach(c => { CAT_LABEL[c[0]] = c[1]; });
+
+  /** Bottom sheet: pick a category, optional detail (required for Other). */
+  function openIssueSheet(acc, uid, name, onDone) {
+    const bd = document.createElement('div');
+    bd.className = 'sheet-backdrop';
+    bd.innerHTML = '<div class="issue-sheet"><h3>🚩 Flag issue — ' + escH(name) + '</h3>' +
+      ISSUE_CATLIST.map(c =>
+        '<button class="btn btn-plain cat-btn" data-cat="' + c[0] + '">' + c[1] + '</button>').join('') +
+      '<button class="btn btn-plain cat-cancel">Cancel</button></div>';
+    document.body.appendChild(bd);
+    bd.querySelector('.cat-cancel').onclick = () => bd.remove();
+    bd.onclick = e => { if (e.target === bd) bd.remove(); };
+    bd.querySelectorAll('.cat-btn').forEach(cb => {
+      cb.onclick = async () => {
+        const cat = cb.dataset.cat;
+        const text = prompt(cat === 'OTHER'
+          ? 'Describe the issue (required):' : 'Add details (optional):');
+        if (text === null) return;                      // cancelled
+        if (cat === 'OTHER' && !text.trim()) return;
+        bd.remove();
+        try {
+          const res = await Api.post({ action: 'raiseIssue', token: acc.token,
+            aboutUid: uid, category: cat, text: text.trim() });
+          alert(res.ok
+            ? 'Issue flagged — it stays open until you close it with a remark.'
+            : 'Could not flag (' + res.code + ').');
+          if (res.ok && onDone) onDone();
+        } catch (e) {
+          alert('Needs internet — try again on network.');
+        }
+      };
+    });
+  }
+
   /**
    * Supervisor's in-app sector view (district decision 2026-08-18: supervisors
    * have NO console — this is their whole window): people-status counts for
-   * their sector(s) and a 🚩 to flag an issue about any worker to the district.
+   * their sector(s), a 🚩 to flag a categorised issue about any worker, and
+   * the open-issues register with close-with-remark.
    */
   async function renderSectorDash(acc) {
     const el = $('dash-content'), stale = $('dash-stale');
@@ -759,6 +805,12 @@ const App = (() => {
       return;
     }
     dashStale(stale, meta, today);
+
+    let issues = [];
+    try {
+      const ir = await Api.post({ action: 'listIssues', token: acc.token });
+      if (ir.ok) issues = ir.issues;
+    } catch (e) { /* offline: counts still render */ }
 
     const stMap = {};
     (today.users || []).forEach(e => { stMap[e.id] = e; });
@@ -800,20 +852,33 @@ const App = (() => {
         escH((p.e.st || 'NOT_MARKED').replace('_', ' ').toLowerCase()) + '</span>' +
         '<button class="flag-btn" data-uid="' + p.id + '" data-name="' + escH(p.n) + '">🚩</button></div>';
     }).join('');
+
+    html += '<div class="dash-h">Open issues · ' + issues.length + '</div>';
+    html += issues.length ? issues.map(i => {
+      const who = (nm.users[i.about] || {}).n || i.about;
+      return '<div class="drow"><span class="dr-name">' + escH(CAT_LABEL[i.cat] || i.cat) +
+        '<small class="dr-sub">' + escH(who) + (i.text ? ' — ' + escH(i.text) : '') + '</small></span>' +
+        '<span class="dr-nums">' + escH(String(i.ts).slice(5, 10)) + '</span>' +
+        '<button class="close-btn" data-id="' + escH(i.id) + '">Close</button></div>';
+    }).join('') : '<p class="info">No open issues — flagged items appear here until you close them.</p>';
+
     el.innerHTML = html;
 
     el.querySelectorAll('.flag-btn').forEach(b => {
+      b.onclick = () => openIssueSheet(acc, b.dataset.uid, b.dataset.name,
+        () => renderSectorDash(acc));
+    });
+    el.querySelectorAll('.close-btn').forEach(b => {
       b.onclick = async () => {
-        const text = prompt('Describe the issue about ' + b.dataset.name + ':');
-        if (!text || !text.trim()) return;
+        const remark = prompt('Resolution remark (required) — how was it resolved?');
+        if (remark === null) return;
+        if (!remark.trim()) { alert('A remark is required to close an issue.'); return; }
         b.disabled = true;
         try {
-          const res = await Api.post({
-            action: 'raiseIssue', token: acc.token,
-            aboutUid: b.dataset.uid, text: text.trim()
-          });
-          alert(res.ok ? 'Issue flagged — the district office will see it.'
-            : 'Could not flag (' + res.code + ').');
+          const res = await Api.post({ action: 'closeIssue', token: acc.token,
+            issueId: b.dataset.id, remark: remark.trim() });
+          if (res.ok) { alert('Issue closed.'); renderSectorDash(acc); }
+          else alert('Could not close (' + res.code + ').');
         } catch (e) {
           alert('Needs internet — try again on network.');
         }

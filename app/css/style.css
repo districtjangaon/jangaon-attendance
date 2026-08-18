@@ -504,6 +504,21 @@ input:focus, select:focus {
   border: none; background: var(--err-soft); border-radius: 9px;
   padding: 7px 10px; font-size: 17px; cursor: pointer;
 }
+.close-btn {
+  border: none; background: var(--ok-soft); color: var(--ok);
+  font-family: var(--font-display); font-weight: 700; font-size: 14px;
+  border-radius: 9px; padding: 8px 12px; cursor: pointer;
+}
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 60; background: rgba(16, 20, 43, .45);
+  display: flex; align-items: flex-end;
+}
+.issue-sheet {
+  background: #fff; width: 100%; border-radius: 20px 20px 0 0;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+}
+.issue-sheet h3 { font-size: 20px; margin-bottom: 4px; }
+.issue-sheet .btn { margin-top: 10px; padding: 13px; font-size: 17px; }
 
 /* History */
 .history-list { list-style: none; }

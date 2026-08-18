@@ -40,6 +40,8 @@ function doPost(e) {
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,
       raiseIssue: apiRaiseIssue_,
+      listIssues: apiListIssues_,
+      closeIssue: apiCloseIssue_,
       // console (admin)
       userUpsert: apiUserUpsert_,
       importUsers: apiImportUsers_,

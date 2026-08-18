@@ -185,11 +185,18 @@ function seedE2ePair() {
   }, 'SEED_E2E');
   mk('U9903', 'E2E Teacher (AWT)', 'AWT');
   mk('U9904', 'E2E Helper (AWH)', 'AWH');
-  ['U9903', 'U9904'].forEach(function (id) {
+  // Automation supervisor (sector S01, covers the training centre) — for
+  // browser E2E of the My Sector view and the issue register.
+  upsertUser_({
+    user_id: 'U9905', allowCreateWithId: true, phone: '9999999903',
+    name: 'E2E Supervisor', cadre: 'SUPERVISOR', role: 'SUPERVISOR',
+    project_code: 'JGN', sector_code: 'S01'
+  }, 'SEED_E2E');
+  ['U9903', 'U9904', 'U9905'].forEach(function (id) {
     const u = getUserById_(id);
     if (u) updateUser_(u, { pin_hash: '', pin_salt: '', device_id: '', failed_attempts: '0', locked_until: '' });
   });
-  return 'E2E pair ready on 9999999902 — PINs and device binding reset.';
+  return 'E2E pair (9999999902) + E2E Supervisor (9999999903) ready — PINs reset.';
 }
 
 function installTriggers_() {

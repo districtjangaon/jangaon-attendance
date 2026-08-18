@@ -33,10 +33,24 @@ function sectorScope_(actor) {
   return String(actor.sector_code).split(',').map(s => s.trim()).filter(Boolean);
 }
 
+// ---- supervisor issue register: raise (categorised) / list open / close ----
+function issuesSheet_() {
+  let sh = masterSS_().getSheetByName('Issues');
+  if (!sh) {
+    sh = masterSS_().insertSheet('Issues');
+    sh.getRange(1, 1, 1, ISSUE_H.length).setValues([ISSUE_H]);
+    sh.getRange('A:K').setNumberFormat('@');
+  } else if (String(sh.getRange(1, ISSUE_H.length).getValue()) !== ISSUE_H[ISSUE_H.length - 1]) {
+    sh.getRange(1, 1, 1, ISSUE_H.length).setValues([ISSUE_H]); // heal older header
+    sh.getRange('A:K').setNumberFormat('@');
+  }
+  return sh;
+}
+
 /**
- * action: raiseIssue — a supervisor (or any console role) flags an issue
- * about a worker in their scope. Stored in the master 'Issues' sheet
- * (created lazily) and audit-logged; the district admin reviews the tab.
+ * action: raiseIssue — a supervisor flags a categorised issue about a worker
+ * in their scope: INCOMPLETE_REPORT / NO_REPORT / QTY_ANOMALY / NOT_PRESENT /
+ * LATE / OTHER (free text required for OTHER, optional otherwise).
  */
 function apiRaiseIssue_(auth, req) {
   if (!isConsoleRole_(auth.user)) return deny_();
@@ -44,17 +58,54 @@ function apiRaiseIssue_(auth, req) {
   if (!about) return { ok: false, code: 'NO_USER' };
   const scope = sectorScope_(auth.user);
   if (scope && scope.indexOf(primarySector_(about)) < 0) return deny_();
+  const cat = String(req.category || 'OTHER').toUpperCase();
+  if (ISSUE_CATS.indexOf(cat) < 0) return { ok: false, code: 'BAD_CATEGORY' };
   const text = String(req.text || '').trim().slice(0, 300);
-  if (!text) return { ok: false, code: 'EMPTY' };
-  let sh = masterSS_().getSheetByName('Issues');
-  if (!sh) {
-    sh = masterSS_().insertSheet('Issues');
-    sh.getRange(1, 1, 1, ISSUE_H.length).setValues([ISSUE_H]);
-    sh.getRange('A:F').setNumberFormat('@');
+  if (cat === 'OTHER' && !text) return { ok: false, code: 'EMPTY' };
+  const issueId = 'IS' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  issuesSheet_().appendRow([nowIso_(), String(auth.userId), primarySector_(about),
+    String(about.user_id), text, 'OPEN', cat, issueId, '', '', '']);
+  audit_(auth.userId, 'ISSUE_RAISED', String(about.user_id), '', cat + (text ? ': ' + text : ''));
+  return { ok: true, issueId: issueId };
+}
+
+/** action: listIssues — OPEN issues in the caller's sector scope (latest 100). */
+function apiListIssues_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const scope = sectorScope_(auth.user);
+  const sh = issuesSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return { ok: true, issues: [] };
+  const vals = sh.getRange(2, 1, last - 1, ISSUE_H.length).getValues();
+  const out = [];
+  for (const v of vals) {
+    const o = rowToObj_(ISSUE_H, v);
+    if (String(o.status) !== 'OPEN') continue;
+    if (scope && scope.indexOf(String(o.sector)) < 0) continue;
+    out.push({ id: String(o.issue_id), ts: String(o.ts), about: String(o.about_user),
+      cat: String(o.category || 'OTHER'), text: String(o.issue || '') });
   }
-  sh.appendRow([nowIso_(), String(auth.userId), primarySector_(about),
-    String(about.user_id), text, 'OPEN']);
-  audit_(auth.userId, 'ISSUE_RAISED', String(about.user_id), '', text);
+  return { ok: true, issues: out.slice(-100).reverse() };
+}
+
+/** action: closeIssue — resolve with a mandatory remark; scope-checked. */
+function apiCloseIssue_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const remark = String(req.remark || '').trim().slice(0, 300);
+  if (!remark) return { ok: false, code: 'REMARK_REQUIRED' };
+  const sh = issuesSheet_();
+  const H = headerIndex_(ISSUE_H);
+  const row = findRowByValue_(sh, H.issue_id + 1, String(req.issueId || ''));
+  if (!row) return { ok: false, code: 'NO_ISSUE' };
+  const o = rowToObj_(ISSUE_H, sh.getRange(row, 1, 1, ISSUE_H.length).getValues()[0]);
+  const scope = sectorScope_(auth.user);
+  if (scope && scope.indexOf(String(o.sector)) < 0) return deny_();
+  if (String(o.status) !== 'OPEN') return { ok: false, code: 'ALREADY_CLOSED' };
+  sh.getRange(row, H.status + 1).setValue('CLOSED');
+  sh.getRange(row, H.closed_ts + 1).setValue(nowIso_());
+  sh.getRange(row, H.closed_by + 1).setValue(String(auth.userId));
+  sh.getRange(row, H.close_remark + 1).setValue(remark);
+  audit_(auth.userId, 'ISSUE_CLOSED', String(o.about_user), String(o.category), remark);
   return { ok: true };
 }
 
