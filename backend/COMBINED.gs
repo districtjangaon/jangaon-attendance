@@ -1389,10 +1389,15 @@ function upsertUser_(f, actor) {
  * Leaves.gs — leave application and management.
  *
  * Applications come from the field app (online only — a leave request is not
- * time-critical the way a mark is). Script property LEAVE_AUTO_APPROVE
- * (default on) approves applications immediately per district policy of
- * 2026-08-08 ("no one to approve"); admins can still REJECT one later from
- * the console, which retroactively returns those days to absent.
+ * time-critical the way a mark is). Policy of 2026-08-18: every application
+ * is PENDING until the Collector/District Admin decides it from the console
+ * (set script property LEAVE_AUTO_APPROVE=1 to restore auto-approval).
+ * Rejecting an APPROVED leave retroactively returns those days to absent.
+ *
+ * Annual entitlements (calendar year, calendar days): CASUAL 6, EARNED 30,
+ * SICK/medical uncapped. Balances are derived from the Leaves sheet — no
+ * separate balance store to drift. PENDING applications hold their days
+ * (can't over-apply); a REJECTED application returns them automatically.
  *
  * Approved leave days show as ON_LEAVE on the dashboard (instead of "not
  * marked"), grey-blue in the monthly grid, and fill leaveId/leaveType in the
@@ -1400,6 +1405,36 @@ function upsertUser_(f, actor) {
  */
 
 const LEAVE_TYPES = ['CASUAL', 'SICK', 'EARNED', 'MATERNITY', 'OTHER'];
+const LEAVE_ENT = { CASUAL: 6, EARNED: 30 }; // per calendar year; SICK uncapped
+
+/** Per-type leave days used this calendar year (PENDING + APPROVED). */
+function leaveBalances_(userId) {
+  const year = String(new Date().getFullYear());
+  const used = {};
+  getLeavesAll_().forEach(function (l) {
+    if (String(l.user_id) !== String(userId)) return;
+    if (String(l.status) === 'REJECTED') return;
+    const a = String(l.from_date) < year + '-01-01' ? year + '-01-01' : String(l.from_date);
+    const b = String(l.to_date) > year + '-12-31' ? year + '-12-31' : String(l.to_date);
+    if (a > b) return;
+    const days = (new Date(b).getTime() - new Date(a).getTime()) / 86400000 + 1;
+    const t = String(l.type);
+    used[t] = (used[t] || 0) + days;
+  });
+  return {
+    year: year,
+    casual: { ent: LEAVE_ENT.CASUAL, used: used.CASUAL || 0,
+      left: Math.max(0, LEAVE_ENT.CASUAL - (used.CASUAL || 0)) },
+    earned: { ent: LEAVE_ENT.EARNED, used: used.EARNED || 0,
+      left: Math.max(0, LEAVE_ENT.EARNED - (used.EARNED || 0)) },
+    medical: { used: used.SICK || 0 }
+  };
+}
+
+// action: "leaveBalance"
+function apiLeaveBalance_(auth, req) {
+  return { ok: true, balances: leaveBalances_(auth.userId) };
+}
 
 function leavesSheet_() {
   const ss = masterSS_();
@@ -1453,7 +1488,15 @@ function apiLeaveApply_(auth, req) {
     String(l.status) !== 'REJECTED' && String(l.from_date) <= to && String(l.to_date) >= from);
   if (mine.length) return { ok: false, code: 'OVERLAPS_EXISTING' };
 
-  const status = PROPS.getProperty('LEAVE_AUTO_APPROVE') === '0' ? 'PENDING' : 'APPROVED';
+  const bal = leaveBalances_(auth.userId);
+  if (type === 'CASUAL' && spanDays > bal.casual.left) {
+    return { ok: false, code: 'NO_BALANCE', type: 'CASUAL', left: bal.casual.left };
+  }
+  if (type === 'EARNED' && spanDays > bal.earned.left) {
+    return { ok: false, code: 'NO_BALANCE', type: 'EARNED', left: bal.earned.left };
+  }
+
+  const status = PROPS.getProperty('LEAVE_AUTO_APPROVE') === '1' ? 'APPROVED' : 'PENDING';
   const leaveId = 'LV-' + Utilities.getUuid().slice(0, 8);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -1465,7 +1508,7 @@ function apiLeaveApply_(auth, req) {
   }
   CACHE.remove('leaves');
   audit_(auth.userId, 'LEAVE_APPLY', leaveId, '', { from: from, to: to, type: type, status: status });
-  return { ok: true, leaveId: leaveId, status: status };
+  return { ok: true, leaveId: leaveId, status: status, balances: leaveBalances_(auth.userId) };
 }
 
 // action: "myLeaves"
@@ -1474,7 +1517,7 @@ function apiMyLeaves_(auth, req) {
     .slice(-20).reverse()
     .map(l => ({ id: String(l.leave_id), from: String(l.from_date), to: String(l.to_date),
       type: String(l.type), reason: String(l.reason), status: String(l.status) }));
-  return { ok: true, leaves: mine };
+  return { ok: true, leaves: mine, balances: leaveBalances_(auth.userId) };
 }
 
 // action: "leaveList" (console roles; scoped like everything else)
@@ -1495,8 +1538,9 @@ function apiLeaveList_(auth, req) {
 }
 
 // action: "leaveDecide"  req: { token, leaveId, decision: APPROVED|REJECTED, reason? }
+// Collector / District Admin only — supervisors see leaves but cannot decide.
 function apiLeaveDecide_(auth, req) {
-  if (!isConsoleRole_(auth.user)) return deny_();
+  if (String(auth.user.role) !== 'ADMIN') return deny_();
   const decision = String(req.decision || '').toUpperCase();
   if (decision !== 'APPROVED' && decision !== 'REJECTED') return { ok: false, code: 'BAD_DECISION' };
   const leave = getLeavesAll_().find(l => String(l.leave_id) === String(req.leaveId || ''));
@@ -2686,6 +2730,7 @@ function doPost(e) {
       logout: apiLogout_,
       leaveApply: apiLeaveApply_,
       myLeaves: apiMyLeaves_,
+      leaveBalance: apiLeaveBalance_,
       myIssues: apiMyIssues_,
       resolveIssue: apiResolveIssue_,
       // console (supervisor/cdpo/admin)

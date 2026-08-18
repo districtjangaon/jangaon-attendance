@@ -280,6 +280,7 @@ const App = (() => {
     try {
       const res = await Api.post({ action: 'myLeaves', token: active().token });
       if (!res.ok) { list.innerHTML = '<li>Could not load (' + res.code + ').</li>'; return; }
+      renderLeaveBal(res.balances);
       if (!res.leaves.length) { list.innerHTML = '<li>No leave applications yet.</li>'; return; }
       list.innerHTML = '';
       res.leaves.forEach(l => {
@@ -295,6 +296,17 @@ const App = (() => {
     }
   }
 
+  /** Balance chips above the form: CL left, EL left, medical used (this year). */
+  function renderLeaveBal(b) {
+    const box = $('lv-bal');
+    if (!b) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML =
+      '<span class="bal-chip">Casual <b>' + b.casual.left + '</b> of ' + b.casual.ent + ' left</span>' +
+      '<span class="bal-chip">Earned <b>' + b.earned.left + '</b> of ' + b.earned.ent + ' left</span>' +
+      '<span class="bal-chip">Medical <b>' + b.medical.used + '</b> used</span>';
+  }
+
   async function submitLeave() {
     const msg = $('leave-msg');
     msg.textContent = '';
@@ -308,17 +320,22 @@ const App = (() => {
       });
       if (res.ok) {
         msg.textContent = res.status === 'APPROVED'
-          ? 'Leave recorded and approved.' : 'Leave submitted for approval.';
+          ? 'Leave recorded and approved.'
+          : 'Sent to the Collector for approval — you will see the decision here.';
         $('lv-from').value = ''; $('lv-to').value = ''; $('lv-reason').value = '';
+        renderLeaveBal(res.balances);
         await renderMyLeaves();
       } else {
-        msg.textContent = {
-          FROM_AFTER_TO: 'From-date is after to-date.',
-          TOO_LONG: 'Maximum 31 days per application.',
-          TOO_OLD: 'That period is too far in the past.',
-          OVERLAPS_EXISTING: 'You already have a leave covering those dates.',
-          BAD_DATE: 'Pick valid dates.'
-        }[res.code] || ('Failed (' + res.code + ').');
+        msg.textContent = res.code === 'NO_BALANCE'
+          ? 'Not enough ' + (res.type === 'CASUAL' ? 'casual' : 'earned') +
+            ' leave balance — only ' + res.left + ' day(s) left this year.'
+          : {
+            FROM_AFTER_TO: 'From-date is after to-date.',
+            TOO_LONG: 'Maximum 31 days per application.',
+            TOO_OLD: 'That period is too far in the past.',
+            OVERLAPS_EXISTING: 'You already have a leave covering those dates.',
+            BAD_DATE: 'Pick valid dates.'
+          }[res.code] || ('Failed (' + res.code + ').');
       }
     } catch (e) {
       msg.textContent = 'No connection — try again with internet.';

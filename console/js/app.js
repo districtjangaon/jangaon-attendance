@@ -387,8 +387,8 @@ const App = (() => {
     // Launch adoption: staff who completed first login + device-bound phones.
     if (today.adopt && drill.level === 'district') {
       $('today-cards').innerHTML +=
-        bigcard('bc-blue', 'App adoption — logged in', today.adopt.onboarded + ' / ' + today.adopt.staff,
-          'completed first login · devices bound ' + today.adopt.devices);
+        bigcard('bc-blue', 'App adoption — logged in', today.adopt.onboarded,
+          'field staff & supervisors with first login done · ' + today.adopt.devices + ' devices bound');
     }
     // AWC daily reports (children / pregnant / others / meals) — district-wide
     // totals from today.json; present only after the reporting backend ships.
@@ -786,11 +786,22 @@ const App = (() => {
       $('leaves-table').innerHTML = '<p class="info">Could not load leaves (' + esc(res.code) + ').</p>';
       return;
     }
-    const rows = res.leaves || [];
+    const rows = (res.leaves || []).slice()
+      .sort((a, b) => (a.status === 'PENDING' ? 0 : 1) - (b.status === 'PENDING' ? 0 : 1));
     if (!rows.length) {
       $('leaves-table').innerHTML = '<p class="info">No leave applications yet. Workers apply from the app menu.</p>';
       return;
     }
+    // Only Collector / District Admin decide; PENDING rows get both buttons.
+    const canDecide = me.role === 'ADMIN';
+    const actionsFor = (l, i) => {
+      if (!canDecide) return '—';
+      const btn = (dec, label) =>
+        '<button class="btn btn-plain btn-inline" data-dec="' + dec + '" data-i="' + i + '">' + label + '</button>';
+      if (l.status === 'PENDING') return btn('APPROVED', 'Approve') + ' ' + btn('REJECTED', 'Reject');
+      if (l.status === 'APPROVED') return btn('REJECTED', 'Reject');
+      return btn('APPROVED', 'Approve');
+    };
     const dayCount = l => Math.round((new Date(l.to) - new Date(l.from)) / 86400000) + 1;
     $('leaves-table').innerHTML = '<table><tr><th>Name</th><th>From</th><th>To</th><th>Days</th>' +
       '<th>Type</th><th>Reason</th><th>Status</th><th>Applied</th><th>Action</th></tr>' +
@@ -799,10 +810,7 @@ const App = (() => {
         '</td><td>' + dayCount(l) + '</td><td>' + esc(l.type) + '</td><td>' + esc(l.reason || '') +
         '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK' : l.status === 'REJECTED' ? 'ERR' : 'WARN') +
         '">' + esc(l.status) + '</span></td><td>' + esc(String(l.at).slice(0, 10)) + '</td><td>' +
-        (l.status !== 'REJECTED'
-          ? '<button class="btn btn-plain btn-inline" data-dec="REJECTED" data-i="' + i + '">Reject</button>'
-          : '<button class="btn btn-plain btn-inline" data-dec="APPROVED" data-i="' + i + '">Approve</button>') +
-        '</td></tr>').join('') + '</table>';
+        actionsFor(l, i) + '</td></tr>').join('') + '</table>';
     $('leaves-table').querySelectorAll('button[data-dec]').forEach(b => {
       b.onclick = async () => {
         const l = rows[Number(b.dataset.i)];

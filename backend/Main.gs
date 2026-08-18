@@ -31,6 +31,7 @@ function doPost(e) {
       logout: apiLogout_,
       leaveApply: apiLeaveApply_,
       myLeaves: apiMyLeaves_,
+      leaveBalance: apiLeaveBalance_,
       myIssues: apiMyIssues_,
       resolveIssue: apiResolveIssue_,
       // console (supervisor/cdpo/admin)

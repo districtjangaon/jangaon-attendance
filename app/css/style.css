@@ -540,3 +540,9 @@ input:focus, select:focus {
 .history-list .tag { font-weight: 700; }
 .history-list .pend { color: var(--warn); font-family: var(--font-mono); font-size: 13px; }
 .history-list .sync { color: var(--teal); font-family: var(--font-mono); font-size: 13px; }
+
+/* v5.5: leave balance chips */
+.lv-bal { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.bal-chip { background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3;
+  border-radius: 999px; padding: 5px 12px; font-size: 0.82rem; }
+.bal-chip b { font-size: 0.95rem; }

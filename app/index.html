@@ -174,15 +174,16 @@
   <!-- ============ LEAVE ============ -->
   <section id="screen-leave" class="screen" hidden>
     <h2>Apply for leave</h2>
+    <div id="lv-bal" class="lv-bal" hidden></div>
     <label for="lv-from">From date</label>
     <input id="lv-from" type="date">
     <label for="lv-to">To date</label>
     <input id="lv-to" type="date">
     <label for="lv-type">Type</label>
     <select id="lv-type">
-      <option value="CASUAL">Casual leave</option>
-      <option value="SICK">Sick leave</option>
-      <option value="EARNED">Earned leave</option>
+      <option value="CASUAL">Casual leave (6/year)</option>
+      <option value="SICK">Medical / sick leave</option>
+      <option value="EARNED">Earned leave (30/year)</option>
       <option value="MATERNITY">Maternity leave</option>
       <option value="OTHER">Other</option>
     </select>
@@ -257,7 +258,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v5.4-20260818-1900</footer>
+  <footer class="build-tag">BUILD: v5.5-20260818-2200</footer>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button id="nav-home"><span>&#127968;</span>Home</button>
