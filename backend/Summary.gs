@@ -96,8 +96,11 @@ function buildToday_() {
     if (!leaveByUid[String(l.user_id)]) leaveByUid[String(l.user_id)] = String(l.type);
   });
 
-  // Only FIELD users owe attendance (flat org model: admins/Collector do not).
-  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) === 'FIELD');
+  // FIELD staff and sector SUPERVISORS owe attendance (policy 2026-08-18);
+  // admins/Collector do not. A multi-sector supervisor counts once, under
+  // her primary (first-listed) sector.
+  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' &&
+    (String(u.role) === 'FIELD' || String(u.role) === 'SUPERVISOR'));
   const blank = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0,
     onLeave: 0, outside: 0, unverified: 0 });
   const sectors = {};
@@ -105,7 +108,7 @@ function buildToday_() {
   const exceptions = [];
 
   for (const u of users) {
-    const uid = String(u.user_id), sc = String(u.sector_code);
+    const uid = String(u.user_id), sc = primarySector_(u);
     const agg = sectors[sc] = sectors[sc] || blank();
     agg.expected++;
 

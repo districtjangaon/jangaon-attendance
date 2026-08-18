@@ -174,7 +174,7 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
   }
 
   return [
-    it.key, String(user.user_id), String(user.sector_code), String(user.cadre), it.type,
+    it.key, String(user.user_id), primarySector_(user), String(user.cadre), it.type,
     String(rec.clientTs || ''), fmtIso_(serverMs), skewSec,
     lat, lng, acc, gf.status, gf.awcId, gf.dist, it.photoId,
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
@@ -263,7 +263,7 @@ function buildReportRow_(user, it, serverMs) {
     return isFinite(x) && x >= 0 ? x : 0;
   };
   return [
-    it.key, String(user.user_id), String(user.sector_code), String(user.awc_id),
+    it.key, String(user.user_id), primarySector_(user), String(user.awc_id),
     it.dateStr, String(rec.clientTs || ''), fmtIso_(serverMs),
     hasFix ? Number(Number(rec.lat).toFixed(6)) : '',
     hasFix ? Number(Number(rec.lng).toFixed(6)) : '',

@@ -33,7 +33,7 @@ html, body { height: 100%; }
 body {
   font-family: var(--font-display);
   color: var(--ink);
-  background: #fafafa; /* flat light grey, Instagram-style ground */
+  background: linear-gradient(180deg, #fbfcff 0%, #f2f4f9 100%) fixed; /* soft neo-gradient ground */
   margin: 0 auto; /* full-width: the app fills the whole screen */
 }
 
@@ -45,7 +45,7 @@ body {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   text-align: center;
   padding: 12px 16px 10px;
-  background: #87ceeb; /* sky blue across the whole header section */
+  background: linear-gradient(150deg, #a8e1fb 0%, #87ceeb 55%, #6fc0e8 100%); /* sky-blue neo gradient */
   border-bottom: 1px solid #5fb8e0;
   color: var(--ink);
 }
@@ -82,7 +82,8 @@ body {
   padding: 4px 0;
 }
 .bottom-nav button span { font-size: 24px; line-height: 1.15; }
-.bottom-nav button.sel { color: var(--ink); font-weight: 700; }
+.bottom-nav button.sel { font-weight: 700; }
+.bottom-nav button.sel { background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .screen { padding-bottom: 100px; } /* keep content clear of the nav bar */
 .refresh-btn.spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -137,7 +138,7 @@ input:focus, select:focus {
   animation: spin360 .7s linear infinite;
 }
 @keyframes spin360 { to { transform: rotate(360deg); } }
-.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary { background: linear-gradient(135deg, #4f5ce5 0%, #7a5ce8 100%); color: #fff; }
 .btn-primary:active { background: var(--primary-dark); }
 .btn-danger { background: var(--err); color: #fff; }
 .btn-plain { background: #e9ebf5; color: var(--ink); }
@@ -269,7 +270,11 @@ input:focus, select:focus {
   flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 10px 6px; text-align: center;
 }
-.stat b { display: block; font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--primary); }
+.stat b {
+  display: block; font-family: var(--font-mono); font-size: 24px; font-weight: 700;
+  background: var(--grad); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 .stat span {
   font-family: var(--font-mono); font-size: 11px; font-weight: 500;
   letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
@@ -294,7 +299,7 @@ input:focus, select:focus {
 .wd i.none { background: #eef0f6; color: #a6abc2; }
 .wd i.sun { background: transparent; border: 1px dashed var(--line); color: #c4c8da; line-height: 34px; }
 
-.install-btn { margin: 0 0 18px; background: var(--ok); }
+.install-btn { margin: 0 0 18px; background: linear-gradient(135deg, #1fa564, #128a52); }
 
 /* Login screen — soft watermark background (protective hands artwork). */
 #screen-login {
@@ -368,7 +373,7 @@ input:focus, select:focus {
 }
 .gps-line.ok { color: var(--teal); }
 .gps-line.bad { color: var(--warn); }
-.btn-capture { font-size: 24px; background: var(--teal); color: #fff; }
+.btn-capture { font-size: 24px; background: linear-gradient(135deg, #14b899, #0a8f79); color: #fff; }
 .btn-capture:active { filter: brightness(.92); }
 
 /* Success — unmistakable full-screen state, not a toast */

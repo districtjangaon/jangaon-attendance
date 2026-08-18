@@ -264,9 +264,19 @@ function getSectorAwcs_(sectorCode) {
  */
 function geofenceCandidatesFor_(user) {
   const role = String(user.role);
-  if (role === 'SUPERVISOR') return getSectorAwcs_(String(user.sector_code));
+  if (role === 'SUPERVISOR') {
+    // Possibly multi-sector (dual charge): valid from any AWC of any of them.
+    return String(user.sector_code).split(',').map(s => s.trim()).filter(Boolean)
+      .reduce(function (all, sc) { return all.concat(getSectorAwcs_(sc)); }, []);
+  }
   const awc = getAwc_(String(user.awc_id));
   return awc && awc.active ? [awc] : [];
+}
+
+/** First sector of a possibly comma-separated charge list — the sector a
+ *  supervisor's own rows are recorded/counted under. */
+function primarySector_(user) {
+  return String(user.sector_code).split(',')[0].trim();
 }
 
 function getSchedules_() {
@@ -730,7 +740,7 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
   }
 
   return [
-    it.key, String(user.user_id), String(user.sector_code), String(user.cadre), it.type,
+    it.key, String(user.user_id), primarySector_(user), String(user.cadre), it.type,
     String(rec.clientTs || ''), fmtIso_(serverMs), skewSec,
     lat, lng, acc, gf.status, gf.awcId, gf.dist, it.photoId,
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
@@ -819,7 +829,7 @@ function buildReportRow_(user, it, serverMs) {
     return isFinite(x) && x >= 0 ? x : 0;
   };
   return [
-    it.key, String(user.user_id), String(user.sector_code), String(user.awc_id),
+    it.key, String(user.user_id), primarySector_(user), String(user.awc_id),
     it.dateStr, String(rec.clientTs || ''), fmtIso_(serverMs),
     hasFix ? Number(Number(rec.lat).toFixed(6)) : '',
     hasFix ? Number(Number(rec.lng).toFixed(6)) : '',
@@ -958,13 +968,15 @@ function inScope_(actor, target) {
   return false;
 }
 
-/** Sectors the actor may see; null = all. */
+/** Sectors the actor may see; null = all. A supervisor may hold charge of
+ *  several sectors (comma-separated in sector_code) — dual charge is the
+ *  norm in the real register: 20 supervisors cover 27 sectors. */
 function sectorScope_(actor) {
   if (actor.role === 'ADMIN') return null;
   if (actor.role === 'CDPO') {
     return getSectors_().filter(s => s.project === String(actor.project_code)).map(s => s.code);
   }
-  return [String(actor.sector_code)];
+  return String(actor.sector_code).split(',').map(s => s.trim()).filter(Boolean);
 }
 
 // ---- console bootstrap: users + org, scoped to the viewer ----
@@ -1476,8 +1488,11 @@ function buildToday_() {
     if (!leaveByUid[String(l.user_id)]) leaveByUid[String(l.user_id)] = String(l.type);
   });
 
-  // Only FIELD users owe attendance (flat org model: admins/Collector do not).
-  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' && String(u.role) === 'FIELD');
+  // FIELD staff and sector SUPERVISORS owe attendance (policy 2026-08-18);
+  // admins/Collector do not. A multi-sector supervisor counts once, under
+  // her primary (first-listed) sector.
+  const users = getUsersAll_().filter(u => String(u.status) === 'ACTIVE' &&
+    (String(u.role) === 'FIELD' || String(u.role) === 'SUPERVISOR'));
   const blank = () => ({ expected: 0, in: 0, late: 0, out: 0, notMarked: 0,
     onLeave: 0, outside: 0, unverified: 0 });
   const sectors = {};
@@ -1485,7 +1500,7 @@ function buildToday_() {
   const exceptions = [];
 
   for (const u of users) {
-    const uid = String(u.user_id), sc = String(u.sector_code);
+    const uid = String(u.user_id), sc = primarySector_(u);
     const agg = sectors[sc] = sectors[sc] || blank();
     agg.expected++;
 
@@ -2033,6 +2048,57 @@ function seedCollector() {
   }, 'SEED_COLLECTOR');
   return JSON.stringify(res) +
     ' — Collector logs in on app and console with ' + phone + ' and sets a PIN on first login.';
+}
+
+
+/**
+ * One-click SUPERVISOR onboarding (run from the editor; idempotent) — from
+ * input/Supervisors-Input.xlsx of 2026-08-18: 20 supervisors covering all 27
+ * sectors (five hold dual/triple charge -> comma-separated sector lists).
+ * Creates/updates the accounts, links each sector's supervisor_user_id, and
+ * from the next summary tick supervisors count in the expected numbers.
+ */
+function importSupervisors() {
+  const DATA = [ // [phone, name, project, 'S..' or 'S..,S..']
+    ['9381632415', 'Lingala Kavitha', 'JGN', 'S01,S05'],
+    ['6302309983', 'Gudelly SunithaDevi', 'JGN', 'S02'],
+    ['8688047527', 'Bolgam Poornima', 'JGN', 'S03'],
+    ['7032012574', 'Paladgu Hamsamma', 'JGN', 'S04'],
+    ['8106140401', 'Ette Shruthi', 'JGN', 'S06'],
+    ['8106178736', 'Arepula Vani', 'JGN', 'S07'],
+    ['6303433932', 'Madavath Swathi', 'JGN', 'S08'],
+    ['9848314028', 'Bhanothu Rangamma', 'JGN', 'S09'],
+    ['8074714215', 'Pasupuleti Vasantha', 'JGN', 'S10'],
+    ['9505677525', 'Muttadi Sridevi', 'KDK', 'S11'],
+    ['7981119614', 'Biragani Savitri', 'KDK', 'S12'],
+    ['6304605486', 'Botla Mallishwari', 'KDK', 'S13'],
+    ['9912234090', 'Peram Sarala', 'KDK', 'S14'],
+    ['9398851583', 'Bukka Sarika', 'KDK', 'S15'],
+    ['9701662600', 'Tahera Begum', 'KDK', 'S16'],
+    ['9676844334', 'Bhookya Saraswathi', 'KDK', 'S17'],
+    ['9492245284', 'Vajja Dulamma', 'SGN', 'S18,S22,S25'],
+    ['9381446171', 'Mohammed Naseemunisa', 'SGN', 'S19,S20'],
+    ['9959279669', 'Singapuram Anitha', 'SGN', 'S21,S26,S27'],
+    ['9848750472', 'Dodda Manjulatha', 'SGN', 'S23,S24'],
+  ];
+  const secSh = masterSS_().getSheetByName('Sectors');
+  const results = [];
+  DATA.forEach(function (d) {
+    const existing = getUsersByPhone_(d[0]);
+    const res = upsertUser_({
+      user_id: existing.length ? String(existing[0].user_id) : '',
+      phone: d[0], name: d[1], cadre: 'SUPERVISOR', role: 'SUPERVISOR',
+      project_code: d[2], sector_code: d[3], status: 'ACTIVE'
+    }, 'IMPORT_SUPERVISORS');
+    if (res.error) { results.push(d[3] + ':' + res.error); return; }
+    d[3].split(',').forEach(function (sc) {
+      const row = findRowByValue_(secSh, 1, sc.trim());
+      if (row) secSh.getRange(row, 4).setValue(String(res.userId));
+    });
+    results.push(d[3] + ':' + res.userId);
+  });
+  CACHE.remove('sectors');
+  return results.join(' | ');
 }
 
 function installTriggers_() {

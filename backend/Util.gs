@@ -253,9 +253,19 @@ function getSectorAwcs_(sectorCode) {
  */
 function geofenceCandidatesFor_(user) {
   const role = String(user.role);
-  if (role === 'SUPERVISOR') return getSectorAwcs_(String(user.sector_code));
+  if (role === 'SUPERVISOR') {
+    // Possibly multi-sector (dual charge): valid from any AWC of any of them.
+    return String(user.sector_code).split(',').map(s => s.trim()).filter(Boolean)
+      .reduce(function (all, sc) { return all.concat(getSectorAwcs_(sc)); }, []);
+  }
   const awc = getAwc_(String(user.awc_id));
   return awc && awc.active ? [awc] : [];
+}
+
+/** First sector of a possibly comma-separated charge list — the sector a
+ *  supervisor's own rows are recorded/counted under. */
+function primarySector_(user) {
+  return String(user.sector_code).split(',')[0].trim();
 }
 
 function getSchedules_() {

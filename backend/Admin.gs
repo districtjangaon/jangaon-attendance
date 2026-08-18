@@ -22,13 +22,15 @@ function inScope_(actor, target) {
   return false;
 }
 
-/** Sectors the actor may see; null = all. */
+/** Sectors the actor may see; null = all. A supervisor may hold charge of
+ *  several sectors (comma-separated in sector_code) — dual charge is the
+ *  norm in the real register: 20 supervisors cover 27 sectors. */
 function sectorScope_(actor) {
   if (actor.role === 'ADMIN') return null;
   if (actor.role === 'CDPO') {
     return getSectors_().filter(s => s.project === String(actor.project_code)).map(s => s.code);
   }
-  return [String(actor.sector_code)];
+  return String(actor.sector_code).split(',').map(s => s.trim()).filter(Boolean);
 }
 
 // ---- console bootstrap: users + org, scoped to the viewer ----

@@ -114,6 +114,57 @@ function seedCollector() {
     ' — Collector logs in on app and console with ' + phone + ' and sets a PIN on first login.';
 }
 
+
+/**
+ * One-click SUPERVISOR onboarding (run from the editor; idempotent) — from
+ * input/Supervisors-Input.xlsx of 2026-08-18: 20 supervisors covering all 27
+ * sectors (five hold dual/triple charge -> comma-separated sector lists).
+ * Creates/updates the accounts, links each sector's supervisor_user_id, and
+ * from the next summary tick supervisors count in the expected numbers.
+ */
+function importSupervisors() {
+  const DATA = [ // [phone, name, project, 'S..' or 'S..,S..']
+    ['9381632415', 'Lingala Kavitha', 'JGN', 'S01,S05'],
+    ['6302309983', 'Gudelly SunithaDevi', 'JGN', 'S02'],
+    ['8688047527', 'Bolgam Poornima', 'JGN', 'S03'],
+    ['7032012574', 'Paladgu Hamsamma', 'JGN', 'S04'],
+    ['8106140401', 'Ette Shruthi', 'JGN', 'S06'],
+    ['8106178736', 'Arepula Vani', 'JGN', 'S07'],
+    ['6303433932', 'Madavath Swathi', 'JGN', 'S08'],
+    ['9848314028', 'Bhanothu Rangamma', 'JGN', 'S09'],
+    ['8074714215', 'Pasupuleti Vasantha', 'JGN', 'S10'],
+    ['9505677525', 'Muttadi Sridevi', 'KDK', 'S11'],
+    ['7981119614', 'Biragani Savitri', 'KDK', 'S12'],
+    ['6304605486', 'Botla Mallishwari', 'KDK', 'S13'],
+    ['9912234090', 'Peram Sarala', 'KDK', 'S14'],
+    ['9398851583', 'Bukka Sarika', 'KDK', 'S15'],
+    ['9701662600', 'Tahera Begum', 'KDK', 'S16'],
+    ['9676844334', 'Bhookya Saraswathi', 'KDK', 'S17'],
+    ['9492245284', 'Vajja Dulamma', 'SGN', 'S18,S22,S25'],
+    ['9381446171', 'Mohammed Naseemunisa', 'SGN', 'S19,S20'],
+    ['9959279669', 'Singapuram Anitha', 'SGN', 'S21,S26,S27'],
+    ['9848750472', 'Dodda Manjulatha', 'SGN', 'S23,S24'],
+  ];
+  const secSh = masterSS_().getSheetByName('Sectors');
+  const results = [];
+  DATA.forEach(function (d) {
+    const existing = getUsersByPhone_(d[0]);
+    const res = upsertUser_({
+      user_id: existing.length ? String(existing[0].user_id) : '',
+      phone: d[0], name: d[1], cadre: 'SUPERVISOR', role: 'SUPERVISOR',
+      project_code: d[2], sector_code: d[3], status: 'ACTIVE'
+    }, 'IMPORT_SUPERVISORS');
+    if (res.error) { results.push(d[3] + ':' + res.error); return; }
+    d[3].split(',').forEach(function (sc) {
+      const row = findRowByValue_(secSh, 1, sc.trim());
+      if (row) secSh.getRange(row, 4).setValue(String(res.userId));
+    });
+    results.push(d[3] + ':' + res.userId);
+  });
+  CACHE.remove('sectors');
+  return results.join(' | ');
+}
+
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
