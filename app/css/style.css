@@ -423,19 +423,20 @@ input:focus, select:focus {
   letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
   background: #fafafa; padding: 8px 4px; border-bottom: 1px solid #dbdbdb;
 }
-.stock-table td { border-bottom: 1px solid #efefef; padding: 4px; text-align: center; }
+/* Sized so all five columns — Closing included — fit a 360px phone without
+   horizontal scrolling: the auto-computed Closing must always be visible. */
+.stock-table td { border-bottom: 1px solid #efefef; padding: 3px 2px; text-align: center; }
 .stock-table td.item {
-  text-align: left; font-size: 14px; font-weight: 600; padding-left: 10px;
-  white-space: nowrap;
+  text-align: left; font-size: 13px; font-weight: 600; padding-left: 8px;
 }
-.stock-table td.item small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.stock-table td.item small { display: block; font-weight: 400; color: var(--muted); font-size: 10px; }
 .stock-table input {
-  width: 62px; padding: 8px 4px; font-size: 16px; letter-spacing: 0;
+  width: 54px; padding: 8px 2px; font-size: 15px; letter-spacing: 0;
   text-align: center; border-radius: 8px; border-width: 1px;
 }
 .stock-table td.cb {
-  font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--ok);
-  min-width: 54px;
+  font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--ok);
+  min-width: 42px;
 }
 .stock-table td.cb.neg { color: var(--err); }
 .rpt-stock-h {
@@ -490,7 +491,7 @@ input:focus, select:focus {
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
   padding: 8px 12px; margin-bottom: 6px; font-size: 17px;
 }
-.dr-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dr-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: break-word; }
 .dr-nums { font-family: var(--font-mono); font-size: 14px; color: var(--muted); }
 .dr-pct {
   font-family: var(--font-mono); font-size: 14px; font-weight: 700;
@@ -499,7 +500,10 @@ input:focus, select:focus {
 .dr-pct.ok { background: var(--ok-soft); color: var(--ok); }
 .dr-pct.warn { background: var(--warn-soft); color: var(--warn); }
 .dr-pct.err { background: var(--err-soft); color: var(--err); }
-.dr-sub { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+.dr-sub {
+  display: block; color: var(--muted); font-size: 12px; font-weight: 400;
+  white-space: normal; overflow-wrap: break-word; /* long remarks must wrap, never clip */
+}
 .flag-btn {
   border: none; background: var(--err-soft); border-radius: 9px;
   padding: 7px 10px; font-size: 17px; cursor: pointer;
