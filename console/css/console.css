@@ -289,3 +289,6 @@ td.remark { white-space: normal; min-width: 220px; max-width: 340px; font-size: 
 body.dark .gov-header { background: #161a2e; border-bottom-color: #2a2f4a; }
 body.dark .gov-line { color: #9aa1b8; }
 body.dark .head-user { color: #dfe1ea; }
+
+/* v3.2: analytics chart grid — wide charts span two tracks on desktop */
+@media (min-width: 720px) { .charts .span2 { grid-column: span 2; } }

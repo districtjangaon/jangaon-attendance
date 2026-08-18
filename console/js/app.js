@@ -1044,6 +1044,7 @@ const App = (() => {
     const perDay = {};    // dd -> {present, late, outside}
     const flagCount = {};
     const inBuckets = [0, 0, 0, 0, 0];
+    let totOut = 0; // present days that also have a valid OUT mark
     const secStats = {};  // sc -> {staff, presentDays, late, outside, unverified, leave, series}
     const userStats = {}; // uid -> {present, late, absentSet, leave, sc, streak}
     workDds.forEach(dd => { perDay[dd] = { present: 0, late: 0, outside: 0 }; });
@@ -1072,6 +1073,7 @@ const App = (() => {
             if (t && t > lateAt) { us.late++; st.late++; perDay[dd].late++; }
             if (c.IN.gf === 'OUTSIDE') { st.outside++; perDay[dd].outside++; }
             if (c.IN.gf === 'UNVERIFIED') st.unverified++;
+            if (c.OUT && c.OUT.x !== 'REJ') totOut++;
             if (t) {
               const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
               inBuckets[m < 540 ? 0 : m < 570 ? 1 : m < 600 ? 2 : m < 660 ? 3 : 4]++;
@@ -1112,23 +1114,44 @@ const App = (() => {
         Object.keys(hols).length + ' holidays/Sundays') +
       '</div>';
 
-    // ---- daily trend ----
+    // ---- chart grid: daily trend + composition + quality + patterns ----
     const labels = workDds.map(dd => Number(dd) + '');
-    html += '<div class="chartbox"><h3>Daily attendance — ' + esc(ym) + '</h3>' +
-      Charts.line(labels, [
-        { name: 'Present', color: Charts.PAL[0], area: true, values: workDds.map(dd => perDay[dd].present) },
-        { name: 'Late (of present)', color: Charts.PAL[3], values: workDds.map(dd => perDay[dd].late) },
-        { name: 'Outside fence', color: Charts.PAL[4], values: workDds.map(dd => perDay[dd].outside) }
-      ]) + '</div>';
-
-    // ---- weekday pattern + punctuality + flags ----
     const wd = [[], [], [], [], [], []]; // Mon..Sat
     workDds.forEach(dd => {
       const day = new Date(ym + '-' + dd + 'T12:00:00').getDay();
       if (day >= 1 && day <= 6) wd[day - 1].push(100 * perDay[dd].present / (totStaff || 1));
     });
     const wdNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const totAbsent = Math.max(0, possible - totPresent - totLeave);
     html += '<div class="charts">' +
+      '<div class="chartbox span2"><h3>Daily attendance — ' + esc(ym) + '</h3>' +
+      Charts.line(labels, [
+        { name: 'Present', color: Charts.PAL[0], area: true, values: workDds.map(dd => perDay[dd].present) },
+        { name: 'Late (of present)', color: Charts.PAL[3], values: workDds.map(dd => perDay[dd].late) },
+        { name: 'Outside fence', color: Charts.PAL[4], values: workDds.map(dd => perDay[dd].outside) }
+      ]) + '</div>' +
+      '<div class="chartbox"><h3>Month composition (person-days)</h3>' +
+      Charts.donut([
+        { label: 'Present', value: totPresent, color: '#0ca38a' },
+        { label: 'On leave', value: totLeave, color: '#2aa7d8' },
+        { label: 'Absent', value: totAbsent, color: '#d13438' }
+      ], { center: attPct + '%' }) + '</div>' +
+      '<div class="chartbox"><h3>GPS verification (IN marks)</h3>' +
+      Charts.donut([
+        { label: 'Inside fence', value: Math.max(0, totPresent - totOutside - totUnv), color: '#0ca38a' },
+        { label: 'Outside fence', value: totOutside, color: '#e4572e' },
+        { label: 'Unverified', value: totUnv, color: '#e8a020' }
+      ], { center: verifPct + '%' }) + '</div>' +
+      '<div class="chartbox"><h3>Day closure (OUT marked)</h3>' +
+      Charts.donut([
+        { label: 'IN + OUT', value: totOut, color: '#4f5ce5' },
+        { label: 'IN only', value: Math.max(0, totPresent - totOut), color: '#e8a020' }
+      ], { center: (totPresent ? Math.round(100 * totOut / totPresent) : 0) + '%' }) + '</div>' +
+      '<div class="chartbox"><h3>Attendance rate by day (%)</h3>' +
+      Charts.line(labels, [
+        { name: '% of staff present', color: Charts.PAL[1], area: true,
+          values: workDds.map(dd => Math.round(100 * perDay[dd].present / (totStaff || 1))) }
+      ], { pct: true }) + '</div>' +
       '<div class="chartbox"><h3>Attendance by weekday</h3>' +
       Charts.bar(wdNames.map((n, i) => ({
         label: n, color: Charts.PAL[1],
