@@ -2216,6 +2216,32 @@ function seedE2ePair() {
   return 'E2E pair (9999999902) + E2E Supervisor (9999999903) ready — PINs reset.';
 }
 
+/**
+ * One-click SUPERVISOR persona for the district admin (run from the editor;
+ * idempotent). Reuses the ADMIN_PHONE from Script Properties — after this,
+ * logging in with that number shows a picker: the ADMIN account or this
+ * "(Supervisor view)" account, which carries charge of ALL sectors so the
+ * admin can experience the supervisor app exactly as the field sees it.
+ * NOTE: supervisors count in expected attendance — this persona adds +1
+ * expected (under its primary sector) while ACTIVE; set INACTIVE when not
+ * needed if the dashboards should stay exact.
+ */
+function seedMySupervisor() {
+  const phone = String(PROPS.getProperty('ADMIN_PHONE')).replace(/\D/g, '');
+  if (!/^\d{10}$/.test(phone)) throw new Error('ADMIN_PHONE Script Property is not a 10-digit number.');
+  const allSecs = getSectors_().map(function (s) { return s.code; }).sort().join(',');
+  const existing = getUsersByPhone_(phone).filter(function (u) { return String(u.role) === 'SUPERVISOR'; });
+  const res = upsertUser_({
+    user_id: existing.length ? String(existing[0].user_id) : 'U2099',
+    allowCreateWithId: true, phone: phone,
+    name: String(PROPS.getProperty('ADMIN_NAME') || 'District Admin') + ' (Supervisor view)',
+    cadre: 'SUPERVISOR', role: 'SUPERVISOR',
+    project_code: 'JGN', sector_code: allSecs, status: 'ACTIVE'
+  }, 'SEED_MY_SUP');
+  return JSON.stringify(res) + ' — login with ' + phone +
+    ', tap the "(Supervisor view)" name, set a PIN. Charge: ALL sectors (' + allSecs + ').';
+}
+
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
