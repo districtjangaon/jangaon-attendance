@@ -565,7 +565,57 @@ const App = (() => {
       $('mark-done').hidden = false;
     }
     await renderHomeExtras(acc, rptDone);
+    renderMyIssues(acc); // fire-and-forget: renders when the server answers
     renderStatus();
+  }
+
+  /**
+   * Issues the supervisor raised ABOUT this worker: shown on home until
+   * closed. The worker resolves with a mandatory remark (what was done);
+   * the supervisor then confirms the close — full trail kept server-side.
+   */
+  async function renderMyIssues(acc) {
+    const card = $('issues-card');
+    if (acc.user.role !== 'FIELD') { card.hidden = true; return; }
+    let data = await DB.kvGet('myIssues_' + acc.user.id) || { at: 0, issues: [] };
+    if (navigator.onLine) {
+      try {
+        const res = await Api.post({ action: 'myIssues', token: acc.token });
+        if (res.ok) {
+          data = { at: Date.now(), issues: res.issues };
+          await DB.kvSet('myIssues_' + acc.user.id, data);
+        }
+      } catch (e) { /* offline: show cached */ }
+    }
+    if (activeUid !== acc.user.id) return; // user switched while fetching
+    const open = data.issues.filter(i => i.status === 'OPEN');
+    const resolved = data.issues.filter(i => i.status === 'RESOLVED');
+    if (!open.length && !resolved.length) { card.hidden = true; return; }
+    card.hidden = false;
+    card.innerHTML = '<div class="dash-h">⚠ Issues raised by your supervisor</div>' +
+      open.map(i => '<div class="drow"><span class="dr-name">' + escH(CAT_LABEL[i.cat] || i.cat) +
+        (i.text ? '<small class="dr-sub">' + escH(i.text) + '</small>' : '') + '</span>' +
+        '<button class="resolve-btn" data-id="' + escH(i.id) + '">Mark resolved</button></div>').join('') +
+      resolved.map(i => '<div class="drow"><span class="dr-name">' + escH(CAT_LABEL[i.cat] || i.cat) +
+        '<small class="dr-sub">Resolved — waiting for your supervisor to confirm</small></span>' +
+        '<span class="dr-pct ok">resolved</span></div>').join('');
+    card.querySelectorAll('.resolve-btn').forEach(b => {
+      b.onclick = async () => {
+        const remark = prompt('What did you do to resolve it? (required)');
+        if (remark === null) return;
+        if (!remark.trim()) { alert('A remark is required.'); return; }
+        b.disabled = true;
+        try {
+          const res = await Api.post({ action: 'resolveIssue', token: acc.token,
+            issueId: b.dataset.id, remark: remark.trim() });
+          if (res.ok) { alert('Sent to your supervisor for confirmation.'); renderMyIssues(acc); }
+          else alert('Could not send (' + res.code + ').');
+        } catch (e) {
+          alert('Needs internet — try again on network.');
+        }
+        b.disabled = false;
+      };
+    });
   }
 
   // ---------- home extras: clock, today's times, stats, 7-day trend ----------
@@ -853,14 +903,20 @@ const App = (() => {
         '<button class="flag-btn" data-uid="' + p.id + '" data-name="' + escH(p.n) + '">🚩</button></div>';
     }).join('');
 
-    html += '<div class="dash-h">Open issues · ' + issues.length + '</div>';
+    const nOpen = issues.filter(i => i.status !== 'RESOLVED').length;
+    const nRes = issues.length - nOpen;
+    html += '<div class="dash-h">Issues · open ' + nOpen + ' · resolved by worker ' + nRes + '</div>';
     html += issues.length ? issues.map(i => {
       const who = (nm.users[i.about] || {}).n || i.about;
-      return '<div class="drow"><span class="dr-name">' + escH(CAT_LABEL[i.cat] || i.cat) +
-        '<small class="dr-sub">' + escH(who) + (i.text ? ' — ' + escH(i.text) : '') + '</small></span>' +
-        '<span class="dr-nums">' + escH(String(i.ts).slice(5, 10)) + '</span>' +
-        '<button class="close-btn" data-id="' + escH(i.id) + '">Close</button></div>';
-    }).join('') : '<p class="info">No open issues — flagged items appear here until you close them.</p>';
+      const res = i.status === 'RESOLVED';
+      return '<div class="drow"><span class="dr-name">' + (res ? '✔ ' : '') +
+        escH(CAT_LABEL[i.cat] || i.cat) +
+        '<small class="dr-sub">' + escH(who) + (i.text ? ' — ' + escH(i.text) : '') +
+        (res && i.resolvedRemark ? '<br>Worker: “' + escH(i.resolvedRemark) + '”' : '') +
+        '</small></span>' +
+        '<span class="dr-pct ' + (res ? 'ok' : 'warn') + '">' + (res ? 'resolved' : 'open') + '</span>' +
+        '<button class="close-btn" data-id="' + escH(i.id) + '">' + (res ? 'Confirm' : 'Close') + '</button></div>';
+    }).join('') : '<p class="info">No open issues — flagged items appear here until closed.</p>';
 
     el.innerHTML = html;
 

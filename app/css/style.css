@@ -509,6 +509,12 @@ input:focus, select:focus {
   font-family: var(--font-display); font-weight: 700; font-size: 14px;
   border-radius: 9px; padding: 8px 12px; cursor: pointer;
 }
+#issues-card { margin-top: 12px; }
+.resolve-btn {
+  border: none; background: var(--warn-soft); color: #8a5200;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px;
+  border-radius: 9px; padding: 8px 12px; cursor: pointer; white-space: nowrap;
+}
 .sheet-backdrop {
   position: fixed; inset: 0; z-index: 60; background: rgba(16, 20, 43, .45);
   display: flex; align-items: flex-end;

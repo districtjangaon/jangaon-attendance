@@ -66,8 +66,11 @@ const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', '
   'milk_ob', 'milk_used', 'milk_recd', 'milk_cb'];
 const STOCK_KEYS = ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'];
 // Columns are append-only (order is the contract).
+// Lifecycle: OPEN -> RESOLVED (the worker fixed it, with remark)
+//         -> CLOSED (the supervisor confirmed, with remark).
 const ISSUE_H = ['ts', 'raised_by', 'sector', 'about_user', 'issue', 'status',
-  'category', 'issue_id', 'closed_ts', 'closed_by', 'close_remark'];
+  'category', 'issue_id', 'closed_ts', 'closed_by', 'close_remark',
+  'resolved_ts', 'resolved_remark'];
 const ISSUE_CATS = ['INCOMPLETE_REPORT', 'NO_REPORT', 'QTY_ANOMALY',
   'NOT_PRESENT', 'LATE', 'OTHER'];
 
@@ -990,10 +993,10 @@ function issuesSheet_() {
   if (!sh) {
     sh = masterSS_().insertSheet('Issues');
     sh.getRange(1, 1, 1, ISSUE_H.length).setValues([ISSUE_H]);
-    sh.getRange('A:K').setNumberFormat('@');
+    sh.getRange('A:M').setNumberFormat('@');
   } else if (String(sh.getRange(1, ISSUE_H.length).getValue()) !== ISSUE_H[ISSUE_H.length - 1]) {
     sh.getRange(1, 1, 1, ISSUE_H.length).setValues([ISSUE_H]); // heal older header
-    sh.getRange('A:K').setNumberFormat('@');
+    sh.getRange('A:M').setNumberFormat('@');
   }
   return sh;
 }
@@ -1015,12 +1018,13 @@ function apiRaiseIssue_(auth, req) {
   if (cat === 'OTHER' && !text) return { ok: false, code: 'EMPTY' };
   const issueId = 'IS' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   issuesSheet_().appendRow([nowIso_(), String(auth.userId), primarySector_(about),
-    String(about.user_id), text, 'OPEN', cat, issueId, '', '', '']);
+    String(about.user_id), text, 'OPEN', cat, issueId, '', '', '', '', '']);
   audit_(auth.userId, 'ISSUE_RAISED', String(about.user_id), '', cat + (text ? ': ' + text : ''));
   return { ok: true, issueId: issueId };
 }
 
-/** action: listIssues — OPEN issues in the caller's sector scope (latest 100). */
+/** action: listIssues — OPEN + worker-RESOLVED issues in the caller's sector
+ *  scope (latest 100), so the supervisor sees what awaits confirmation. */
 function apiListIssues_(auth, req) {
   if (!isConsoleRole_(auth.user)) return deny_();
   const scope = sectorScope_(auth.user);
@@ -1031,15 +1035,55 @@ function apiListIssues_(auth, req) {
   const out = [];
   for (const v of vals) {
     const o = rowToObj_(ISSUE_H, v);
-    if (String(o.status) !== 'OPEN') continue;
+    if (String(o.status) !== 'OPEN' && String(o.status) !== 'RESOLVED') continue;
     if (scope && scope.indexOf(String(o.sector)) < 0) continue;
     out.push({ id: String(o.issue_id), ts: String(o.ts), about: String(o.about_user),
-      cat: String(o.category || 'OTHER'), text: String(o.issue || '') });
+      cat: String(o.category || 'OTHER'), text: String(o.issue || ''),
+      status: String(o.status), resolvedRemark: String(o.resolved_remark || '') });
   }
   return { ok: true, issues: out.slice(-100).reverse() };
 }
 
-/** action: closeIssue — resolve with a mandatory remark; scope-checked. */
+/** action: myIssues — a WORKER's own open/resolved issues (raised about them). */
+function apiMyIssues_(auth, req) {
+  const sh = issuesSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return { ok: true, issues: [] };
+  const vals = sh.getRange(2, 1, last - 1, ISSUE_H.length).getValues();
+  const out = [];
+  for (const v of vals) {
+    const o = rowToObj_(ISSUE_H, v);
+    if (String(o.about_user) !== String(auth.userId)) continue;
+    if (String(o.status) === 'CLOSED') continue;
+    out.push({ id: String(o.issue_id), ts: String(o.ts),
+      cat: String(o.category || 'OTHER'), text: String(o.issue || ''),
+      status: String(o.status) });
+  }
+  return { ok: true, issues: out.slice(-50).reverse() };
+}
+
+/** action: resolveIssue — the WORKER marks their own issue as attended, with
+ *  a mandatory remark. Status OPEN -> RESOLVED; the supervisor then confirms
+ *  the close. Full trail (both remarks + timestamps) stays in the register. */
+function apiResolveIssue_(auth, req) {
+  const remark = String(req.remark || '').trim().slice(0, 300);
+  if (!remark) return { ok: false, code: 'REMARK_REQUIRED' };
+  const sh = issuesSheet_();
+  const H = headerIndex_(ISSUE_H);
+  const row = findRowByValue_(sh, H.issue_id + 1, String(req.issueId || ''));
+  if (!row) return { ok: false, code: 'NO_ISSUE' };
+  const o = rowToObj_(ISSUE_H, sh.getRange(row, 1, 1, ISSUE_H.length).getValues()[0]);
+  if (String(o.about_user) !== String(auth.userId)) return deny_();
+  if (String(o.status) !== 'OPEN') return { ok: false, code: 'NOT_OPEN' };
+  sh.getRange(row, H.status + 1).setValue('RESOLVED');
+  sh.getRange(row, H.resolved_ts + 1).setValue(nowIso_());
+  sh.getRange(row, H.resolved_remark + 1).setValue(remark);
+  audit_(auth.userId, 'ISSUE_WORKER_RESOLVED', String(o.issue_id), String(o.category), remark);
+  return { ok: true };
+}
+
+/** action: closeIssue — supervisor confirms with a mandatory remark; works
+ *  from OPEN or RESOLVED; scope-checked. */
 function apiCloseIssue_(auth, req) {
   if (!isConsoleRole_(auth.user)) return deny_();
   const remark = String(req.remark || '').trim().slice(0, 300);
@@ -1051,7 +1095,7 @@ function apiCloseIssue_(auth, req) {
   const o = rowToObj_(ISSUE_H, sh.getRange(row, 1, 1, ISSUE_H.length).getValues()[0]);
   const scope = sectorScope_(auth.user);
   if (scope && scope.indexOf(String(o.sector)) < 0) return deny_();
-  if (String(o.status) !== 'OPEN') return { ok: false, code: 'ALREADY_CLOSED' };
+  if (String(o.status) === 'CLOSED') return { ok: false, code: 'ALREADY_CLOSED' };
   sh.getRange(row, H.status + 1).setValue('CLOSED');
   sh.getRange(row, H.closed_ts + 1).setValue(nowIso_());
   sh.getRange(row, H.closed_by + 1).setValue(String(auth.userId));
@@ -2632,6 +2676,8 @@ function doPost(e) {
       logout: apiLogout_,
       leaveApply: apiLeaveApply_,
       myLeaves: apiMyLeaves_,
+      myIssues: apiMyIssues_,
+      resolveIssue: apiResolveIssue_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,

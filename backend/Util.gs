@@ -55,8 +55,11 @@ const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', '
   'milk_ob', 'milk_used', 'milk_recd', 'milk_cb'];
 const STOCK_KEYS = ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'];
 // Columns are append-only (order is the contract).
+// Lifecycle: OPEN -> RESOLVED (the worker fixed it, with remark)
+//         -> CLOSED (the supervisor confirmed, with remark).
 const ISSUE_H = ['ts', 'raised_by', 'sector', 'about_user', 'issue', 'status',
-  'category', 'issue_id', 'closed_ts', 'closed_by', 'close_remark'];
+  'category', 'issue_id', 'closed_ts', 'closed_by', 'close_remark',
+  'resolved_ts', 'resolved_remark'];
 const ISSUE_CATS = ['INCOMPLETE_REPORT', 'NO_REPORT', 'QTY_ANOMALY',
   'NOT_PRESENT', 'LATE', 'OTHER'];
 
