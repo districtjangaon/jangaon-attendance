@@ -63,7 +63,7 @@ const App = (() => {
       ['screen-login', 'screen-welcome', 'screen-camera', 'screen-success'].indexOf(id) >= 0;
     if (!nav.hidden) {
       $('nav-report').hidden = acc.user.cadre !== 'AWT';
-      $('nav-dash').hidden = acc.user.role !== 'ADMIN';
+      $('nav-dash').hidden = acc.user.role !== 'ADMIN' && acc.user.role !== 'SUPERVISOR';
       Object.keys(NAV_MAP).forEach(s => $(NAV_MAP[s]).classList.toggle('sel', s === id));
     }
   }
@@ -540,7 +540,9 @@ const App = (() => {
     $('home-awc').textContent = acc.user.awcName || '';
     $('home-date').textContent = new Date().toDateString();
     $('btn-users').hidden = false;
-    $('btn-dash').hidden = acc.user.role !== 'ADMIN';
+    const dashRole = acc.user.role === 'ADMIN' || acc.user.role === 'SUPERVISOR';
+    $('btn-dash').hidden = !dashRole;
+    $('btn-dash').textContent = acc.user.role === 'SUPERVISOR' ? 'My sector' : 'District dashboard';
     // One store scan feeds both the chip and the reminder banner.
     const rptDone = acc.user.cadre === 'AWT' ? await reportDoneToday() : true;
     const chip = $('report-chip');
@@ -705,7 +707,125 @@ const App = (() => {
       '<span class="dr-pct ' + cls + '">' + pc + '%</span></div>';
   }
 
+  function dashStale(stale, meta, today) {
+    const dataMin = Math.round((Date.now() - new Date(today.generatedAt).getTime()) / 60000);
+    const aliveMin = (meta && meta.checkedAt)
+      ? Math.round((Date.now() - new Date(meta.checkedAt).getTime()) / 60000) : dataMin;
+    stale.className = 'dash-stale ' + (aliveMin <= 40 ? 'ok' : aliveMin <= 90 ? 'warn' : 'err');
+    stale.textContent = (aliveMin <= 40 ? '✓ SYSTEM LIVE' : aliveMin <= 90 ? '⚠ UPDATES DELAYED' : '✖ NOT UPDATING') +
+      ' · DATA ' + (dataMin < 1 ? 'JUST NOW' : dataMin + ' MIN AGO');
+  }
+
+  const dashTile = (v, k, cls) =>
+    '<div class="dtile ' + (cls || '') + '"><b>' + v + '</b><span>' + k + '</span></div>';
+
+  /**
+   * Supervisor's in-app sector view (district decision 2026-08-18: supervisors
+   * have NO console — this is their whole window): people-status counts for
+   * their sector(s) and a 🚩 to flag an issue about any worker to the district.
+   */
+  async function renderSectorDash(acc) {
+    const el = $('dash-content'), stale = $('dash-stale');
+    $('dash-title').textContent = 'My Sector';
+    el.innerHTML = '<p class="info">Loading your sector&hellip;</p>';
+    stale.textContent = '';
+    stale.className = 'dash-stale';
+
+    let meta = null, today = null;
+    try {
+      const t = Date.now();
+      [meta, today] = await Promise.all([
+        fetch('../summary/meta.json?t=' + t).then(r => r.ok ? r.json() : null),
+        fetch('../summary/today.json?t=' + t).then(r => r.ok ? r.json() : null)
+      ]);
+    } catch (e) { /* offline */ }
+    if (!today || !today.users) {
+      el.innerHTML = '<p class="info">Could not load — the sector view needs internet.</p>';
+      return;
+    }
+
+    let nm = await DB.kvGet('nm_' + acc.user.id);
+    if (!nm || Date.now() - nm.at > 6 * 3600000) {
+      try {
+        const res = await Api.post({ action: 'nameMap', token: acc.token });
+        if (res.ok) {
+          nm = { at: Date.now(), users: res.users, awcs: res.awcs };
+          await DB.kvSet('nm_' + acc.user.id, nm);
+        }
+      } catch (e) { /* keep cached copy if any */ }
+    }
+    if (!nm) {
+      el.innerHTML = '<p class="info">Could not load names — needs internet once.</p>';
+      return;
+    }
+    dashStale(stale, meta, today);
+
+    const stMap = {};
+    (today.users || []).forEach(e => { stMap[e.id] = e; });
+    const people = Object.keys(nm.users)
+      .filter(id => nm.users[id].r === 'FIELD' && nm.users[id].s === 'ACTIVE')
+      .map(id => ({
+        id: id, n: nm.users[id].n,
+        awc: (nm.awcs[nm.users[id].a] || {}).n || nm.users[id].a || '',
+        e: stMap[id] || { st: 'NOT_MARKED', in: null, gf: null }
+      }))
+      .sort((a, b) => a.awc.localeCompare(b.awc));
+
+    const c = { P: 0, L: 0, N: 0, V: 0 };
+    people.forEach(p => {
+      if (p.e.st === 'PRESENT') c.P++;
+      else if (p.e.st === 'LATE') c.L++;
+      else if (p.e.st === 'ON_LEAVE') c.V++;
+      else c.N++;
+    });
+
+    let html = '<div class="dash-grid">' +
+      dashTile(people.length, 'Expected', '') + dashTile(c.P, 'On time', 'ok') +
+      dashTile(c.L, 'Late', 'warn') + dashTile(c.N, 'Not marked', 'err') +
+      '</div><div class="dash-grid">' +
+      dashTile(c.V, 'On leave', '') +
+      dashTile(people.filter(p => p.e.gf === 'OUTSIDE').length, 'Outside', 'warn') +
+      dashTile(people.filter(p => p.e.gf === 'UNVERIFIED').length, 'Unverif.', '') +
+      dashTile(people.filter(p => p.e.in).length, 'Marked', 'ok') +
+      '</div>';
+
+    html += '<div class="dash-h">Your people · tap 🚩 to flag an issue</div>';
+    html += people.map(p => {
+      const cls = p.e.st === 'PRESENT' || p.e.st === 'ON_LEAVE' ? 'ok'
+        : p.e.st === 'LATE' ? 'warn' : 'err';
+      return '<div class="drow"><span class="dr-name">' + escH(p.n) +
+        '<small class="dr-sub">' + escH(p.awc) + '</small></span>' +
+        '<span class="dr-nums">' + escH(p.e.in || '–') + '</span>' +
+        '<span class="dr-pct ' + cls + '">' +
+        escH((p.e.st || 'NOT_MARKED').replace('_', ' ').toLowerCase()) + '</span>' +
+        '<button class="flag-btn" data-uid="' + p.id + '" data-name="' + escH(p.n) + '">🚩</button></div>';
+    }).join('');
+    el.innerHTML = html;
+
+    el.querySelectorAll('.flag-btn').forEach(b => {
+      b.onclick = async () => {
+        const text = prompt('Describe the issue about ' + b.dataset.name + ':');
+        if (!text || !text.trim()) return;
+        b.disabled = true;
+        try {
+          const res = await Api.post({
+            action: 'raiseIssue', token: acc.token,
+            aboutUid: b.dataset.uid, text: text.trim()
+          });
+          alert(res.ok ? 'Issue flagged — the district office will see it.'
+            : 'Could not flag (' + res.code + ').');
+        } catch (e) {
+          alert('Needs internet — try again on network.');
+        }
+        b.disabled = false;
+      };
+    });
+  }
+
   async function renderDash() {
+    const accNow = active();
+    if (accNow && accNow.user.role === 'SUPERVISOR') return renderSectorDash(accNow);
+    $('dash-title').textContent = 'District Dashboard';
     const el = $('dash-content'), stale = $('dash-stale');
     el.innerHTML = '<p class="info">Loading district data&hellip;</p>';
     stale.textContent = '';

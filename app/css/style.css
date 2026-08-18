@@ -499,6 +499,11 @@ input:focus, select:focus {
 .dr-pct.ok { background: var(--ok-soft); color: var(--ok); }
 .dr-pct.warn { background: var(--warn-soft); color: var(--warn); }
 .dr-pct.err { background: var(--err-soft); color: var(--err); }
+.dr-sub { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+.flag-btn {
+  border: none; background: var(--err-soft); border-radius: 9px;
+  padding: 7px 10px; font-size: 17px; cursor: pointer;
+}
 
 /* History */
 .history-list { list-style: none; }

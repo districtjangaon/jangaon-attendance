@@ -65,6 +65,7 @@ const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', '
   'balp_ob', 'balp_used', 'balp_recd', 'balp_cb',
   'milk_ob', 'milk_used', 'milk_recd', 'milk_cb'];
 const STOCK_KEYS = ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'];
+const ISSUE_H = ['ts', 'raised_by', 'sector', 'about_user', 'issue', 'status'];
 
 // ---- policy constants ----
 const PIN_ITERATIONS = 4000;      // salted SHA-256 iterations (bcrypt does not exist in Apps Script)
@@ -977,6 +978,31 @@ function sectorScope_(actor) {
     return getSectors_().filter(s => s.project === String(actor.project_code)).map(s => s.code);
   }
   return String(actor.sector_code).split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * action: raiseIssue — a supervisor (or any console role) flags an issue
+ * about a worker in their scope. Stored in the master 'Issues' sheet
+ * (created lazily) and audit-logged; the district admin reviews the tab.
+ */
+function apiRaiseIssue_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const about = getUserById_(String(req.aboutUid || ''));
+  if (!about) return { ok: false, code: 'NO_USER' };
+  const scope = sectorScope_(auth.user);
+  if (scope && scope.indexOf(primarySector_(about)) < 0) return deny_();
+  const text = String(req.text || '').trim().slice(0, 300);
+  if (!text) return { ok: false, code: 'EMPTY' };
+  let sh = masterSS_().getSheetByName('Issues');
+  if (!sh) {
+    sh = masterSS_().insertSheet('Issues');
+    sh.getRange(1, 1, 1, ISSUE_H.length).setValues([ISSUE_H]);
+    sh.getRange('A:F').setNumberFormat('@');
+  }
+  sh.appendRow([nowIso_(), String(auth.userId), primarySector_(about),
+    String(about.user_id), text, 'OPEN']);
+  audit_(auth.userId, 'ISSUE_RAISED', String(about.user_id), '', text);
+  return { ok: true };
 }
 
 // ---- console bootstrap: users + org, scoped to the viewer ----
@@ -2526,6 +2552,7 @@ function doPost(e) {
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,
+      raiseIssue: apiRaiseIssue_,
       // console (admin)
       userUpsert: apiUserUpsert_,
       importUsers: apiImportUsers_,

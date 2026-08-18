@@ -123,6 +123,15 @@ const App = (() => {
 
   // ---------------- boot & data ----------------
   async function boot() {
+    // District decision 2026-08-18: supervisors work ONLY in the mobile app
+    // (sector counts + issue flagging live there). The console is for the
+    // district admin team and CDPOs.
+    if (me && me.role === 'SUPERVISOR') {
+      doLogout();
+      $('login-msg').textContent =
+        'Supervisors use the mobile app — your sector view and issue flagging are on your phone.';
+      return;
+    }
     const nm = await Api.post({ action: 'nameMap', token: token });
     if (!nm.ok) { authLost(); return; }
     names = nm;

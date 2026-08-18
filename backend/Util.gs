@@ -54,6 +54,7 @@ const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', '
   'balp_ob', 'balp_used', 'balp_recd', 'balp_cb',
   'milk_ob', 'milk_used', 'milk_recd', 'milk_cb'];
 const STOCK_KEYS = ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'];
+const ISSUE_H = ['ts', 'raised_by', 'sector', 'about_user', 'issue', 'status'];
 
 // ---- policy constants ----
 const PIN_ITERATIONS = 4000;      // salted SHA-256 iterations (bcrypt does not exist in Apps Script)

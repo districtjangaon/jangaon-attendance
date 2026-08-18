@@ -39,6 +39,7 @@ function doPost(e) {
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,
+      raiseIssue: apiRaiseIssue_,
       // console (admin)
       userUpsert: apiUserUpsert_,
       importUsers: apiImportUsers_,
