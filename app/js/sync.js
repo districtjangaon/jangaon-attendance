@@ -148,7 +148,11 @@ const Sync = (() => {
     await DB.put('queue', record);
     if ('serviceWorker' in navigator && 'SyncManager' in window) {
       try {
-        const reg = await navigator.serviceWorker.ready;
+        // serviceWorker.ready never settles if registration failed (blocked,
+        // storage evicted) — cap the wait so the record's own save + the
+        // schedule() below can never be held hostage by Background Sync.
+        const reg = await Promise.race([navigator.serviceWorker.ready,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('sw-timeout')), 3000))]);
         await reg.sync.register('sync-marks');
       } catch (e) { /* Background Sync unsupported: the other triggers cover it */ }
     }
