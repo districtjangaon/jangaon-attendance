@@ -14,13 +14,14 @@ const Api = (() => {
 
   async function post(body) {
     if (window.CONSOLE_CONFIG.DEMO) return demoPost(body);
-    // Up to 3 attempts with jitter — Apps Script occasionally serves a Google
-    // HTML error page with HTTP 200 (unhealthy replica, seen 2026-08-19).
+    // Alternate between the two live deployments of the same script, up to 5
+    // attempts with jittered backoff (Google serving degradation 2026-08-19).
+    const eps = window.CONSOLE_CONFIG.ENDPOINTS || [window.CONSOLE_CONFIG.ENDPOINT];
     let lastErr;
-    for (let i = 0; i < 3; i++) {
-      if (i) await new Promise(r => setTimeout(r, 700 + Math.random() * 900));
+    for (let i = 0; i < 5; i++) {
+      if (i) await new Promise(r => setTimeout(r, 400 + i * 300 + Math.random() * 600));
       try {
-        const res = await fetch(window.CONSOLE_CONFIG.ENDPOINT, {
+        const res = await fetch(eps[i % eps.length], {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(body)
