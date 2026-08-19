@@ -14,13 +14,24 @@ const Api = (() => {
 
   async function post(body) {
     if (window.CONSOLE_CONFIG.DEMO) return demoPost(body);
-    const res = await fetch(window.CONSOLE_CONFIG.ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
+    // Up to 3 attempts with jitter — Apps Script occasionally serves a Google
+    // HTML error page with HTTP 200 (unhealthy replica, seen 2026-08-19).
+    let lastErr;
+    for (let i = 0; i < 3; i++) {
+      if (i) await new Promise(r => setTimeout(r, 700 + Math.random() * 900));
+      try {
+        const res = await fetch(window.CONSOLE_CONFIG.ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        try { return JSON.parse(text); }
+        catch (e) { throw new Error('SERVER_HTML'); }
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr;
   }
 
   async function fetchJson(path) {

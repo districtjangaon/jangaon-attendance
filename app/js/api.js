@@ -10,13 +10,26 @@ const Api = (() => {
 
   async function post(body) {
     if (window.APP_CONFIG.DEMO) return demo(body);
-    const res = await fetch(window.APP_CONFIG.ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
+    // Up to 3 attempts with jitter: Apps Script sometimes serves a Google
+    // HTML error page with HTTP 200 (seen 2026-08-19 — an unhealthy replica
+    // answered a fraction of requests). All writes are idempotent-or-guarded
+    // server-side, so a retry never duplicates.
+    let lastErr;
+    for (let i = 0; i < 3; i++) {
+      if (i) await new Promise(r => setTimeout(r, 700 + Math.random() * 900));
+      try {
+        const res = await fetch(window.APP_CONFIG.ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        try { return JSON.parse(text); }
+        catch (e) { throw new Error('SERVER_HTML'); }
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr;
   }
 
   // ---------- demo backend ----------
