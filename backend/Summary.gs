@@ -251,11 +251,23 @@ function buildToday_() {
 
   // App adoption since launch: how many of the attendance-owing staff have
   // completed a first login (PIN set) and how many phones are device-bound.
-  const adopt = { staff: users.length, onboarded: 0, devices: 0 };
+  const adopt = { staff: users.length, onboarded: 0, devices: 0, app: 0, chrome: 0 };
+  const staffIds = {};
   users.forEach(function (u) {
+    staffIds[String(u.user_id)] = 1;
     if (String(u.pin_hash || '')) adopt.onboarded++;
     if (String(u.device_id || '')) adopt.devices++;
   });
+  // Installed-app vs Chrome-tab split (AppModes sheet, daily self-report).
+  try {
+    const msh = masterSS_().getSheetByName('AppModes');
+    if (msh && msh.getLastRow() >= 2) {
+      msh.getRange(2, 1, msh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+        if (!staffIds[String(r[0])]) return;
+        if (String(r[1]) === 'APP') adopt.app++; else adopt.chrome++;
+      });
+    }
+  } catch (e) { /* telemetry only — never block the summary */ }
 
   const generatedAt = nowIso_();
   const todayJson = {

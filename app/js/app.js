@@ -172,6 +172,7 @@ const App = (() => {
     if (active()) {
       await goHome();
       Sync.schedule('startup');
+      pingAppMode(); // fire-and-forget daily installed-vs-browser telemetry
     } else {
       resetLogin();
       show('screen-login');
@@ -509,6 +510,24 @@ const App = (() => {
    * permission popups. One-time; denial never blocks anything — the marking
    * flow already degrades gracefully (NO_PHOTO / GPS UNVERIFIED).
    */
+  /** 'APP' when running installed (WebAPK/TWA standalone), 'BROWSER' in a tab. */
+  function displayMode() {
+    const standalone = (window.matchMedia &&
+      matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+    return standalone ? 'APP' : 'BROWSER';
+  }
+
+  /** Once a day, tell the server how this device runs the app. */
+  async function pingAppMode() {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      if (!navigator.onLine || !active()) return;
+      if (await DB.kvGet('modePing') === today) return;
+      const r = await Api.post({ action: 'appMode', token: active().token, dm: displayMode() });
+      if (r.ok) await DB.kvSet('modePing', today);
+    } catch (e) { /* telemetry only — retry tomorrow */ }
+  }
+
   async function primePermissions() {
     if (await DB.kvGet('permsPrimed')) return;
     await DB.kvSet('permsPrimed', 1);

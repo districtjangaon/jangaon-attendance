@@ -388,7 +388,9 @@ const App = (() => {
     if (today.adopt && drill.level === 'district') {
       $('today-cards').innerHTML +=
         bigcard('bc-blue', 'App adoption — logged in', today.adopt.onboarded,
-          'field staff & supervisors with first login done · ' + today.adopt.devices + ' devices bound');
+          'field staff & supervisors with first login done · ' + today.adopt.devices + ' devices bound' +
+          (today.adopt.app != null
+            ? ' · installed app ' + today.adopt.app + ' · Chrome only ' + today.adopt.chrome : ''));
     }
     // AWC daily reports (children / pregnant / others / meals) — district-wide
     // totals from today.json; present only after the reporting backend ships.

@@ -34,6 +34,7 @@ function doPost(e) {
       leaveBalance: apiLeaveBalance_,
       myIssues: apiMyIssues_,
       resolveIssue: apiResolveIssue_,
+      appMode: apiAppMode_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,

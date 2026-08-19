@@ -163,6 +163,47 @@ function revokeUserSessions_(userId) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// App-mode telemetry: is this account using the INSTALLED app or a Chrome
+// tab? The app pings once a day; one upsert row per user in 'AppModes'.
+// Powers the console's adoption split (installed vs browser).
+
+const MODE_H = ['user_id', 'mode', 'updated_at'];
+
+function modesSheet_() {
+  const ss = masterSS_();
+  let sh = ss.getSheetByName('AppModes');
+  if (!sh) {
+    sh = ss.insertSheet('AppModes');
+    sh.getRange(1, 1, 1, MODE_H.length).setValues([MODE_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), MODE_H.length).setNumberFormat('@');
+  }
+  return sh;
+}
+
+// action: "appMode"  req: { token, dm: 'APP'|'BROWSER' }
+function apiAppMode_(auth, req) {
+  const mode = String(req.dm) === 'APP' ? 'APP' : 'BROWSER';
+  const sh = modesSheet_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const last = sh.getLastRow();
+    let row = 0;
+    if (last >= 2) {
+      const ids = sh.getRange(2, 1, last - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) {
+        if (String(ids[i][0]) === String(auth.userId)) { row = i + 2; break; }
+      }
+    }
+    if (row) sh.getRange(row, 2, 1, 2).setValues([[mode, nowIso_()]]);
+    else sh.appendRow([String(auth.userId), mode, nowIso_()]);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
+
 function apiLogout_(auth, req) {
   const sh = masterSS_().getSheetByName('Sessions');
   const row = findRowByValue_(sh, 1, auth.tokenId);
