@@ -1156,11 +1156,8 @@ const App = (() => {
   }
 
   // ---------- marking ----------
-  async function openCamera(title, face) {
-    $('cam-title').textContent = title;
-    $('cam-msg').textContent = '';
-    show('screen-camera');
-
+  /** (Re)start GPS acquisition for the capture screen; retried on demand. */
+  function startGeoWatch() {
     geoResult = null;
     const gpsLine = $('cam-gps');
     gpsLine.textContent = 'Getting GPS…';
@@ -1171,18 +1168,27 @@ const App = (() => {
         gpsLine.textContent = 'GPS OK (±' + Math.round(g.accuracy) + ' m)';
         gpsLine.className = 'gps-line ok';
       } else {
-        gpsLine.textContent = 'GPS not available — the record will still be saved';
+        gpsLine.textContent = 'GPS not found — location is required. Move under open sky.';
         gpsLine.className = 'gps-line bad';
       }
       return g;
     });
+  }
+
+  async function openCamera(title, face) {
+    $('cam-title').textContent = title;
+    $('cam-msg').textContent = '';
+    show('screen-camera');
+
+    startGeoWatch();
 
     try {
       await Camera.start($('cam-video'), face);
       $('cam-video').classList.toggle('rear', Camera.facing() !== 'user');
     } catch (e) {
-      // Never block: allow capture without photo, server flags NO_PHOTO.
-      $('cam-msg').textContent = 'Camera not available — you can still save without a photo.';
+      $('cam-msg').textContent = camMode === 'mark'
+        ? 'Camera is required to mark attendance. Allow camera permission for this app, then try again.'
+        : 'Camera not available — you can still save without a photo.';
     }
   }
 
@@ -1210,7 +1216,16 @@ const App = (() => {
     setBusy('btn-capture', true, 'Saving…');
     try {
       const clientTs = localIso();
-      const g = geoResult || (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
+      // District order 2026-08-19: photo AND a GPS fix are mandatory for an
+      // attendance mark. Geofence miss or poor accuracy still saves (flagged)
+      // — only the complete ABSENCE of a fix or photo blocks, with retry.
+      const g = geoResult || (await geoPromise);
+      if (!g) {
+        $('cam-msg').textContent = 'Location is required to mark attendance. ' +
+          'Move near a window or open sky — GPS is retrying, then tap capture again.';
+        startGeoWatch();
+        return;
+      }
       let photoBlob = null;
       const video = $('cam-video');
       if (video.srcObject && video.srcObject.active && video.videoWidth > 0) {
@@ -1223,6 +1238,11 @@ const App = (() => {
           acc.user.name.slice(0, 28) + ' — ' + markType
         ];
         photoBlob = await Camera.capture(video, stamp, (acc.config && acc.config.photoMaxKB) || 60);
+      }
+      if (!photoBlob) {
+        $('cam-msg').textContent = 'Photo is required to mark attendance. ' +
+          'If the picture is black, tap the flip button or close and reopen the app.';
+        return;
       }
       Camera.stop();
 
