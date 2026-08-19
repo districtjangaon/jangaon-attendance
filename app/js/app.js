@@ -148,6 +148,14 @@ const App = (() => {
       });
     }
     Sync.init();
+    // Ask Android to protect our storage (queue, logins) from the storage
+    // cleaners common on government devices. Retried every boot: the grant
+    // often only comes once the app is installed and used a few times.
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persisted()
+        .then(p => { if (!p) return navigator.storage.persist(); })
+        .catch(() => {});
+    }
     window.addEventListener('online', renderStatus);
     window.addEventListener('offline', renderStatus);
     buildStockTable();
