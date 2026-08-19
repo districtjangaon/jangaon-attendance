@@ -2393,6 +2393,33 @@ function seedMySupervisor() {
     ', tap the "(Supervisor view)" name, set a PIN. Charge: ALL sectors (' + allSecs + ').';
 }
 
+/**
+ * Removes the 'Test Sup' persona from the admin phone: every ACTIVE
+ * SUPERVISOR account on ADMIN_PHONE goes INACTIVE (audit-logged), so that
+ * number logs straight in as Admin with no account chooser. Editor-run.
+ * Run seedMySupervisor again later if the persona is ever needed back.
+ */
+function removeTestSup() {
+  const phone = String(PROPS.getProperty('ADMIN_PHONE')).replace(/\D/g, '');
+  if (!/^\d{10}$/.test(phone)) throw new Error('ADMIN_PHONE Script Property is not a 10-digit number.');
+  const sups = getUsersByPhone_(phone).filter(function (u) {
+    return String(u.role) === 'SUPERVISOR' && String(u.status) === 'ACTIVE';
+  });
+  if (!sups.length) return 'Nothing to remove — no active SUPERVISOR account on ' + phone + '.';
+  const done = sups.map(function (u) {
+    const res = upsertUser_({
+      user_id: String(u.user_id), phone: phone,
+      name: String(u.name), cadre: String(u.cadre), role: 'SUPERVISOR',
+      project_code: String(u.project_code), sector_code: String(u.sector_code),
+      status: 'INACTIVE'
+    }, 'REMOVE_TEST_SUP');
+    if (res.error) throw new Error(String(u.user_id) + ': ' + res.error);
+    return String(u.user_id);
+  });
+  return 'Deactivated ' + done.join(', ') + ' — ' + phone +
+    ' now logs in as Admin only. Run seedMySupervisor to bring the persona back.';
+}
+
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
