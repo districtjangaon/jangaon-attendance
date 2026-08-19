@@ -51,7 +51,36 @@ def main():
     run("clasp push -f")
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     run(f'clasp deploy -i {dep_id} -d "auto-deploy {stamp}"')
-    print("\nDeployed. The web-app URL is unchanged; new code is live now.")
+    verify(dep_id)
+    print("\nDeployed and verified. The web-app URL is unchanged; new code is live now.")
+
+
+def verify(dep_id, attempts=4):
+    """POST a probe to /exec and demand a JSON answer. A deployment can roll
+    'successfully' yet serve Google's 'Page not found' page (seen 2026-08-19,
+    took the whole district offline) — clasp cannot detect that, only an
+    actual request can."""
+    import time
+    import urllib.request
+    url = f"https://script.google.com/macros/s/{dep_id}/exec"
+    last = ""
+    for i in range(attempts):
+        if i:
+            time.sleep(10)
+        try:
+            req = urllib.request.Request(
+                url, data=b'{"action":"deploy-verify"}',
+                headers={"Content-Type": "text/plain"})
+            last = urllib.request.urlopen(req, timeout=30).read(300).decode("utf-8", "replace")
+        except Exception as e:  # noqa: BLE001 - any failure just means retry
+            last = f"<request failed: {e}>"
+        if last.lstrip().startswith("{"):
+            print(f"Verified: /exec answers JSON: {last[:80]}")
+            return
+        print(f"verify attempt {i + 1}/{attempts}: not JSON yet: {last[:80]!r}")
+    sys.exit("DEPLOY VERIFY FAILED: /exec is NOT serving the API (users cannot "
+             "log in). Re-run this script; if it still fails, open Manage "
+             f"deployments in the Apps Script editor and roll deployment {dep_id} manually.")
 
 
 if __name__ == "__main__":
