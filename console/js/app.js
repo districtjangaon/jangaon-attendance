@@ -1283,12 +1283,26 @@ const App = (() => {
   function renderAdmin() {
     if (!names) return;
     const q = $('admin-search').value.trim().toLowerCase();
-    const uids = Object.keys(names.users).filter(uid => {
+    const lf = $('admin-filter').value; // '' | 'REG' | 'NOT'
+    const matches = Object.keys(names.users).filter(uid => {
       const u = names.users[uid];
+      if (lf === 'REG' && !u.pn) return false;
+      if (lf === 'NOT' && u.pn) return false;
       if (!q) return true;
       return u.n.toLowerCase().includes(q) || String(u.p).includes(q) ||
         awcName(u.a).toLowerCase().includes(q) || uid.toLowerCase() === q;
-    }).sort((a, b) => names.users[a].n < names.users[b].n ? -1 : 1).slice(0, 200);
+    }).sort((a, b) => names.users[a].n < names.users[b].n ? -1 : 1);
+    const uids = matches.slice(0, 200);
+
+    // Accurate totals over the FULL user list — the table itself renders at
+    // most 200 rows, so counting tags in it under-reports.
+    const all = Object.keys(names.users);
+    const reg = all.filter(uid => names.users[uid].pn).length;
+    $('admin-stats').textContent = all.length + ' users total · ' + reg +
+      ' registered & logged · ' + (all.length - reg) + ' not registered' +
+      (matches.length > uids.length
+        ? ' — showing first ' + uids.length + ' of ' + matches.length + ' matches (search to narrow)'
+        : ' — ' + matches.length + ' match' + (matches.length === 1 ? '' : 'es') + ' shown');
 
     const isAdmin = me.role === 'ADMIN';
     $('admin-table').innerHTML = '<table><tr><th>ID</th><th>Name</th><th>Cadre</th><th>Phone</th>' +
@@ -1418,6 +1432,7 @@ const App = (() => {
     $('btn-report-load').onclick = buildReport;
     $('btn-report-csv').onclick = reportCsv;
     $('admin-search').oninput = renderAdmin;
+    $('admin-filter').onchange = renderAdmin;
     $('btn-awc-capture').onclick = captureAwc;
     $('lightbox-close').onclick = () => { $('lightbox').hidden = true; };
     $('lightbox').onclick = e => { if (e.target === $('lightbox')) $('lightbox').hidden = true; };

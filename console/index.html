@@ -189,7 +189,13 @@
     <section id="view-admin" class="view" hidden>
       <div class="toolbar">
         <input id="admin-search" type="search" placeholder="Search users by name / phone / AWC…">
+        <select id="admin-filter">
+          <option value="">All login status</option>
+          <option value="REG">Registered &amp; logged</option>
+          <option value="NOT">Not registered</option>
+        </select>
       </div>
+      <p id="admin-stats" class="info"></p>
       <div id="admin-table" class="tablewrap"></div>
       <div id="admin-awc" class="admin-block">
         <h3>Fix an AWC's geofence</h3>
@@ -210,7 +216,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v3.5-20260819-1030</footer>
+  <footer class="build-tag">BUILD: v3.6-20260819-1330</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
