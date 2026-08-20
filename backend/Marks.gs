@@ -178,6 +178,12 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
       !reportExists_(it.dateStr, String(user.awc_id))) {
     flags.push('NO_REPORT_AT_OUT');
   }
+  // District rule: OUT opens at 16:00. New clients block this; old builds
+  // get flagged (never blocked) so the console sees the violation.
+  if (it.type === 'OUT') {
+    const hm = String(rec.clientTs || '').slice(11, 16);
+    if (hm && hm < OUT_EARLIEST_HM) flags.push('EARLY_OUT');
+  }
 
   const clientMs = new Date(String(rec.clientTs || '')).getTime();
   const syncDelay = isNaN(clientMs) ? '' : Math.max(0, Math.round((serverMs - clientMs) / 1000));

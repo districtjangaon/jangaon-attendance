@@ -7,7 +7,7 @@
  * here; the capture/online/foreground triggers cover real usage, and records
  * are never lost either way (they wait in IndexedDB for the next open).
  */
-const CACHE = 'attendance-v55';
+const CACHE = 'attendance-v56';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [
@@ -118,16 +118,19 @@ async function reminderCheck() {
     const cadre = (accounts[uid].user && accounts[uid].user.cadre) || '';
     const h = have[uid] || {};
     let kind = null, text = '';
-    if (!h.IN && nowHM >= (sch.late_after || '09:30') && nowHM <= '13:00') {
+    if (!h.IN && nowHM >= (sch.late_after || '09:30') && nowHM <= '18:00') {
       kind = 'IN'; text = name + ' — you have not marked IN attendance today.';
-    } else if (cadre === 'AWT' && h.IN && !h.RPT && nowHM >= '12:00' && nowHM <= '17:00') {
+    } else if (cadre === 'AWT' && h.IN && !h.RPT && nowHM >= '11:00' && nowHM <= '19:00') {
       kind = 'RPT'; text = name + ' — today\'s centre report (children, meals, stock) is not filled yet.';
-    } else if (h.IN && !h.OUT && nowHM >= (sch.out_end || '17:30') && nowHM <= '21:00') {
+    } else if (h.IN && !h.OUT && nowHM >= '16:30' && nowHM <= '21:00') {
       kind = 'OUT'; text = name + ' — remember to mark OUT before the day ends.';
     }
     if (!kind) continue;
+    // Repeat every ~2 hours until the task is done; a completed task simply
+    // stops matching above and the reminders end by themselves.
     const flag = 'notified_' + uid + '_' + today + '_' + kind;
-    if (await idbReq(store('kv').get(flag))) continue;
+    const lastAt = await idbReq(store('kv').get(flag));
+    if (lastAt && Date.now() - lastAt < 115 * 60 * 1000) continue;
     await new Promise((res, rej) => {
       const t = db.transaction('kv', 'readwrite');
       t.objectStore('kv').put(Date.now(), flag);
@@ -145,6 +148,13 @@ async function reminderCheck() {
 
 self.addEventListener('periodicsync', e => {
   if (e.tag === 'attendance-reminder') e.waitUntil(reminderCheck().catch(() => {}));
+});
+
+// The page nudges every 15 min while open; the 2-hour throttle above decides.
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'reminder-check') {
+    e.waitUntil(reminderCheck().catch(() => {}));
+  }
 });
 
 self.addEventListener('notificationclick', e => {

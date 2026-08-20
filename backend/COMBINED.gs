@@ -80,6 +80,7 @@ const TOKEN_DAYS = 30;            // session lifetime
 const LOCKOUT_AFTER = 5;          // failed PINs before lockout
 const LOCKOUT_MIN = 15;           // lockout duration
 const GPS_UNVERIFIED_ACC_M = 250; // accuracy worse than this => UNVERIFIED
+const OUT_EARLIEST_HM = '16:00'; // district rule 2026-08-20: no OUT before 4 PM
 const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
 // coordinates and consumer GPS aren't precise enough for tighter fences —
 // every AWC's effective radius is at least this (larger per-AWC values win).
@@ -798,6 +799,12 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
   if (it.type === 'OUT' && String(user.cadre) === 'AWT' && String(user.awc_id || '') &&
       !reportExists_(it.dateStr, String(user.awc_id))) {
     flags.push('NO_REPORT_AT_OUT');
+  }
+  // District rule: OUT opens at 16:00. New clients block this; old builds
+  // get flagged (never blocked) so the console sees the violation.
+  if (it.type === 'OUT') {
+    const hm = String(rec.clientTs || '').slice(11, 16);
+    if (hm && hm < OUT_EARLIEST_HM) flags.push('EARLY_OUT');
   }
 
   const clientMs = new Date(String(rec.clientTs || '')).getTime();

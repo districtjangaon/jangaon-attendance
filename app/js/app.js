@@ -161,6 +161,13 @@ const App = (() => {
     buildStockTable();
     bindEvents();
     setInterval(() => { if (!$('screen-home').hidden) updateClock(); }, 20000);
+    // While the app is open, nudge the SW every 15 min — reminderCheck's own
+    // 2-hour throttle decides whether a notification actually fires.
+    setInterval(() => {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'reminder-check' });
+      }
+    }, 15 * 60 * 1000);
 
     accounts = await DB.kvGet('accounts') || {};
     if ('Notification' in window && Notification.permission === 'granted') {
@@ -542,6 +549,15 @@ const App = (() => {
       await new Promise(res => navigator.geolocation.getCurrentPosition(
         () => res(), () => res(), { timeout: 8000, maximumAge: 60000 }));
     } catch (e) { /* no geolocation API: fine */ }
+    // Reminders are on by default: ask right after camera/location so the
+    // whole permission set arrives in one first-login flow. The banner
+    // button remains as the retry path if this gets dismissed.
+    try {
+      if ('Notification' in window && Notification.permission === 'default') {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') await registerPeriodicReminder();
+      }
+    } catch (e) { /* older browser: banner still reminds */ }
   }
 
   async function doLogout() {
@@ -768,10 +784,10 @@ const App = (() => {
     if (d.getDay() !== 0) {
       if (!today.IN && nowHM >= (sch.late_after || '09:30')) {
         msg = '⏰ You have not marked IN yet today.';
-      } else if (today.IN && !rptDone && nowHM >= '12:00') {
+      } else if (today.IN && !rptDone && nowHM >= '11:00') {
         msg = '📝 Today\'s report is not filled yet — needed before OUT.';
-      } else if (today.IN && !today.OUT && nowHM >= (sch.out_end || '17:30')) {
-        msg = '⏰ Remember to mark OUT before leaving.';
+      } else if (today.IN && !today.OUT && nowHM >= '16:30') {
+        msg = '⏰ Remember to mark OUT before leaving (OUT opens at 4 PM).';
       }
     }
     const canAsk = ('Notification' in window) && Notification.permission === 'default';
@@ -1199,6 +1215,15 @@ const App = (() => {
     if (!active()) { resetLogin(); show('screen-login'); return; }
     markType = await nextAction();
     if (!markType) return;
+    // District rule 2026-08-20: OUT opens at 16:00 — no early day-close.
+    if (markType === 'OUT') {
+      const d = new Date();
+      const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      if (hm < '16:00') {
+        alert('OUT attendance opens at 4:00 PM (district rule). Time now: ' + hm + '.');
+        return;
+      }
+    }
     // District rule: OUT requires today's centre report to exist — AWT
     // (Teacher) only; the AWH is exempt. The report can be filled any time
     // of day; OUT is NOT chained after it — the worker marks OUT whenever
