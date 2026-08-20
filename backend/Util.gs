@@ -69,6 +69,9 @@ const TOKEN_DAYS = 30;            // session lifetime
 const LOCKOUT_AFTER = 5;          // failed PINs before lockout
 const LOCKOUT_MIN = 15;           // lockout duration
 const GPS_UNVERIFIED_ACC_M = 250; // accuracy worse than this => UNVERIFIED
+const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
+// coordinates and consumer GPS aren't precise enough for tighter fences —
+// every AWC's effective radius is at least this (larger per-AWC values win).
 const PHOTO_RETENTION_DAYS = 45;  // per policy decision 2026-08-02
 const BATCH_MAX = 20;             // max marks per sync POST
 const CADRES = ['AWT', 'AWH', 'SUPERVISOR', 'CDPO', 'OTHER'];

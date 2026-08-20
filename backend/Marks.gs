@@ -199,7 +199,7 @@ function classifyGeofence_(user, lat, lng, acc) {
     if (d < bestDist) { bestDist = d; best = a; }
   }
   return {
-    status: bestDist <= best.radius_m ? 'INSIDE' : 'OUTSIDE',
+    status: bestDist <= Math.max(best.radius_m, GEOFENCE_MIN_RADIUS_M) ? 'INSIDE' : 'OUTSIDE',
     awcId: best.awc_id,
     dist: bestDist
   };
