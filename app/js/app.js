@@ -523,7 +523,10 @@ const App = (() => {
       const today = new Date().toISOString().slice(0, 10);
       if (!navigator.onLine || !active()) return;
       if (await DB.kvGet('modePing') === today) return;
-      const r = await Api.post({ action: 'appMode', token: active().token, dm: displayMode() });
+      const build = ((document.querySelector('.build-tag') || {}).textContent || '')
+        .replace('BUILD:', '').trim();
+      const r = await Api.post({ action: 'appMode', token: active().token,
+        dm: displayMode(), v: build });
       if (r.ok) await DB.kvSet('modePing', today);
     } catch (e) { /* telemetry only — retry tomorrow */ }
   }

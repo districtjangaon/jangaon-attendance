@@ -542,7 +542,7 @@ function revokeUserSessions_(userId) {
 // tab? The app pings once a day; one upsert row per user in 'AppModes'.
 // Powers the console's adoption split (installed vs browser).
 
-const MODE_H = ['user_id', 'mode', 'updated_at'];
+const MODE_H = ['user_id', 'mode', 'app_version', 'updated_at'];
 
 function modesSheet_() {
   const ss = masterSS_();
@@ -551,13 +551,16 @@ function modesSheet_() {
     sh = ss.insertSheet('AppModes');
     sh.getRange(1, 1, 1, MODE_H.length).setValues([MODE_H]);
     sh.getRange(1, 1, sh.getMaxRows(), MODE_H.length).setNumberFormat('@');
+  } else if (String(sh.getRange(1, MODE_H.length).getValue()) !== MODE_H[MODE_H.length - 1]) {
+    sh.getRange(1, 1, 1, MODE_H.length).setValues([MODE_H]); // header heal (v column added)
   }
   return sh;
 }
 
-// action: "appMode"  req: { token, dm: 'APP'|'BROWSER' }
+// action: "appMode"  req: { token, dm: 'APP'|'BROWSER', v: build tag }
 function apiAppMode_(auth, req) {
   const mode = String(req.dm) === 'APP' ? 'APP' : 'BROWSER';
+  const ver = String(req.v || '').slice(0, 40);
   const sh = modesSheet_();
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -570,8 +573,8 @@ function apiAppMode_(auth, req) {
         if (String(ids[i][0]) === String(auth.userId)) { row = i + 2; break; }
       }
     }
-    if (row) sh.getRange(row, 2, 1, 2).setValues([[mode, nowIso_()]]);
-    else sh.appendRow([String(auth.userId), mode, nowIso_()]);
+    if (row) sh.getRange(row, 2, 1, 3).setValues([[mode, ver, nowIso_()]]);
+    else sh.appendRow([String(auth.userId), mode, ver, nowIso_()]);
   } finally {
     lock.releaseLock();
   }
