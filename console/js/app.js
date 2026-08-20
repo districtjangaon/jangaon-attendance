@@ -267,25 +267,29 @@ const App = (() => {
       '<div class="legend">' + legend + '</div>';
   }
 
-  function trendSVG(inTimes) {
-    if (!inTimes.length) return '<p class="info">No IN marks yet today.</p>';
+  function trendSVG(inTimes, opts) {
+    opts = opts || {};
+    const word = opts.word || 'IN';
+    const col = opts.color || '#4f5ce5';
+    const fill = opts.fill || 'rgba(79,92,229,.14)';
+    if (!inTimes.length) return '<p class="info">No ' + word + ' marks yet today.</p>';
     const mins = inTimes.map(t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))).sort((a, b) => a - b);
-    const start = 6 * 60, end = 18 * 60, W = 340, H = 130, PB = 22, PL = 30;
+    const start = (opts.startH || 6) * 60, end = (opts.endH || 18) * 60, W = 340, H = 130, PB = 22, PL = 30;
     const x = m => PL + Math.min(1, Math.max(0, (m - start) / (end - start))) * (W - PL - 8);
     const y = c => (H - PB) - (c / mins.length) * (H - PB - 12);
     let path = 'M' + PL + ',' + (H - PB);
     mins.forEach((m, i) => { path += ' L' + x(m).toFixed(1) + ',' + y(i + 1).toFixed(1); });
     const area = path + ' L' + x(mins[mins.length - 1]).toFixed(1) + ',' + (H - PB) + ' Z';
     let labels = '';
-    for (let h = 6; h <= 18; h += 3) {
+    for (let h = start / 60; h <= end / 60; h += 3) {
       labels += '<text x="' + x(h * 60).toFixed(0) + '" y="' + (H - 6) +
         '" font-size="10" fill="#888" text-anchor="middle">' + h + ':00</text>';
     }
     return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">' +
       '<line x1="' + PL + '" y1="' + (H - PB) + '" x2="' + (W - 6) + '" y2="' + (H - PB) + '" stroke="#ddd"/>' +
-      '<path d="' + area + '" fill="rgba(79,92,229,.14)"/>' +
-      '<path d="' + path + '" fill="none" stroke="#4f5ce5" stroke-width="2"/>' +
-      '<text x="' + PL + '" y="12" font-size="11" fill="#555">' + mins.length + ' marked IN (cumulative)</text>' +
+      '<path d="' + area + '" fill="' + fill + '"/>' +
+      '<path d="' + path + '" fill="none" stroke="' + col + '" stroke-width="2"/>' +
+      '<text x="' + PL + '" y="12" font-size="11" fill="#555">' + mins.length + ' marked ' + word + ' (cumulative)</text>' +
       labels + '</svg>';
   }
 
@@ -302,6 +306,22 @@ const App = (() => {
     });
     $('chart-intime').innerHTML = donutSVG(buckets);
     $('chart-trend').innerHTML = trendSVG(inTimes);
+
+    // OUT mirrors of the two charts above; buckets follow the OUT window
+    // (out_start 15:30 · out_end 17:30 in the default schedule).
+    const outTimes = rows.map(e => e.out).filter(Boolean);
+    const outBuckets = [
+      { label: 'Before 15:30', value: 0 }, { label: '15:30–16:30', value: 0 },
+      { label: '16:30–17:30', value: 0 }, { label: 'After 17:30', value: 0 }
+    ];
+    outTimes.forEach(t => {
+      const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+      outBuckets[m < 930 ? 0 : m < 990 ? 1 : m < 1050 ? 2 : 3].value++;
+    });
+    $('chart-outtime').innerHTML = outTimes.length
+      ? donutSVG(outBuckets) : '<p class="info">No OUT marks yet today.</p>';
+    $('chart-outtrend').innerHTML = trendSVG(outTimes,
+      { word: 'OUT', startH: 12, endH: 21, color: '#0ca38a', fill: 'rgba(12,163,138,.14)' });
 
     // Sector Top-10 (horizontal — sector names stay readable) and project
     // bars, per the district's BI sample. The '?' bucket (users with no

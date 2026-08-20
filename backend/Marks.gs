@@ -100,10 +100,14 @@ function apiSync_(auth, req) {
         if (findRowByValue_(target, 1, it.key)) {
           acks.push({ key: it.key, status: 'DUP' });
           CACHE.put('mk_' + it.key, '1', 21600); // truly in the sheet: safe
+          if (it.type === 'RPT') markReportSeen_(it.dateStr, user);
         } else if (it.type === 'RPT') {
           rrows.push(buildReportRow_(user, it, serverMs));
           acks.push({ key: it.key, status: 'OK' });
           writtenKeys.push(it.key);
+          // Marker set at push time (not after setValues) so an OUT later in
+          // this same batch sees the report; a failed write only costs a flag.
+          markReportSeen_(it.dateStr, user);
         } else {
           rows.push(buildMarkRow_(user, it, skewSec, serverMs));
           acks.push({ key: it.key, status: 'OK' });
@@ -128,6 +132,34 @@ function apiSync_(auth, req) {
   return { ok: true, acks: acks, serverTs: nowIso_() };
 }
 
+/** Remember that this AWC's daily report exists (12 h, covers the day). */
+function markReportSeen_(dateStr, user) {
+  const aid = String(user.awc_id || '');
+  if (aid) CACHE.put('rpt_' + dateStr + '_' + aid, '1', 43200);
+}
+
+/**
+ * Has this AWC submitted the day's report? Cache-first; on a miss, one
+ * bounded scan of the month file's Reports tail backfills the cache for
+ * every centre that reported that day.
+ */
+function reportExists_(dateStr, awcId) {
+  if (CACHE.get('rpt_' + dateStr + '_' + awcId)) return true;
+  const ym = dateStr.slice(0, 4) + '-' + dateStr.slice(4, 6);
+  const sh = getMonthSS_(ym).getSheetByName('Reports');
+  if (!sh || sh.getLastRow() < 2) return false;
+  const start = Math.max(2, sh.getLastRow() - 800);
+  const vals = sh.getRange(start, 1, sh.getLastRow() - start + 1, RPT_H.length).getValues();
+  let found = false;
+  for (const v of vals) {
+    const o = rowToObj_(RPT_H, v);
+    if (String(o.date) !== dateStr) continue;
+    CACHE.put('rpt_' + dateStr + '_' + String(o.awc_id), '1', 43200);
+    if (String(o.awc_id) === awcId) found = true;
+  }
+  return found;
+}
+
 function buildMarkRow_(user, it, skewSec, serverMs) {
   const rec = it.rec;
   const hasFix = rec.lat != null && rec.lat !== '' && rec.lng != null && rec.lng !== '';
@@ -139,6 +171,13 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
 
   const flags = [];
   if (it.photoFlag) flags.push(it.photoFlag);
+  // District rule: an AWT's OUT needs the centre's daily report. The app
+  // enforces this client-side, but old builds don't — the server never
+  // blocks a mark, so violations are flagged for the supervisor instead.
+  if (it.type === 'OUT' && String(user.cadre) === 'AWT' && String(user.awc_id || '') &&
+      !reportExists_(it.dateStr, String(user.awc_id))) {
+    flags.push('NO_REPORT_AT_OUT');
+  }
 
   const clientMs = new Date(String(rec.clientTs || '')).getTime();
   const syncDelay = isNaN(clientMs) ? '' : Math.max(0, Math.round((serverMs - clientMs) / 1000));
