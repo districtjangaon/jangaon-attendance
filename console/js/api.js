@@ -12,6 +12,17 @@
  */
 const Api = (() => {
 
+  /** Per-attempt outcome counters for the Performance tab (one key per day). */
+  function perfLog_(ok, ms, attempt) {
+    try {
+      const k = 'apiPerf_' + new Date().toISOString().slice(0, 10);
+      const o = JSON.parse(localStorage.getItem(k) || '{"a":0,"ok":0,"f":0,"rt":0,"ms":0}');
+      o.a++;
+      if (ok) { o.ok++; o.ms += Math.round(ms); if (attempt > 0) o.rt++; } else o.f++;
+      localStorage.setItem(k, JSON.stringify(o));
+    } catch (e) { /* storage blocked: fine */ }
+  }
+
   async function post(body) {
     if (window.CONSOLE_CONFIG.DEMO) return demoPost(body);
     // Alternate between the two live deployments of the same script, up to 5
@@ -20,6 +31,7 @@ const Api = (() => {
     let lastErr;
     for (let i = 0; i < 5; i++) {
       if (i) await new Promise(r => setTimeout(r, 400 + i * 300 + Math.random() * 600));
+      const t0 = performance.now();
       try {
         const res = await fetch(eps[i % eps.length], {
           method: 'POST',
@@ -28,9 +40,12 @@ const Api = (() => {
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const text = await res.text();
-        try { return JSON.parse(text); }
+        let parsed;
+        try { parsed = JSON.parse(text); }
         catch (e) { throw new Error('SERVER_HTML'); }
-      } catch (e) { lastErr = e; }
+        perfLog_(true, performance.now() - t0, i);
+        return parsed;
+      } catch (e) { perfLog_(false, performance.now() - t0, i); lastErr = e; }
     }
     throw lastErr;
   }

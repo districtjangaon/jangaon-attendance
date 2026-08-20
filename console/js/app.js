@@ -140,6 +140,10 @@ const App = (() => {
     $('btn-logout').hidden = false;
     $('head-user').textContent = me.name + ' (' + me.role + ')';
     $('tab-admin').hidden = false; // server scopes what each role can actually do
+    // Performance tab: district admin's own number only (demo shows it too).
+    const myRow = names.users[me.id];
+    $('tab-perf').hidden = !((myRow && String(myRow.p) === '9625701988') ||
+      window.CONSOLE_CONFIG.DEMO);
     fillMonthControls();
     fillReportControls();
     fillAnalyticsControls();
@@ -1474,14 +1478,152 @@ const App = (() => {
     { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
   }
 
+  // ---------------- Performance / SLA (district admin only) ----------------
+  /**
+   * Live diagnostics run on demand: timed probes to both API deployments,
+   * static-hosting latency + data freshness, field sync-delay percentiles
+   * (today.json perf block), this browser's own API reliability counters
+   * (recorded by api.js), and page-load timing. Nothing is stored server-side.
+   */
+  async function renderPerf() {
+    const el = $('perf-content');
+    el.innerHTML = '<p class="info">Running live checks (a few seconds)…</p>';
+    $('perf-when').textContent = '';
+    const pill = st => '<span class="tag ' + (st === 'OK' ? 'OK' : st === 'WARN' ? 'WARN' : 'ERR') +
+      '">' + st + '</span>';
+    const fmtS = v => v == null ? '—' : v < 90 ? v + ' s' : Math.round(v / 60) + ' min';
+
+    // 1. Both API deployments: 3 timed probes each.
+    const eps = (window.CONSOLE_CONFIG.ENDPOINTS ||
+      [window.CONSOLE_CONFIG.ENDPOINT]).filter(Boolean);
+    const epRows = [];
+    for (let e = 0; e < eps.length; e++) {
+      const times = [];
+      let okc = 0;
+      for (let i = 0; i < 3; i++) {
+        const t0 = performance.now();
+        try {
+          const res = await fetch(eps[e], { method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: '{"action":"perf-probe"}' });
+          const txt = await res.text();
+          if (res.ok && txt.trim().charAt(0) === '{') {
+            okc++; times.push(Math.round(performance.now() - t0));
+          }
+        } catch (err) { /* counted as failure */ }
+      }
+      times.sort((a, b) => a - b);
+      epRows.push({ name: 'Server ' + (e + 1) + (e ? ' (backup)' : ' (primary)'),
+        ok: okc, med: times.length ? times[Math.floor((times.length - 1) / 2)] : null,
+        best: times.length ? times[0] : null });
+    }
+
+    // 2. Static hosting (GitHub Pages): timed meta.json + data freshness.
+    let staticMs = null, freshMin = null;
+    try {
+      const t0 = performance.now();
+      const meta2 = await Api.fetchJson('summary/meta.json');
+      staticMs = Math.round(performance.now() - t0);
+      if (meta2 && meta2.generatedAt) {
+        freshMin = Math.round((Date.now() - new Date(meta2.generatedAt)) / 60000);
+      }
+    } catch (err) { /* shown as — */ }
+
+    // 3. This browser's API reliability today (api.js counters).
+    let sess = null;
+    try {
+      sess = JSON.parse(localStorage.getItem(
+        'apiPerf_' + new Date().toISOString().slice(0, 10)) || 'null');
+    } catch (err) { /* fine */ }
+
+    // 4. Page load timing.
+    const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    const dclMs = nav ? Math.round(nav.domContentLoadedEventEnd) : null;
+
+    const pf = (today && today.perf) || null;
+    const probesTotal = eps.length * 3;
+    const probesOk = epRows.reduce((s, r) => s + r.ok, 0);
+    const priMed = epRows.length ? epRows[0].med : null;
+
+    // ---- SLA table ----
+    const slas = [];
+    slas.push(['API availability (live probes)', '100%',
+      probesTotal ? Math.round(100 * probesOk / probesTotal) + '% (' + probesOk + '/' + probesTotal + ')' : '—',
+      !probesTotal ? 'WARN' : probesOk === probesTotal ? 'OK' : probesOk >= probesTotal / 2 ? 'WARN' : 'BREACH',
+      'every probe must return JSON, not an error page']);
+    slas.push(['API response time (median)', '≤ 3.0 s',
+      priMed == null ? '—' : (priMed / 1000).toFixed(1) + ' s',
+      priMed == null ? 'WARN' : priMed <= 3000 ? 'OK' : priMed <= 6000 ? 'WARN' : 'BREACH',
+      'Apps Script cold starts can add ~5 s to the first call']);
+    slas.push(['Dashboard data freshness', '≤ 6 min',
+      freshMin == null ? '—' : freshMin + ' min',
+      freshMin == null ? 'WARN' : freshMin <= 6 ? 'OK' : freshMin <= 15 ? 'WARN' : 'BREACH',
+      'summary regenerates every 5 min during working hours']);
+    slas.push(['Static site response', '≤ 1.5 s',
+      staticMs == null ? '—' : (staticMs / 1000).toFixed(2) + ' s',
+      staticMs == null ? 'WARN' : staticMs <= 1500 ? 'OK' : staticMs <= 4000 ? 'WARN' : 'BREACH',
+      'GitHub Pages CDN serving the dashboard data']);
+    slas.push(['Mark sync delay (95th percentile)', '≤ 5 min',
+      pf ? fmtS(pf.sdP95) : '—',
+      !pf || pf.sdP95 == null ? 'WARN' : pf.sdP95 <= 300 ? 'OK' : pf.sdP95 <= 3600 ? 'WARN' : 'BREACH',
+      'capture-to-server time; offline queuing legitimately inflates this']);
+    slas.push(['Console API success (this browser, today)', '≥ 99%',
+      sess && sess.a ? Math.round(100 * sess.ok / sess.a) + '% of ' + sess.a + ' attempts' : 'no data yet',
+      !sess || !sess.a ? 'WARN' : sess.ok / sess.a >= 0.99 ? 'OK' : sess.ok / sess.a >= 0.95 ? 'WARN' : 'BREACH',
+      'includes retried attempts; failover masks most failures']);
+    slas.push(['Console page load (DOM ready)', '≤ 3.0 s',
+      dclMs == null ? '—' : (dclMs / 1000).toFixed(1) + ' s',
+      dclMs == null ? 'WARN' : dclMs <= 3000 ? 'OK' : dclMs <= 6000 ? 'WARN' : 'BREACH',
+      'this page, this device, this network']);
+
+    let html = '<div class="chartbox"><h3>Service levels — checked live just now</h3>' +
+      '<div class="tablewrap"><table><tr><th>Metric</th><th>Target</th><th>Now</th>' +
+      '<th>Status</th><th>Notes</th></tr>' +
+      slas.map(s => '<tr><td>' + s[0] + '</td><td>' + s[1] + '</td><td>' + esc(s[2]) +
+        '</td><td>' + pill(s[3]) + '</td><td class="info">' + s[4] + '</td></tr>').join('') +
+      '</table></div></div>';
+
+    html += '<div class="charts">' +
+      '<div class="chartbox"><h3>API deployments</h3>' +
+      (epRows.length ? '<div class="tablewrap"><table><tr><th>Deployment</th><th>Probes OK</th>' +
+        '<th>Median</th><th>Best</th></tr>' +
+        epRows.map(r => '<tr><td>' + r.name + '</td><td>' + r.ok + '/3</td><td>' +
+          (r.med == null ? '—' : r.med + ' ms') + '</td><td>' +
+          (r.best == null ? '—' : r.best + ' ms') + '</td></tr>').join('') + '</table></div>' +
+        '<p class="info">Clients try both automatically — one healthy deployment keeps everyone working.</p>'
+        : '<p class="info">No endpoints configured (demo mode).</p>') + '</div>' +
+      '<div class="chartbox"><h3>Field sync today</h3>' +
+      (pf ? '<div class="tablewrap"><table>' +
+        '<tr><td>Marks synced</td><td><b>' + pf.marks + '</b></td></tr>' +
+        '<tr><td>Median capture→server</td><td><b>' + fmtS(pf.sdMed) + '</b></td></tr>' +
+        '<tr><td>95th percentile</td><td><b>' + fmtS(pf.sdP95) + '</b></td></tr>' +
+        '<tr><td>Late syncs (&gt;24 h)</td><td><b>' + pf.lateSync + '</b></td></tr></table></div>' +
+        '<p class="info">Large p95 usually means offline centres syncing later — by design, not a fault.</p>'
+        : '<p class="info">No sync stats in today\'s summary yet (regenerates every 5 min).</p>') + '</div>' +
+      '<div class="chartbox"><h3>This browser session</h3>' +
+      (sess && sess.a ? '<div class="tablewrap"><table>' +
+        '<tr><td>API attempts today</td><td><b>' + sess.a + '</b></td></tr>' +
+        '<tr><td>Succeeded</td><td><b>' + sess.ok + '</b></td></tr>' +
+        '<tr><td>Failed attempts</td><td><b>' + sess.f + '</b></td></tr>' +
+        '<tr><td>Saved by retry/failover</td><td><b>' + sess.rt + '</b></td></tr>' +
+        '<tr><td>Average latency</td><td><b>' +
+        (sess.ok ? Math.round(sess.ms / sess.ok) + ' ms' : '—') + '</b></td></tr></table></div>'
+        : '<p class="info">Counters build up as this browser uses the console.</p>') + '</div></div>';
+
+    el.innerHTML = html;
+    $('perf-when').textContent = 'Checked at ' + new Date().toLocaleTimeString() +
+      ' — use Re-run checks to measure again.';
+  }
+
   // ---------------- tabs & events ----------------
   function switchTab(name) {
-    ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'admin'].forEach(t => {
+    ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'admin', 'perf'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
     if (name === 'admin') renderAdmin();
     if (name === 'leaves') renderLeaves();
+    if (name === 'perf') renderPerf();
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
   }
 
@@ -1515,6 +1657,8 @@ const App = (() => {
     $('tab-reports').onclick = () => switchTab('reports');
     $('tab-leaves').onclick = () => switchTab('leaves');
     $('tab-admin').onclick = () => switchTab('admin');
+    $('tab-perf').onclick = () => switchTab('perf');
+    $('btn-perf-run').onclick = () => renderPerf();
     $('btn-month-load').onclick = loadMonth;
     $('btn-month-csv').onclick = monthCsv;
     $('btn-report-load').onclick = buildReport;

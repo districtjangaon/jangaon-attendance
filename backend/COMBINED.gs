@@ -1728,6 +1728,8 @@ function buildToday_() {
   // Index today's marks by user. Only rows received today are read (<= ~2,500),
   // which is what keeps this run inside the trigger-minutes budget all month.
   const marksByUser = {};
+  const perfSd = []; // capture-to-server delays (sync_delay_sec) of today's marks
+  let perfLate = 0;
   if (last >= startRow) {
     const vals = sh.getRange(startRow, 1, last - startRow + 1, MARKS_H.length).getValues();
     for (const v of vals) {
@@ -1735,6 +1737,9 @@ function buildToday_() {
       const p = String(o.key).split('_');
       if (p[1] !== todayCompact) continue; // late-synced older marks: nightly job covers them
       (marksByUser[String(o.user_id)] = marksByUser[String(o.user_id)] || {})[p[2]] = o;
+      const sd = Number(o.sync_delay_sec);
+      if (o.sync_delay_sec !== '' && !isNaN(sd)) perfSd.push(sd);
+      if (String(o.flags || '').indexOf('LATE_SYNC') >= 0) perfLate++;
     }
   }
 
@@ -1933,10 +1938,17 @@ function buildToday_() {
     }).length;
   } catch (e) { /* badge only — never block the summary */ }
 
+  // Field-sync performance stats for the admin Performance tab.
+  perfSd.sort(function (a, b) { return a - b; });
+  const pq_ = function (f) {
+    return perfSd.length ? perfSd[Math.max(0, Math.ceil(f * perfSd.length) - 1)] : null;
+  };
+  const perfStats = { marks: perfSd.length, sdMed: pq_(0.5), sdP95: pq_(0.95), lateSync: perfLate };
+
   const generatedAt = nowIso_();
   const todayJson = {
     generatedAt: generatedAt, date: today, holiday: holidayName || null, district: district,
-    adopt: adopt, pendingLeaves: pendingLeaves,
+    adopt: adopt, pendingLeaves: pendingLeaves, perf: perfStats,
     rpt: rpt, rpts: rptRows,
     projects: Object.keys(projects).sort().map(pc => Object.assign({ code: pc }, projects[pc])),
     sectors: Object.keys(sectors).sort().map(sc =>
