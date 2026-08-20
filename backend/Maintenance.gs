@@ -252,6 +252,64 @@ function removeTestSup() {
     ' now logs in as Admin only. Run seedMySupervisor to bring the persona back.';
 }
 
+/**
+ * Official Telangana General Holidays 2026 — G.O.Rt.No.1715, General
+ * Administration (SPL.E) Dept, dt. 06.12.2025, Annexure-I (27 days).
+ * Replaces every 2026 row in the Holidays tab; other years untouched.
+ * Sundays are automatic in code. Annexure-II Optional Holidays are an
+ * individual's choice (max 5/year) — they go through the leave module,
+ * never into this tab. Editor-run once; live immediately (cache cleared).
+ */
+function importHolidays2026() {
+  const H = [
+    ['2026-01-14', 'Bhogi'],
+    ['2026-01-15', 'Sankranti / Pongal'],
+    ['2026-01-26', 'Republic Day'],
+    ['2026-02-15', 'Maha Shivaratri'],
+    ['2026-03-03', 'Holi'],
+    ['2026-03-19', 'Ugadi'],
+    ['2026-03-21', 'Eidul Fitr (Ramzan)'],
+    ['2026-03-22', 'Following day of Ramzan'],
+    ['2026-03-27', 'Sri Rama Navami'],
+    ['2026-04-03', 'Good Friday'],
+    ['2026-04-05', "Babu Jagjivan Ram's Birthday"],
+    ['2026-04-14', "Dr. B.R. Ambedkar's Birthday"],
+    ['2026-05-27', 'Eidul Azha (Bakrid)'],
+    ['2026-06-26', 'Shahadat Imam Hussain (10th Moharam)'],
+    ['2026-08-10', 'Bonalu'],
+    ['2026-08-15', 'Independence Day'],
+    ['2026-08-26', 'Eid Miladun Nabi'],
+    ['2026-09-04', 'Sri Krishna Astami'],
+    ['2026-09-14', 'Vinayaka Chavithi'],
+    ['2026-10-02', 'Mahatma Gandhi Jayanthi'],
+    ['2026-10-18', 'Saddula Bathukamma'],
+    ['2026-10-20', 'Vijaya Dasami / Dussehra'],
+    ['2026-10-21', 'Following day of Vijaya Dasami'],
+    ['2026-11-08', 'Deepavali'],
+    ['2026-11-24', "Kartika Purnima / Guru Nanak's Jayanthi"],
+    ['2026-12-25', 'Christmas'],
+    ['2026-12-26', 'Following day of Christmas (Boxing Day)']
+  ];
+  const sh = masterSS_().getSheetByName('Holidays');
+  const last = sh.getLastRow();
+  const keep = [];
+  if (last >= 2) {
+    sh.getRange(2, 1, last - 1, HOL_H.length).getValues().forEach(function (r) {
+      const d = r[0] instanceof Date ? Utilities.formatDate(r[0], TZ, 'yyyy-MM-dd') : String(r[0]).trim();
+      if (d && d.slice(0, 4) !== '2026') keep.push([d, String(r[1] || 'Holiday')]);
+    });
+    sh.getRange(2, 1, last - 1, HOL_H.length).clearContent();
+  }
+  sh.getRange(1, 1, sh.getMaxRows(), HOL_H.length).setNumberFormat('@');
+  const rows = keep.concat(H);
+  sh.getRange(2, 1, rows.length, HOL_H.length).setValues(rows);
+  CACHE.remove('holidays');
+  audit_('SYSTEM', 'HOLIDAYS_IMPORT_2026', 'GO.Rt.1715', '', { general: H.length, kept: keep.length });
+  return 'Holidays tab: ' + H.length + ' official 2026 general holidays (G.O.Rt.No.1715)' +
+    (keep.length ? ' + ' + keep.length + ' rows kept from other years' : '') +
+    '. Attendance on these days is voluntary — no LATE, nobody counted absent.';
+}
+
 function installTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('summaryTick').timeBased().everyMinutes(5).create();
