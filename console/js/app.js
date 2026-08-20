@@ -363,6 +363,64 @@ const App = (() => {
       { label: 'On leave', value: st.ON_LEAVE, color: '#4f5ce5' },
       { label: 'Not marked', value: st.NOT_MARKED, color: '#d13438' }
     ]);
+
+    // ---- second-row fillers: reports, beneficiaries, stock, OUT, adoption,
+    // bottom sectors — all from today.json, no extra requests.
+    const rpt = today.rpt || {};
+    const totalAwcs = names && names.awcs ? Object.keys(names.awcs).length : 0;
+    $('chart-rptprog').innerHTML = totalAwcs
+      ? Charts.donut([
+          { label: 'Reported', value: rpt.awcs || 0, color: '#178a4c' },
+          { label: 'Pending', value: Math.max(0, totalAwcs - (rpt.awcs || 0)), color: '#d13438' }
+        ])
+      : '<p class="info">No AWC list loaded.</p>';
+
+    $('chart-benef').innerHTML = (rpt.awcs || 0)
+      ? Charts.bar([
+          { label: 'Children', value: rpt.children || 0, color: Charts.PAL[0] },
+          { label: 'Pregnant', value: rpt.pregnant || 0, color: Charts.PAL[5] },
+          { label: 'Others', value: rpt.others || 0, color: Charts.PAL[6] },
+          { label: 'Meals', value: rpt.meals || 0, color: Charts.PAL[1] }
+        ])
+      : '<p class="info">No reports yet today.</p>';
+
+    const stk = rpt.stock || {};
+    const stkDef = [['eggs', 'Eggs', ''], ['rice', 'Rice', ' kg'], ['pulses', 'Pulses', ' kg'],
+      ['bal', 'Balamrutham', ' ml'], ['balp', 'Balamrutham+', ' ml'], ['milk', 'Milk', ' L']];
+    $('chart-stockused').innerHTML = stkDef.some(d => stk[d[0]] && stk[d[0]].used)
+      ? Charts.bar(stkDef.map((d, i) => ({
+          label: d[1].slice(0, 6), value: (stk[d[0]] && stk[d[0]].used) || 0,
+          title: d[1] + ' used: ' + ((stk[d[0]] && stk[d[0]].used) || 0) + d[2],
+          color: Charts.PAL[i % 8]
+        })))
+      : '<p class="info">No stock usage reported yet.</p>';
+
+    const outDone = rows.filter(e => e.out).length;
+    const stillIn = rows.filter(e => (e.st === 'PRESENT' || e.st === 'LATE') && !e.out).length;
+    $('chart-outdone').innerHTML = (outDone + stillIn)
+      ? Charts.donut([
+          { label: 'Marked OUT', value: outDone, color: '#4f5ce5' },
+          { label: 'IN, not yet OUT', value: stillIn, color: '#d97706' }
+        ])
+      : '<p class="info">Nobody has marked yet.</p>';
+
+    $('chart-adopt').innerHTML = (today.adopt && today.adopt.staff)
+      ? Charts.donut([
+          { label: 'Installed app', value: today.adopt.app || 0, color: '#178a4c' },
+          { label: 'Chrome only', value: today.adopt.chrome || 0, color: '#d97706' },
+          { label: 'Never logged in', value: Math.max(0, today.adopt.staff - today.adopt.onboarded), color: '#d13438' }
+        ])
+      : '<p class="info">No adoption data yet.</p>';
+
+    const lowBars = today.sectors.filter(s => s.code && s.code !== '?' && s.expected > 0).map(s => ({
+      label: sectorName(s.code),
+      title: sectorName(s.code) + ': ' + (s.in + s.late) + '/' + s.expected + ' marked',
+      value: s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0,
+      color: '#d13438'
+    })).sort((a, b) => a.value - b.value).slice(0, 10);
+    $('chart-sector-low').innerHTML = lowBars.length
+      ? Charts.hbar(lowBars, { pct: true })
+      : '<p class="info">No sectors to show.</p>';
   }
 
   function renderToday() {
