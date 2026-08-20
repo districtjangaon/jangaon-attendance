@@ -1586,10 +1586,11 @@ const App = (() => {
       staticMs == null ? '—' : (staticMs / 1000).toFixed(2) + ' s',
       staticMs == null ? 'WARN' : staticMs <= 1500 ? 'OK' : staticMs <= 4000 ? 'WARN' : 'BREACH',
       'GitHub Pages CDN serving the dashboard data']);
-    slas.push(['Mark sync delay (95th percentile)', '≤ 5 min',
-      pf ? fmtS(pf.sdP95) : '—',
-      !pf || pf.sdP95 == null ? 'WARN' : pf.sdP95 <= 300 ? 'OK' : pf.sdP95 <= 3600 ? 'WARN' : 'BREACH',
-      'capture-to-server time; offline queuing legitimately inflates this']);
+    const pfOn = pf && (pf.on || (pf.sdP95 != null ? { n: pf.marks, med: pf.sdMed, p95: pf.sdP95 } : null));
+    slas.push(['Mark sync delay — online marks (p95)', '≤ 5 min',
+      pfOn && pfOn.n ? fmtS(pfOn.p95) : '—',
+      !pfOn || !pfOn.n ? 'WARN' : pfOn.p95 <= 300 ? 'OK' : pfOn.p95 <= 900 ? 'WARN' : 'BREACH',
+      'marks made WITH network; offline-queued marks are excluded (they wait by design)']);
     slas.push(['Console API success (this browser, today)', '≥ 99%',
       sess && sess.a ? Math.round(100 * sess.ok / sess.a) + '% of ' + sess.a + ' attempts' : 'no data yet',
       !sess || !sess.a ? 'WARN' : sess.ok / sess.a >= 0.99 ? 'OK' : sess.ok / sess.a >= 0.95 ? 'WARN' : 'BREACH',
@@ -1616,12 +1617,17 @@ const App = (() => {
         '<p class="info">Clients try both automatically — one healthy deployment keeps everyone working.</p>'
         : '<p class="info">No endpoints configured (demo mode).</p>') + '</div>' +
       '<div class="chartbox"><h3>Field sync today</h3>' +
-      (pf ? '<div class="tablewrap"><table>' +
-        '<tr><td>Marks synced</td><td><b>' + pf.marks + '</b></td></tr>' +
-        '<tr><td>Median capture→server</td><td><b>' + fmtS(pf.sdMed) + '</b></td></tr>' +
-        '<tr><td>95th percentile</td><td><b>' + fmtS(pf.sdP95) + '</b></td></tr>' +
-        '<tr><td>Late syncs (&gt;24 h)</td><td><b>' + pf.lateSync + '</b></td></tr></table></div>' +
-        '<p class="info">Large p95 usually means offline centres syncing later — by design, not a fault.</p>'
+      (pf && pf.on ? '<div class="tablewrap"><table>' +
+        '<tr><th></th><th>Online marks</th><th>Offline (queued)</th></tr>' +
+        '<tr><td>Count</td><td><b>' + pf.on.n + '</b></td><td><b>' + pf.off.n + '</b></td></tr>' +
+        '<tr><td>Median capture→server</td><td><b>' + fmtS(pf.on.med) + '</b></td><td><b>' +
+        fmtS(pf.off.med) + '</b></td></tr>' +
+        '<tr><td>95th percentile</td><td><b>' + fmtS(pf.on.p95) + '</b></td><td><b>' +
+        fmtS(pf.off.p95) + '</b></td></tr>' +
+        '<tr><td>Late syncs (&gt;24 h)</td><td colspan="2"><b>' + pf.lateSync + '</b></td></tr></table></div>' +
+        '<p class="info">Offline marks waiting for network is the offline-first design working — ' +
+        'only the online column is a service-level signal.</p>'
+        : pf ? '<p class="info">Sync split appears after the next summary regeneration (~5 min).</p>'
         : '<p class="info">No sync stats in today\'s summary yet (regenerates every 5 min).</p>') + '</div>' +
       '<div class="chartbox"><h3>This browser session</h3>' +
       (sess && sess.a ? '<div class="tablewrap"><table>' +

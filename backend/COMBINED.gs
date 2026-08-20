@@ -1747,7 +1747,10 @@ function buildToday_() {
   // Index today's marks by user. Only rows received today are read (<= ~2,500),
   // which is what keeps this run inside the trigger-minutes budget all month.
   const marksByUser = {};
-  const perfSd = []; // capture-to-server delays (sync_delay_sec) of today's marks
+  // Capture-to-server delays, split by connectivity AT CAPTURE: online marks
+  // measure the pipeline (the SLA); offline marks queue by design and are
+  // reported separately so they can't fake a breach.
+  const perfSdOn = [], perfSdOff = [];
   let perfLate = 0;
   if (last >= startRow) {
     const vals = sh.getRange(startRow, 1, last - startRow + 1, MARKS_H.length).getValues();
@@ -1757,7 +1760,9 @@ function buildToday_() {
       if (p[1] !== todayCompact) continue; // late-synced older marks: nightly job covers them
       (marksByUser[String(o.user_id)] = marksByUser[String(o.user_id)] || {})[p[2]] = o;
       const sd = Number(o.sync_delay_sec);
-      if (o.sync_delay_sec !== '' && !isNaN(sd)) perfSd.push(sd);
+      if (o.sync_delay_sec !== '' && !isNaN(sd)) {
+        (String(o.net_state) === 'OFFLINE' ? perfSdOff : perfSdOn).push(sd);
+      }
       if (String(o.flags || '').indexOf('LATE_SYNC') >= 0) perfLate++;
     }
   }
@@ -1958,11 +1963,15 @@ function buildToday_() {
   } catch (e) { /* badge only — never block the summary */ }
 
   // Field-sync performance stats for the admin Performance tab.
-  perfSd.sort(function (a, b) { return a - b; });
-  const pq_ = function (f) {
-    return perfSd.length ? perfSd[Math.max(0, Math.ceil(f * perfSd.length) - 1)] : null;
+  const pstats_ = function (arr) {
+    arr.sort(function (a, b) { return a - b; });
+    const q = function (f) {
+      return arr.length ? arr[Math.max(0, Math.ceil(f * arr.length) - 1)] : null;
+    };
+    return { n: arr.length, med: q(0.5), p95: q(0.95) };
   };
-  const perfStats = { marks: perfSd.length, sdMed: pq_(0.5), sdP95: pq_(0.95), lateSync: perfLate };
+  const perfStats = { marks: perfSdOn.length + perfSdOff.length,
+    on: pstats_(perfSdOn), off: pstats_(perfSdOff), lateSync: perfLate };
 
   const generatedAt = nowIso_();
   const todayJson = {
