@@ -787,7 +787,7 @@ const App = (() => {
       } else if (today.IN && !rptDone && nowHM >= '11:00') {
         msg = '📝 Today\'s report is not filled yet — needed before OUT.';
       } else if (today.IN && !today.OUT && nowHM >= '16:30') {
-        msg = '⏰ Remember to mark OUT before leaving (OUT opens at 4 PM).';
+        msg = '⏰ Remember to mark OUT before leaving.';
       }
     }
     const canAsk = ('Notification' in window) && Notification.permission === 'default';
@@ -1220,7 +1220,7 @@ const App = (() => {
       const d = new Date();
       const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
       if (hm < '16:00') {
-        alert('OUT attendance opens at 4:00 PM (district rule). Time now: ' + hm + '.');
+        alert('OUT attendance opens at 4:00 PM.');
         return;
       }
     }
