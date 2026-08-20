@@ -175,18 +175,25 @@
   <section id="screen-leave" class="screen" hidden>
     <h2>Apply for leave</h2>
     <div id="lv-bal" class="lv-bal" hidden></div>
-    <label for="lv-from">From date</label>
-    <input id="lv-from" type="date">
-    <label for="lv-to">To date</label>
-    <input id="lv-to" type="date">
     <label for="lv-type">Type</label>
     <select id="lv-type">
       <option value="CASUAL">Casual leave (6/year)</option>
       <option value="SICK">Medical / sick leave</option>
       <option value="EARNED">Earned leave (30/year)</option>
+      <option value="OPTIONAL">Optional holiday (5/year)</option>
       <option value="MATERNITY">Maternity leave</option>
       <option value="OTHER">Other</option>
     </select>
+    <div id="lv-dates">
+      <label for="lv-from">From date</label>
+      <input id="lv-from" type="date">
+      <label for="lv-to">To date</label>
+      <input id="lv-to" type="date">
+    </div>
+    <div id="lv-opt-block" hidden>
+      <label for="lv-opt">Festival / occasion (government optional-holiday list)</label>
+      <select id="lv-opt"><option value="">Loading&hellip;</option></select>
+    </div>
     <label for="lv-reason">Reason</label>
     <input id="lv-reason" type="text" maxlength="200" placeholder="Short reason">
     <button id="btn-leave-submit" class="btn btn-primary">SUBMIT LEAVE</button>
@@ -258,7 +265,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v5.11-20260820-1700</footer>
+  <footer class="build-tag">BUILD: v5.12-20260820-1830</footer>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button id="nav-home"><span>&#127968;</span>Home</button>

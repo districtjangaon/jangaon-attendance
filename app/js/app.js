@@ -218,6 +218,11 @@ const App = (() => {
     $('btn-leave').onclick = showLeave;
     $('btn-leave-back').onclick = goHome;
     $('btn-leave-submit').onclick = submitLeave;
+    $('lv-type').onchange = () => {
+      const opt = $('lv-type').value === 'OPTIONAL';
+      $('lv-dates').hidden = opt;
+      $('lv-opt-block').hidden = !opt;
+    };
     $('btn-test-reset').onclick = testReset;
     $('btn-refresh-app').onclick = refreshApp;
     $('btn-notif').onclick = enableReminders;
@@ -297,6 +302,7 @@ const App = (() => {
       const res = await Api.post({ action: 'myLeaves', token: active().token });
       if (!res.ok) { list.innerHTML = '<li>Could not load (' + res.code + ').</li>'; return; }
       renderLeaveBal(res.balances);
+      fillOptDays(res.optionalDays);
       if (!res.leaves.length) { list.innerHTML = '<li>No leave applications yet.</li>'; return; }
       list.innerHTML = '';
       res.leaves.forEach(l => {
@@ -312,7 +318,7 @@ const App = (() => {
     }
   }
 
-  /** Balance chips above the form: CL left, EL left, medical used (this year). */
+  /** Balance chips above the form: CL, EL, optional left + medical used. */
   function renderLeaveBal(b) {
     const box = $('lv-bal');
     if (!b) { box.hidden = true; return; }
@@ -320,19 +326,39 @@ const App = (() => {
     box.innerHTML =
       '<span class="bal-chip">Casual <b>' + b.casual.left + '</b> of ' + b.casual.ent + ' left</span>' +
       '<span class="bal-chip">Earned <b>' + b.earned.left + '</b> of ' + b.earned.ent + ' left</span>' +
+      (b.optional ? '<span class="bal-chip">Optional <b>' + b.optional.left + '</b> of ' +
+        b.optional.ent + ' left</span>' : '') +
       '<span class="bal-chip">Medical <b>' + b.medical.used + '</b> used</span>';
+  }
+
+  /** Optional-holiday picker: only listed dates, recent past ≤31 d + future. */
+  function fillOptDays(days) {
+    const sel = $('lv-opt');
+    const cutoff = new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
+    const opts = (days || []).filter(o => o.d >= cutoff);
+    sel.innerHTML = '<option value="">— choose the occasion —</option>' +
+      opts.map(o => '<option value="' + o.d + '">' +
+        o.d.slice(8, 10) + '-' + o.d.slice(5, 7) + ' · ' + o.n + '</option>').join('');
   }
 
   async function submitLeave() {
     const msg = $('leave-msg');
     msg.textContent = '';
-    const from = $('lv-from').value, to = $('lv-to').value || $('lv-from').value;
-    if (!from) { msg.textContent = 'Pick the from-date.'; return; }
+    const type = $('lv-type').value;
+    let from, to;
+    if (type === 'OPTIONAL') {
+      from = to = $('lv-opt').value;
+      if (!from) { msg.textContent = 'Choose the occasion from the list.'; return; }
+    } else {
+      from = $('lv-from').value;
+      to = $('lv-to').value || $('lv-from').value;
+      if (!from) { msg.textContent = 'Pick the from-date.'; return; }
+    }
     $('btn-leave-submit').disabled = true;
     try {
       const res = await Api.post({
         action: 'leaveApply', token: active().token,
-        from: from, to: to, type: $('lv-type').value, reason: $('lv-reason').value.trim()
+        from: from, to: to, type: type, reason: $('lv-reason').value.trim()
       });
       if (res.ok) {
         msg.textContent = res.status === 'APPROVED'
@@ -343,13 +369,16 @@ const App = (() => {
         await renderMyLeaves();
       } else {
         msg.textContent = res.code === 'NO_BALANCE'
-          ? 'Not enough ' + (res.type === 'CASUAL' ? 'casual' : 'earned') +
-            ' leave balance — only ' + res.left + ' day(s) left this year.'
+          ? 'Not enough ' + (res.type === 'CASUAL' ? 'casual leave'
+              : res.type === 'OPTIONAL' ? 'optional holiday' : 'earned leave') +
+            ' balance — only ' + res.left + ' day(s) left this year.'
           : {
             FROM_AFTER_TO: 'From-date is after to-date.',
             TOO_LONG: 'Maximum 31 days per application.',
             TOO_OLD: 'That period is too far in the past.',
             OVERLAPS_EXISTING: 'You already have a leave covering those dates.',
+            OPT_SINGLE_DAY: 'Optional holiday is one single day.',
+            BAD_OPT_DATE: 'That date is not on the optional-holiday list.',
             BAD_DATE: 'Pick valid dates.'
           }[res.code] || ('Failed (' + res.code + ').');
       }

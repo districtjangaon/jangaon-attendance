@@ -1516,8 +1516,39 @@ function upsertUser_(f, actor) {
  * register.
  */
 
-const LEAVE_TYPES = ['CASUAL', 'SICK', 'EARNED', 'MATERNITY', 'OTHER'];
-const LEAVE_ENT = { CASUAL: 6, EARNED: 30 }; // per calendar year; SICK uncapped
+const LEAVE_TYPES = ['CASUAL', 'SICK', 'EARNED', 'MATERNITY', 'OTHER', 'OPTIONAL'];
+const LEAVE_ENT = { CASUAL: 6, EARNED: 30, OPTIONAL: 5 }; // per calendar year; SICK uncapped
+
+// Optional Holidays 2026 — G.O.Rt.No.1715 Annexure-II. An employee may take
+// at most 5 of these per calendar year, single-day, ONLY on these dates.
+const OPTIONAL_HOLIDAYS = {
+  '2026-01-01': 'New Year Day',
+  '2026-01-03': 'Birthday of Hazrath Ali (R.A)',
+  '2026-01-16': 'Kanumu',
+  '2026-01-17': 'Shab-e-Meraj',
+  '2026-01-23': 'Sri Panchami',
+  '2026-02-04': 'Shab-e-Barat',
+  '2026-03-10': 'Shahadat Hzt Ali (R.A.)',
+  '2026-03-13': 'Jumuatul Wada',
+  '2026-03-17': 'Shab-e-Qader',
+  '2026-03-31': 'Mahaveer Jayanthi',
+  '2026-04-14': "Tamil New Year's Day",
+  '2026-04-20': 'Basava Jayanthi',
+  '2026-05-01': 'Buddha Purnima',
+  '2026-06-04': 'Eid-e-Ghadeer',
+  '2026-06-25': '9th Moharram',
+  '2026-07-16': 'Ratha Yathra',
+  '2026-08-04': 'Arbayeen',
+  '2026-08-15': "Parsi New Year's Day",
+  '2026-08-21': 'Varalakshmi Vratham',
+  '2026-08-28': 'Sravana Purnima / Rakhi Purnima',
+  '2026-09-23': 'Yaz Dahum Shareef',
+  '2026-10-19': 'Maharnavami',
+  '2026-10-26': "Birthday of Hzt. Syed Mohammed Juvanpuri Mahdi Ma'ud (A.S.)",
+  '2026-11-08': 'Naraka Chaturdhi',
+  '2026-12-24': 'Christmas Eve',
+  '2026-12-26': 'Birthday of Hazrath Ali'
+};
 
 /** Per-type leave days used this calendar year (PENDING + APPROVED). */
 function leaveBalances_(userId) {
@@ -1539,6 +1570,8 @@ function leaveBalances_(userId) {
       left: Math.max(0, LEAVE_ENT.CASUAL - (used.CASUAL || 0)) },
     earned: { ent: LEAVE_ENT.EARNED, used: used.EARNED || 0,
       left: Math.max(0, LEAVE_ENT.EARNED - (used.EARNED || 0)) },
+    optional: { ent: LEAVE_ENT.OPTIONAL, used: used.OPTIONAL || 0,
+      left: Math.max(0, LEAVE_ENT.OPTIONAL - (used.OPTIONAL || 0)) },
     medical: { used: used.SICK || 0 }
   };
 }
@@ -1600,12 +1633,21 @@ function apiLeaveApply_(auth, req) {
     String(l.status) !== 'REJECTED' && String(l.from_date) <= to && String(l.to_date) >= from);
   if (mine.length) return { ok: false, code: 'OVERLAPS_EXISTING' };
 
+  // Optional Holiday: single day, only on an Annexure-II date, max 5/year.
+  if (type === 'OPTIONAL') {
+    if (from !== to) return { ok: false, code: 'OPT_SINGLE_DAY' };
+    if (!OPTIONAL_HOLIDAYS[from]) return { ok: false, code: 'BAD_OPT_DATE' };
+  }
+
   const bal = leaveBalances_(auth.userId);
   if (type === 'CASUAL' && spanDays > bal.casual.left) {
     return { ok: false, code: 'NO_BALANCE', type: 'CASUAL', left: bal.casual.left };
   }
   if (type === 'EARNED' && spanDays > bal.earned.left) {
     return { ok: false, code: 'NO_BALANCE', type: 'EARNED', left: bal.earned.left };
+  }
+  if (type === 'OPTIONAL' && spanDays > bal.optional.left) {
+    return { ok: false, code: 'NO_BALANCE', type: 'OPTIONAL', left: bal.optional.left };
   }
 
   const status = PROPS.getProperty('LEAVE_AUTO_APPROVE') === '1' ? 'APPROVED' : 'PENDING';
@@ -1629,7 +1671,10 @@ function apiMyLeaves_(auth, req) {
     .slice(-20).reverse()
     .map(l => ({ id: String(l.leave_id), from: String(l.from_date), to: String(l.to_date),
       type: String(l.type), reason: String(l.reason), status: String(l.status) }));
-  return { ok: true, leaves: mine, balances: leaveBalances_(auth.userId) };
+  const optionalDays = Object.keys(OPTIONAL_HOLIDAYS).sort()
+    .map(function (d) { return { d: d, n: OPTIONAL_HOLIDAYS[d] }; });
+  return { ok: true, leaves: mine, balances: leaveBalances_(auth.userId),
+    optionalDays: optionalDays };
 }
 
 // action: "leaveList" (console roles; scoped like everything else)
