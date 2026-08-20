@@ -653,6 +653,12 @@ const App = (() => {
       $('exc-count').textContent = unseen;
     }
 
+    // Pending-leave badge from the published summary — an application must
+    // never sit invisible until someone happens to open the Leaves tab.
+    const pl = (today && today.pendingLeaves) || 0;
+    $('leaves-count').hidden = !pl;
+    $('leaves-count').textContent = pl;
+
     if (!merged.length) {
       $('exc-list').innerHTML = '<p class="info">Nothing to review. All marks inside geofence, no flags.</p>';
       return;
@@ -868,6 +874,10 @@ const App = (() => {
     }
     const rows = (res.leaves || []).slice()
       .sort((a, b) => (a.status === 'PENDING' ? 0 : 1) - (b.status === 'PENDING' ? 0 : 1));
+    // Live badge refresh: the summary-based count can lag decisions by ~5 min.
+    const pending = rows.filter(l => l.status === 'PENDING').length;
+    $('leaves-count').hidden = !pending;
+    $('leaves-count').textContent = pending;
     if (!rows.length) {
       $('leaves-table').innerHTML = '<p class="info">No leave applications yet. Workers apply from the app menu.</p>';
       return;

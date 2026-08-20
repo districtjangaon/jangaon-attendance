@@ -1917,10 +1917,19 @@ function buildToday_() {
     }
   } catch (e) { /* telemetry only — never block the summary */ }
 
+  // Pending leave applications: powers the console's Leaves-tab badge so an
+  // application is never invisible until someone opens the tab.
+  let pendingLeaves = 0;
+  try {
+    pendingLeaves = getLeavesAll_().filter(function (l) {
+      return String(l.status) === 'PENDING';
+    }).length;
+  } catch (e) { /* badge only — never block the summary */ }
+
   const generatedAt = nowIso_();
   const todayJson = {
     generatedAt: generatedAt, date: today, holiday: holidayName || null, district: district,
-    adopt: adopt,
+    adopt: adopt, pendingLeaves: pendingLeaves,
     rpt: rpt, rpts: rptRows,
     projects: Object.keys(projects).sort().map(pc => Object.assign({ code: pc }, projects[pc])),
     sectors: Object.keys(sectors).sort().map(sc =>
