@@ -595,6 +595,19 @@ const App = (() => {
   // ---------------- Exceptions ----------------
   let lastExc = []; // last rendered flagged list, so the tab click can mark it seen
 
+  const rptKey = r => ((today && today.date) || '') + '_' + r.u + '_' + r.at;
+  function rptSeenMap() {
+    try { return JSON.parse(localStorage.getItem('rptSeen') || '{}'); } catch (e) { return {}; }
+  }
+  function markRptsSeen() {
+    const seen = rptSeenMap();
+    const pref = (today && today.date) || '';
+    Object.keys(seen).forEach(k => { if (pref && k.indexOf(pref) !== 0) delete seen[k]; }); // prune old days
+    ((today && today.rpts) || []).forEach(r => { seen[rptKey(r)] = 1; });
+    localStorage.setItem('rptSeen', JSON.stringify(seen));
+    $('rpts-count').hidden = true;
+  }
+
   function excSeenMap() {
     try { return JSON.parse(localStorage.getItem('excSeen') || '{}'); } catch (e) { return {}; }
   }
@@ -662,6 +675,16 @@ const App = (() => {
     const pl = (today && today.pendingLeaves) || 0;
     $('leaves-count').hidden = !pl;
     $('leaves-count').textContent = pl;
+
+    // New-reports badge: reports that arrived since this browser last opened
+    // the Daily Reports tab (same seen-map pattern as Flagged).
+    const rSeen = rptSeenMap();
+    const rUnseen = ((today && today.rpts) || []).filter(r => !rSeen[rptKey(r)]).length;
+    if (rUnseen && !$('view-rpts').hidden) markRptsSeen();
+    else {
+      $('rpts-count').hidden = !rUnseen;
+      $('rpts-count').textContent = rUnseen;
+    }
 
     if (!merged.length) {
       $('exc-list').innerHTML = '<p class="info">Nothing to review. All marks inside geofence, no flags.</p>';
@@ -1649,7 +1672,7 @@ const App = (() => {
     };
     if (document.body.classList.contains('dark')) $('btn-theme').textContent = '☀️';
     $('tab-exceptions').onclick = () => { switchTab('exceptions'); markExcSeen(); };
-    $('tab-rpts').onclick = () => switchTab('rpts');
+    $('tab-rpts').onclick = () => { switchTab('rpts'); markRptsSeen(); };
     $('rpts-search').oninput = renderRpts;
     $('btn-rpts-csv').onclick = rptsCsv;
     $('btn-rpts-missing-csv').onclick = rptsMissingCsv;

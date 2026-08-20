@@ -292,9 +292,28 @@ function reportsSheet_(ss) {
   return sh;
 }
 
+// Plausibility caps per AWC per day — beyond these, the value is almost
+// certainly a typing error. New clients refuse them; old clients get flagged.
+const RPT_MAX = { children: 150, pregnant: 50, others: 100, meals: 300,
+  eggs: 1000, rice: 500, pulses: 100, bal: 25000, balp: 25000, milk: 50 };
+
 function buildReportRow_(user, it, serverMs) {
   const rec = it.rec;
   const hasFix = rec.lat != null && rec.lat !== '' && rec.lng != null && rec.lng !== '';
+
+  const suspects = [];
+  ['children', 'pregnant', 'others', 'meals'].forEach(function (f) {
+    if (Number(rec[f]) > RPT_MAX[f]) suspects.push('QTY_SUSPECT_' + f.toUpperCase());
+  });
+  STOCK_KEYS.forEach(function (k) {
+    const o = rec.stock && rec.stock[k];
+    if (o && ['ob', 'used', 'recd', 'cb'].some(function (c) { return Number(o[c]) > RPT_MAX[k]; })) {
+      suspects.push('QTY_SUSPECT_' + k.toUpperCase());
+    }
+  });
+  if (Number(rec.eggs) > RPT_MAX.eggs) suspects.push('QTY_SUSPECT_EGGS');
+  const allFlags = [it.photoFlag, suspects.filter(function (s, i, a) { return a.indexOf(s) === i; })
+    .join(',')].filter(Boolean).join(',');
   const n = v => {
     const x = Math.round(Number(v));
     return isFinite(x) && x >= 0 ? Math.min(x, 999) : 0;
@@ -314,7 +333,7 @@ function buildReportRow_(user, it, serverMs) {
     hasFix ? Number(Number(rec.lng).toFixed(6)) : '',
     rec.accuracy != null && rec.accuracy !== '' ? Math.round(Number(rec.accuracy)) : '',
     n(rec.children), n(rec.pregnant), n(rec.others), n(rec.meals),
-    it.photoId, it.photo2Id, it.photoFlag,
+    it.photoId, it.photo2Id, allFlags,
     it.photo3Id, it.photo4Id,
     Math.min(9999, n9999_(rec.eggs)), kg(rec.riceKg), kg(rec.pulsesKg)
   ].concat(stockCols_(rec.stock));

@@ -1324,13 +1324,15 @@ const App = (() => {
 
   // ---------- stock register: 6 items, Opening/Used/Received editable,
   // Closing auto-calculated (Opening + Received − Used) ----------
+  // max = plausibility cap per AWC per day — values above it are almost
+  // certainly typing errors (7,100 kg rice was really entered once).
   const STOCK_ITEMS = [
-    { k: 'eggs', label: 'Eggs', unit: 'count', dec: false },
-    { k: 'rice', label: 'Rice', unit: 'KG', dec: true },
-    { k: 'pulses', label: 'Pulses', unit: 'KG', dec: true },
-    { k: 'bal', label: 'Balamrutham', unit: 'ml', dec: false },
-    { k: 'balp', label: 'Balamrutham +', unit: 'ml', dec: false },
-    { k: 'milk', label: 'Milk', unit: 'litres', dec: true }
+    { k: 'eggs', label: 'Eggs', unit: 'count', dec: false, max: 1000 },
+    { k: 'rice', label: 'Rice', unit: 'KG', dec: true, max: 500 },
+    { k: 'pulses', label: 'Pulses', unit: 'KG', dec: true, max: 100 },
+    { k: 'bal', label: 'Balamrutham', unit: 'ml', dec: false, max: 25000 },
+    { k: 'balp', label: 'Balamrutham +', unit: 'ml', dec: false, max: 25000 },
+    { k: 'milk', label: 'Milk', unit: 'litres', dec: true, max: 50 }
   ];
   const ST_COLS = ['ob', 'used', 'recd'];
 
@@ -1341,7 +1343,7 @@ const App = (() => {
       tr.innerHTML = '<td class="item">' + it.label + '<small>' + it.unit + '</small></td>' +
         ST_COLS.map(c => '<td><input id="st-' + it.k + '-' + c +
           '" type="number" inputmode="' + (it.dec ? 'decimal' : 'numeric') +
-          '" min="0" max="9999"' + (it.dec ? ' step="0.5"' : '') +
+          '" min="0" max="' + it.max + '"' + (it.dec ? ' step="0.5"' : '') +
           ' placeholder="0"></td>').join('') +
         '<td class="cb" id="st-' + it.k + '-cb">&ndash;</td>';
       t.appendChild(tr);
@@ -1465,14 +1467,36 @@ const App = (() => {
       msg.textContent = shortItem.label + ': used is more than opening + received. Please correct.';
       return;
     }
+    // Plausibility caps — a centre cannot hold 7,100 kg of rice; values above
+    // the per-item maximum are typing mistakes and must be corrected.
+    const COUNT_MAX = { 'rp-children': 150, 'rp-pregnant': 50, 'rp-others': 100, 'rp-meals': 300 };
+    const overs = [];
+    Object.keys(COUNT_MAX).forEach(id => {
+      if (Number($(id).value) > COUNT_MAX[id]) {
+        overs.push(FIELD_LABELS[id] + ' ' + $(id).value + ' (max ' + COUNT_MAX[id] + ')');
+      }
+    });
+    STOCK_ITEMS.forEach(it => {
+      ST_COLS.forEach(c => {
+        const v = Number($('st-' + it.k + '-' + c).value);
+        if (v > it.max) {
+          overs.push(it.label + ' ' + (c === 'ob' ? 'opening' : c === 'used' ? 'used' : 'received') +
+            ' ' + v + ' (max ' + it.max + ' ' + it.unit + ')');
+        }
+      });
+    });
+    if (overs.length) {
+      msg.textContent = 'These values look wrong — please check and correct: ' + overs.join('; ') + '.';
+      return;
+    }
     const round1 = (v, dec) => dec ? Math.round(v * 10) / 10 : Math.round(v);
     const stock = {};
     STOCK_ITEMS.forEach(it => {
       stock[it.k] = {
-        ob: Math.min(9999, round1(stockVal(it, 'ob'), it.dec)),
-        used: Math.min(9999, round1(stockVal(it, 'used'), it.dec)),
-        recd: Math.min(9999, round1(stockVal(it, 'recd'), it.dec)),
-        cb: Math.min(9999, round1(stockCb(it), it.dec))
+        ob: Math.min(it.max, round1(stockVal(it, 'ob'), it.dec)),
+        used: Math.min(it.max, round1(stockVal(it, 'used'), it.dec)),
+        recd: Math.min(it.max, round1(stockVal(it, 'recd'), it.dec)),
+        cb: Math.min(it.max, round1(stockCb(it), it.dec))
       };
     });
     setBusy('btn-rp-submit', true, 'Saving report…');
