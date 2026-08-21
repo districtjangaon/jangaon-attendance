@@ -808,7 +808,11 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
   }
 
   const clientMs = new Date(String(rec.clientTs || '')).getTime();
-  const syncDelay = isNaN(clientMs) ? '' : Math.max(0, Math.round((serverMs - clientMs) / 1000));
+  // Subtract the device's clock offset (skewSec, measured against THIS sync
+  // request) so a wrong phone clock cannot masquerade as an hours-long sync
+  // delay: raw − skew = capture→sync elapsed on the device's own clock.
+  const syncDelay = isNaN(clientMs) ? ''
+    : Math.max(0, Math.round((serverMs - clientMs) / 1000 - (skewSec === '' ? 0 : skewSec)));
   if (syncDelay !== '' && syncDelay > 86400) flags.push('LATE_SYNC');
   if (skewSec !== '' && Math.abs(skewSec) > 300) flags.push('CLOCK_SKEW');
   if (acc !== '' && acc > 0 && acc <= 3) flags.push('PERFECT_ACCURACY');

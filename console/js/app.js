@@ -1545,14 +1545,21 @@ const App = (() => {
         best: times.length ? times[0] : null });
     }
 
-    // 2. Static hosting (GitHub Pages): timed meta.json + data freshness.
-    let staticMs = null, freshMin = null;
+    // 2. Static hosting (GitHub Pages): timed meta.json + pipeline heartbeat.
+    // checkedAt = the summariser's alive-signal (committed every ≤30 min even
+    // when idle); generatedAt = last actual data change (only moves when new
+    // marks arrived — old is normal on a quiet afternoon).
+    let staticMs = null, beatMin = null, dataMin = null;
     try {
       const t0 = performance.now();
       const meta2 = await Api.fetchJson('summary/meta.json');
       staticMs = Math.round(performance.now() - t0);
-      if (meta2 && meta2.generatedAt) {
-        freshMin = Math.round((Date.now() - new Date(meta2.generatedAt)) / 60000);
+      if (meta2) {
+        const beat = meta2.checkedAt || meta2.generatedAt;
+        if (beat) beatMin = Math.round((Date.now() - new Date(beat)) / 60000);
+        if (meta2.generatedAt) {
+          dataMin = Math.round((Date.now() - new Date(meta2.generatedAt)) / 60000);
+        }
       }
     } catch (err) { /* shown as — */ }
 
@@ -1582,10 +1589,11 @@ const App = (() => {
       priMed == null ? '—' : (priMed / 1000).toFixed(1) + ' s',
       priMed == null ? 'WARN' : priMed <= 3000 ? 'OK' : priMed <= 6000 ? 'WARN' : 'BREACH',
       'Apps Script cold starts can add ~5 s to the first call']);
-    slas.push(['Dashboard data freshness', '≤ 6 min',
-      freshMin == null ? '—' : freshMin + ' min',
-      freshMin == null ? 'WARN' : freshMin <= 6 ? 'OK' : freshMin <= 15 ? 'WARN' : 'BREACH',
-      'summary regenerates every 5 min during working hours']);
+    slas.push(['Summary pipeline heartbeat', '≤ 35 min',
+      beatMin == null ? '—' : beatMin + ' min',
+      beatMin == null ? 'WARN' : beatMin <= 35 ? 'OK' : beatMin <= 60 ? 'WARN' : 'BREACH',
+      'checks every 5 min, commits an idle heartbeat every ≤30 min; last data change ' +
+      (dataMin == null ? '—' : dataMin + ' min ago') + ' (only moves when new marks arrive)']);
     slas.push(['Static site response', '≤ 1.5 s',
       staticMs == null ? '—' : (staticMs / 1000).toFixed(2) + ' s',
       staticMs == null ? 'WARN' : staticMs <= 1500 ? 'OK' : staticMs <= 4000 ? 'WARN' : 'BREACH',
@@ -1594,7 +1602,8 @@ const App = (() => {
     slas.push(['Mark sync delay — online marks (p95)', '≤ 5 min',
       pfOn && pfOn.n ? fmtS(pfOn.p95) : '—',
       !pfOn || !pfOn.n ? 'WARN' : pfOn.p95 <= 300 ? 'OK' : pfOn.p95 <= 900 ? 'WARN' : 'BREACH',
-      'marks made WITH network; offline-queued marks are excluded (they wait by design)']);
+      'marks made WITH network; closing the app mid-upload still counts until next open, ' +
+      'so a long tail here means user behaviour, not a slow server']);
     slas.push(['Console API success (this browser, today)', '≥ 99%',
       sess && sess.a ? Math.round(100 * sess.ok / sess.a) + '% of ' + sess.a + ' attempts' : 'no data yet',
       !sess || !sess.a ? 'WARN' : sess.ok / sess.a >= 0.99 ? 'OK' : sess.ok / sess.a >= 0.95 ? 'WARN' : 'BREACH',
