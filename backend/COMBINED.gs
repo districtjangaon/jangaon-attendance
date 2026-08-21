@@ -917,7 +917,7 @@ function reportsSheet_(ss) {
 // Plausibility caps per AWC per day — beyond these, the value is almost
 // certainly a typing error. New clients refuse them; old clients get flagged.
 const RPT_MAX = { children: 150, pregnant: 50, others: 100, meals: 300,
-  eggs: 1000, rice: 500, pulses: 100, bal: 25000, balp: 25000, milk: 50 };
+  eggs: 1000, rice: 500, pulses: 100, bal: 25000, balp: 25000, milk: 100 };
 
 function buildReportRow_(user, it, serverMs) {
   const rec = it.rec;

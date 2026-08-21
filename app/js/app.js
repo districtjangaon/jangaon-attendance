@@ -1361,7 +1361,7 @@ const App = (() => {
     { k: 'pulses', label: 'Pulses', unit: 'KG', dec: true, max: 100 },
     { k: 'bal', label: 'Balamrutham', unit: 'ml', dec: false, max: 25000 },
     { k: 'balp', label: 'Balamrutham +', unit: 'ml', dec: false, max: 25000 },
-    { k: 'milk', label: 'Milk', unit: 'litres', dec: true, max: 50 }
+    { k: 'milk', label: 'Milk', unit: 'litres', dec: true, max: 100 }
   ];
   const ST_COLS = ['ob', 'used', 'recd'];
 
