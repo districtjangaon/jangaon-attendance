@@ -62,7 +62,7 @@ const App = (() => {
     nav.hidden = !acc ||
       ['screen-login', 'screen-welcome', 'screen-camera', 'screen-success'].indexOf(id) >= 0;
     if (!nav.hidden) {
-      $('nav-report').hidden = acc.user.cadre !== 'AWT';
+      $('nav-report').hidden = ['AWT', 'AWH'].indexOf(acc.user.cadre) < 0;
       $('nav-dash').hidden = acc.user.role !== 'ADMIN' && acc.user.role !== 'SUPERVISOR';
       Object.keys(NAV_MAP).forEach(s => $(NAV_MAP[s]).classList.toggle('sel', s === id));
     }
@@ -636,13 +636,22 @@ const App = (() => {
     $('btn-dash').hidden = !dashRole;
     $('btn-dash').textContent = acc.user.role === 'SUPERVISOR' ? 'My sector' : 'District dashboard';
     // One store scan feeds both the chip and the reminder banner.
-    const rptDone = acc.user.cadre === 'AWT' ? await reportDoneToday() : true;
+    // AWH also sees the real report state: when the Teacher is absent she may
+    // file the centre report herself (server keys reports by AWC, so hers
+    // satisfies the AWT OUT-gate and flags identically). Her own OUT stays
+    // ungated and she is never nagged about it.
+    const rptDone = ['AWT', 'AWH'].indexOf(acc.user.cadre) >= 0 ? await reportDoneToday() : true;
     const chip = $('report-chip');
     if (acc.user.cadre === 'AWT') { // the daily report is the Teacher's duty
       chip.hidden = false;
       chip.classList.toggle('done', rptDone);
       $('report-chip-text').textContent = rptDone
         ? '✓ Daily report submitted' : 'Daily report — fill before OUT';
+    } else if (acc.user.cadre === 'AWH') {
+      // Fallback duty: surfaces only while the centre report is missing.
+      chip.hidden = rptDone;
+      chip.classList.remove('done');
+      $('report-chip-text').textContent = 'Teacher absent? Fill the centre report';
     } else {
       chip.hidden = true;
     }
@@ -813,7 +822,7 @@ const App = (() => {
     if (d.getDay() !== 0) {
       if (!today.IN && nowHM >= (sch.late_after || '09:30')) {
         msg = '⏰ You have not marked IN yet today.';
-      } else if (today.IN && !rptDone && nowHM >= '11:00') {
+      } else if (acc.user.cadre === 'AWT' && today.IN && !rptDone && nowHM >= '11:00') {
         msg = '📝 Today\'s report is not filled yet — needed before OUT.';
       } else if (today.IN && !today.OUT && nowHM >= '16:30') {
         msg = '⏰ Remember to mark OUT before leaving.';

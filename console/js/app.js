@@ -564,7 +564,11 @@ const App = (() => {
     if (!q) rows = rows.filter(e => e.s === drill.code);
     if (q) rows = rows.filter(e =>
       userName(e.id).toLowerCase().includes(q) || awcName(e.a).toLowerCase().includes(q));
-    if (stF) rows = rows.filter(e => e.st === stF || e.gf === stF);
+    if (stF === 'NO_OUT') {
+      rows = rows.filter(e => (e.st === 'PRESENT' || e.st === 'LATE') && !e.out);
+    } else if (stF) {
+      rows = rows.filter(e => e.st === stF || e.gf === stF);
+    }
     rows.sort((a, b) => userName(a.id) < userName(b.id) ? -1 : 1);
 
     html = '<table><tr><th>Name</th><th>Cadre</th><th>AWC</th><th>Status</th><th>IN</th>' +
