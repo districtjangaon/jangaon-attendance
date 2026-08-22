@@ -34,9 +34,13 @@ const PROPS = PropertiesService.getScriptProperties();
 const CACHE = CacheService.getScriptCache();
 
 // ---- sheet schemas (column order is the contract; never reorder) ----
+// can_approve_leave is APPENDED (column order is the contract). Blank means
+// "use the role default", so every existing row keeps working untouched; '0'
+// withdraws the right from an ADMIN who otherwise keeps full access, '1'
+// states it explicitly. See canApproveLeave_() in Leaves.gs.
 const USERS_H = ['user_id', 'phone', 'name', 'cadre', 'project_code', 'sector_code', 'awc_id',
   'role', 'status', 'pin_hash', 'pin_salt', 'pin_set_at', 'failed_attempts', 'locked_until',
-  'device_id', 'device_bound_at', 'created_at', 'updated_at'];
+  'device_id', 'device_bound_at', 'created_at', 'updated_at', 'can_approve_leave'];
 const AWC_H = ['awc_id', 'sector_code', 'project_code', 'name', 'lat', 'lng', 'radius_m', 'active'];
 const PROJ_H = ['project_code', 'name'];
 const SECT_H = ['sector_code', 'project_code', 'name', 'supervisor_user_id'];
@@ -624,7 +628,10 @@ function getConfigFor_(user) {
     user: {
       id: String(user.user_id), name: String(user.name), cadre: String(user.cadre),
       project: String(user.project_code), sector: String(user.sector_code),
-      awcId: String(user.awc_id), awcName: awc ? awc.name : '', role: String(user.role)
+      awcId: String(user.awc_id), awcName: awc ? awc.name : '', role: String(user.role),
+      // The console hides the Approve/Reject buttons on this, but the server
+      // enforces it again in apiLeaveDecide_ — a hidden button is not a rule.
+      canApproveLeave: canApproveLeave_(user)
     },
     locations: geofenceCandidatesFor_(user).map(a => ({
       awc_id: a.awc_id, name: a.name, lat: a.lat, lng: a.lng, radius_m: a.radius_m
@@ -1256,6 +1263,7 @@ function apiNameMap_(auth, req) {
       n: String(u.name), p: String(u.phone), c: String(u.cadre),
       pj: String(u.project_code), sc: String(u.sector_code), a: String(u.awc_id),
       r: String(u.role), s: String(u.status),
+      la: canApproveLeave_(u) ? 1 : 0,     // may sanction leave (ADMIN only)
       pn: String(u.pin_hash || '') ? 1 : 0 // completed first login (registered)
     };
   });
@@ -1365,6 +1373,27 @@ function apiImportUsers_(auth, req) {
     results.push(r.error ? { name: row.name, error: r.error } : { name: row.name, userId: r.userId });
   });
   return { ok: true, results: results };
+}
+
+/**
+ * action: "setLeaveApprover"  req: { token, userId, canApprove }
+ * Grant or withdraw the right to sanction leave. ADMIN only, and an admin
+ * cannot withdraw their own right — that is how a district ends up with
+ * nobody able to approve anything.
+ */
+function apiSetLeaveApprover_(auth, req) {
+  if (auth.user.role !== 'ADMIN') return deny_();
+  const target = getUserById_(String(req.userId || ''));
+  if (!target) return { ok: false, code: 'NOT_FOUND' };
+  if (String(target.role) !== 'ADMIN') return { ok: false, code: 'NOT_ADMIN' };
+  const on = !!req.canApprove;
+  if (!on && String(target.user_id) === String(auth.userId)) {
+    return { ok: false, code: 'CANNOT_DISABLE_SELF' };
+  }
+  const old = String(target.can_approve_leave || '');
+  updateUser_(target, { can_approve_leave: on ? '1' : '0' });
+  audit_(auth.userId, 'LEAVE_APPROVER_SET', String(target.user_id), old, on ? '1' : '0');
+  return { ok: true, userId: String(target.user_id), canApprove: on };
 }
 
 function apiSetSchedules_(auth, req) {
@@ -1600,6 +1629,32 @@ const OPTIONAL_HOLIDAYS = {
 };
 
 /**
+ * May this user decide leave applications?
+ *
+ * ADMIN is the approving role, but the right is separable from the role: a
+ * district officer can keep full console access and still have leave sanction
+ * withdrawn (Users & Admin -> Leave approval). Blank means the role default,
+ * so no existing row had to be touched to introduce this.
+ */
+function canApproveLeave_(u) {
+  if (!u || String(u.role) !== 'ADMIN') return false;
+  return String(u.can_approve_leave == null ? '' : u.can_approve_leave).trim() !== '0';
+}
+
+/** user_id -> display name, for the "decided by" trail. Cheap: one pass. */
+function deciderNames_(ids) {
+  const out = {};
+  ids.forEach(function (id) {
+    const key = String(id || '');
+    if (!key || out[key] !== undefined) return;
+    if (key === 'AUTO') { out[key] = 'auto-approved'; return; }
+    const u = getUserById_(key);
+    out[key] = u ? String(u.name) : key;
+  });
+  return out;
+}
+
+/**
  * Calendar days of one leave row that fall inside `year` (yyyy). A spell
  * crossing 31-Dec is charged to each year for the part that lies in it —
  * the single place this arithmetic lives, so the app's balance chips, the
@@ -1769,12 +1824,18 @@ function apiLeaveApply_(auth, req) {
 
 // action: "myLeaves"
 function apiMyLeaves_(auth, req) {
-  const mine = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId))
-    .slice(-20).reverse()
+  const rows = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId))
+    .slice(-20).reverse();
+  // Resolved server-side: the field app has no name map, and a worker is
+  // entitled to see WHO decided her leave, not a bare user id.
+  const who = deciderNames_(rows.map(l => l.decided_by));
+  const mine = rows
     .map(l => ({ id: String(l.leave_id), from: String(l.from_date), to: String(l.to_date),
       type: String(l.type), reason: String(l.reason), status: String(l.status),
       mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
-      mp: String(l.med_photo_id || '') }));
+      mp: String(l.med_photo_id || ''),
+      by: String(l.decided_by || ''), byName: who[String(l.decided_by || '')] || '',
+      byAt: String(l.decided_at || '') }));
   const optionalDays = Object.keys(OPTIONAL_HOLIDAYS).sort()
     .map(function (d) { return { d: d, n: OPTIONAL_HOLIDAYS[d] }; });
   return { ok: true, leaves: mine, balances: leaveBalances_(auth.userId),
@@ -1787,15 +1848,21 @@ function apiLeaveList_(auth, req) {
   const scope = sectorScope_(auth.user);
   const users = {};
   getUsersAll_().forEach(u => { users[String(u.user_id)] = u; });
-  const rows = getLeavesAll_().filter(l => {
+  const picked = getLeavesAll_().filter(l => {
     const u = users[String(l.user_id)];
     return u && (!scope || scope.indexOf(String(u.sector_code)) >= 0);
-  }).slice(-300).reverse().map(l => ({
+  }).slice(-300).reverse();
+  // Deciders are ADMINs with no sector, so a supervisor's scoped name map
+  // cannot resolve them — the name has to come from the server.
+  const who = deciderNames_(picked.map(l => l.decided_by));
+  const rows = picked.map(l => ({
     id: String(l.leave_id), u: String(l.user_id), from: String(l.from_date),
     to: String(l.to_date), type: String(l.type), reason: String(l.reason),
     status: String(l.status), at: String(l.applied_at),
     mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
-    mp: String(l.med_photo_id || '')
+    mp: String(l.med_photo_id || ''),
+    by: String(l.decided_by || ''), byName: who[String(l.decided_by || '')] || '',
+    byAt: String(l.decided_at || '')
   }));
   return { ok: true, leaves: rows };
 }
@@ -1821,6 +1888,7 @@ function apiLeaveRegister_(auth, req) {
   // (~1,400 in-scope users would otherwise be ~200 KB of mostly zeroes).
   const stat = {};
   const apps = [];
+  const who = deciderNames_(getLeavesAll_().map(function (l) { return l.decided_by; }));
   getLeavesAll_().forEach(function (l) {
     const uid = String(l.user_id);
     if (!users[uid]) return;
@@ -1835,6 +1903,7 @@ function apiLeaveRegister_(auth, req) {
       id: String(l.leave_id), u: uid, from: String(l.from_date), to: String(l.to_date),
       days: days, type: t, reason: String(l.reason), status: st,
       at: String(l.applied_at), by: String(l.decided_by || ''),
+      byName: who[String(l.decided_by || '')] || '', byAt: String(l.decided_at || ''),
       mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
       mp: String(l.med_photo_id || '')
     });
@@ -1853,6 +1922,9 @@ function apiLeaveRegister_(auth, req) {
 // Collector / District Admin only — supervisors see leaves but cannot decide.
 function apiLeaveDecide_(auth, req) {
   if (String(auth.user.role) !== 'ADMIN') return deny_();
+  // Separable from the role: an ADMIN whose leave sanction has been withdrawn
+  // keeps every other power and is told plainly why this one is refused.
+  if (!canApproveLeave_(auth.user)) return { ok: false, code: 'NOT_LEAVE_APPROVER' };
   const decision = String(req.decision || '').toUpperCase();
   if (decision !== 'APPROVED' && decision !== 'REJECTED') return { ok: false, code: 'BAD_DECISION' };
   const leave = getLeavesAll_().find(l => String(l.leave_id) === String(req.leaveId || ''));
@@ -1865,7 +1937,7 @@ function apiLeaveDecide_(auth, req) {
   CACHE.remove('leaves');
   audit_(auth.userId, 'LEAVE_' + decision, String(leave.leave_id),
     String(leave.status), String(req.reason || ''));
-  return { ok: true };
+  return { ok: true, by: String(auth.userId), byName: String(auth.user.name) };
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -2325,7 +2397,12 @@ function buildToday_() {
       if (String(sh.getRange(1, MARKS_H.length).getValue()) !== MARKS_H[MARKS_H.length - 1]) {
         sh.getRange(1, 1, 1, MARKS_H.length).setValues([MARKS_H]);
       }
-    } catch (err) { console.error('marks header heal failed: ' + err); }
+      // Same for the appended can_approve_leave column on Users.
+      const ush = masterSS_().getSheetByName('Users');
+      if (ush && String(ush.getRange(1, USERS_H.length).getValue()) !== USERS_H[USERS_H.length - 1]) {
+        ush.getRange(1, 1, 1, USERS_H.length).setValues([USERS_H]);
+      }
+    } catch (err) { console.error('header heal failed: ' + err); }
   }
   const startRow = todayStartRow_(ss, sh, today);
   const last = sh.getLastRow();
@@ -3611,6 +3688,7 @@ function doPost(e) {
       closeIssue: apiCloseIssue_,
       // console (admin)
       userUpsert: apiUserUpsert_,
+      setLeaveApprover: apiSetLeaveApprover_,
       importUsers: apiImportUsers_,
       setSchedules: apiSetSchedules_,
       testReset: apiTestReset_,

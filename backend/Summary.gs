@@ -76,7 +76,12 @@ function buildToday_() {
       if (String(sh.getRange(1, MARKS_H.length).getValue()) !== MARKS_H[MARKS_H.length - 1]) {
         sh.getRange(1, 1, 1, MARKS_H.length).setValues([MARKS_H]);
       }
-    } catch (err) { console.error('marks header heal failed: ' + err); }
+      // Same for the appended can_approve_leave column on Users.
+      const ush = masterSS_().getSheetByName('Users');
+      if (ush && String(ush.getRange(1, USERS_H.length).getValue()) !== USERS_H[USERS_H.length - 1]) {
+        ush.getRange(1, 1, 1, USERS_H.length).setValues([USERS_H]);
+      }
+    } catch (err) { console.error('header heal failed: ' + err); }
   }
   const startRow = todayStartRow_(ss, sh, today);
   const last = sh.getLastRow();

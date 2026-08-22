@@ -68,7 +68,10 @@ const Api = (() => {
   // ======================= DEMO fixtures =======================
   const D = {
     users: {
-      U9001: { n: 'Demo Admin', p: '9000000001', c: 'OTHER', pj: '', sc: '', a: '', r: 'ADMIN', s: 'ACTIVE' },
+      U9001: { n: 'Demo Admin', p: '9000000001', c: 'OTHER', pj: '', sc: '', a: '', r: 'ADMIN', s: 'ACTIVE', la: 1 },
+      // Second admin with leave sanction WITHDRAWN — full console access, no
+      // Approve/Reject buttons. Demo mode has to show both states.
+      U9003: { n: 'Demo Officer (no leave power)', p: '9000000003', c: 'OTHER', pj: '', sc: '', a: '', r: 'ADMIN', s: 'ACTIVE', la: 0 },
       U9002: { n: 'Demo Supervisor', p: '9000000002', c: 'SUPERVISOR', pj: 'JGN', sc: 'S01', a: '', r: 'SUPERVISOR', s: 'ACTIVE' },
       U9101: { n: 'K. Padma', p: '9000000011', c: 'AWT', pj: 'JGN', sc: 'S01', a: 'A0001', r: 'FIELD', s: 'ACTIVE' },
       U9102: { n: 'B. Swapna', p: '9000000011', c: 'AWH', pj: 'JGN', sc: 'S01', a: 'A0001', r: 'FIELD', s: 'ACTIVE' },
@@ -224,7 +227,8 @@ const Api = (() => {
         return {
           ok: true, token: 'demo-' + uid,
           config: {
-            user: { id: uid, name: u.n, cadre: u.c, project: u.pj, sector: u.sc, awcId: u.a, awcName: '', role: u.r },
+            user: { id: uid, name: u.n, cadre: u.c, project: u.pj, sector: u.sc, awcId: u.a,
+              awcName: '', role: u.r, canApproveLeave: u.r === 'ADMIN' },
             serverTs: new Date().toISOString()
           }
         };
@@ -292,13 +296,15 @@ const Api = (() => {
     return [
       { id: 'LV-demo1', u: 'U9107', from: dToday(), to: dToday(), type: 'CASUAL',
         reason: 'Family function', status: 'APPROVED', at: new Date().toISOString(),
-        mi: '', mc: '', mp: '' },
+        mi: '', mc: '', mp: '', by: 'U9001', byName: 'Demo Admin',
+        byAt: new Date().toISOString() },
       { id: 'LV-demo2', u: 'U9103', from: dYm() + '-02', to: dYm() + '-03', type: 'SICK',
         reason: 'Fever', status: 'APPROVED', at: new Date().toISOString(),
-        mi: 'Area Hospital, Jangaon', mc: 'MC/2026/4417', mp: 'demo-photo' },
+        mi: 'Area Hospital, Jangaon', mc: 'MC/2026/4417', mp: 'demo-photo',
+        by: 'AUTO', byName: 'auto-approved', byAt: new Date().toISOString() },
       { id: 'LV-demo3', u: 'U9103', from: dYm() + '-10', to: dYm() + '-10', type: 'OPTIONAL',
         reason: 'Optional holiday', status: 'PENDING', at: new Date().toISOString(),
-        mi: '', mc: '', mp: '' }
+        mi: '', mc: '', mp: '', by: '', byName: '', byAt: '' }
     ];
   }
 

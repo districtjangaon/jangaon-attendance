@@ -119,6 +119,22 @@ never upload them anywhere, never commit them to GitHub.** The project's
   for honorarium processing is on the Monthly tab.
 - **Forgot PIN**: admin → Users & Admin → Reset PIN → worker sets a new
   one at next login. **New phone**: Unbind phone, then login binds the new one.
+- **New console account** (Collector, Additional Collector, CDPO, supervisor):
+  admin → Users & Admin → **Add a console account**. Name, 10-digit mobile,
+  role; CDPO also picks a project and SUPERVISOR a sector. The officer then
+  logs in with that number and sets their own PIN. ADMIN is the highest role —
+  whole district, user administration, and leave sanction.
+- **Leave sanction is separate from the role.** Users & Admin shows a **Leave
+  approval** column for every ADMIN: *CAN APPROVE* or *WITHDRAWN*, with a
+  Grant/Withdraw button. Withdrawing it removes the Approve/Reject buttons and
+  refuses the action server-side (`NOT_LEAVE_APPROVER`) while leaving all other
+  access intact. Nobody can withdraw their own — otherwise a district ends up
+  with no one able to approve anything. Every change is audit-logged.
+- **Who approved a leave** is shown on the Leaves tab, in the Leave Register's
+  applications table, in the CSV export, and in the worker's own app list.
+  Applications decided before this was recorded read "not recorded" and are
+  never relabelled with whoever holds the post today; ones settled under the
+  old auto-approval policy read "auto-approved (old policy)".
 - **Leaves**: workers apply from the app menu (needs internet); applications
   auto-approve (set script property `LEAVE_AUTO_APPROVE` to `0` to require
   manual approval). Console → Leaves lists them; rejecting one returns those

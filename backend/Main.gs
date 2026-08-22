@@ -51,6 +51,7 @@ function doPost(e) {
       closeIssue: apiCloseIssue_,
       // console (admin)
       userUpsert: apiUserUpsert_,
+      setLeaveApprover: apiSetLeaveApprover_,
       importUsers: apiImportUsers_,
       setSchedules: apiSetSchedules_,
       testReset: apiTestReset_,

@@ -285,6 +285,27 @@
       </div>
       <p id="admin-stats" class="info"></p>
       <div id="admin-table" class="tablewrap"></div>
+      <div id="admin-newuser" class="admin-block" hidden>
+        <h3>Add a console account</h3>
+        <p class="info">For district officers who need console access — Collector, Additional
+          Collector, CDPO, supervisor. The account is created immediately; the officer logs in
+          with this mobile number and sets their own PIN on first login. <b>ADMIN</b> is the
+          highest role: whole-district view, user administration, and leave sanction (which can
+          be withdrawn separately in the table above).</p>
+        <div class="toolbar">
+          <input id="nu-name" type="text" maxlength="60" placeholder="Full name / designation">
+          <input id="nu-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile">
+          <select id="nu-role">
+            <option value="ADMIN">ADMIN — whole district</option>
+            <option value="CDPO">CDPO — one project</option>
+            <option value="SUPERVISOR">SUPERVISOR — one sector</option>
+          </select>
+          <select id="nu-project" hidden></select>
+          <select id="nu-sector" hidden></select>
+          <button id="btn-nu-add" class="btn btn-plain btn-inline">Create account</button>
+        </div>
+        <p id="nu-msg" class="msg"></p>
+      </div>
       <div id="admin-awc" class="admin-block">
         <h3>Fix an AWC's geofence</h3>
         <p class="info">Stand at the centre, pick it, press capture. Fixes the coordinates that were
@@ -313,7 +334,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.6-20260822-1210</footer>
+  <footer class="build-tag">BUILD: v4.7-20260822-1330</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

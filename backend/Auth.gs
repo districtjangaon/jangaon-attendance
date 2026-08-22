@@ -221,7 +221,10 @@ function getConfigFor_(user) {
     user: {
       id: String(user.user_id), name: String(user.name), cadre: String(user.cadre),
       project: String(user.project_code), sector: String(user.sector_code),
-      awcId: String(user.awc_id), awcName: awc ? awc.name : '', role: String(user.role)
+      awcId: String(user.awc_id), awcName: awc ? awc.name : '', role: String(user.role),
+      // The console hides the Approve/Reject buttons on this, but the server
+      // enforces it again in apiLeaveDecide_ — a hidden button is not a rule.
+      canApproveLeave: canApproveLeave_(user)
     },
     locations: geofenceCandidatesFor_(user).map(a => ({
       awc_id: a.awc_id, name: a.name, lat: a.lat, lng: a.lng, radius_m: a.radius_m

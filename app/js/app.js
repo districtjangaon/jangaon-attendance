@@ -396,11 +396,16 @@ const App = (() => {
       list.innerHTML = '';
       res.leaves.forEach(l => {
         const li = document.createElement('li');
+        // Who decided it. Applications settled before the approver was
+        // recorded say nothing rather than naming whoever holds the post now.
+        const by = l.status === 'PENDING' ? ''
+          : l.by === 'AUTO' ? ' · auto'
+            : l.byName ? ' · by ' + l.byName : '';
         li.innerHTML = '<span class="tag">' + leaveLabel(l.type) + '</span><span>' +
           l.from + (l.to !== l.from ? ' → ' + l.to : '') +
           (l.mp ? ' 📄' : '') + '</span>' +
           '<span class="' + (l.status === 'APPROVED' ? 'sync' : l.status === 'REJECTED' ? 'pend' : '') + '">' +
-          l.status + '</span>';
+          l.status + by + '</span>';
         list.appendChild(li);
       });
     } catch (e) {

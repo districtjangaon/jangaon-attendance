@@ -161,6 +161,7 @@ function apiNameMap_(auth, req) {
       n: String(u.name), p: String(u.phone), c: String(u.cadre),
       pj: String(u.project_code), sc: String(u.sector_code), a: String(u.awc_id),
       r: String(u.role), s: String(u.status),
+      la: canApproveLeave_(u) ? 1 : 0,     // may sanction leave (ADMIN only)
       pn: String(u.pin_hash || '') ? 1 : 0 // completed first login (registered)
     };
   });
@@ -270,6 +271,27 @@ function apiImportUsers_(auth, req) {
     results.push(r.error ? { name: row.name, error: r.error } : { name: row.name, userId: r.userId });
   });
   return { ok: true, results: results };
+}
+
+/**
+ * action: "setLeaveApprover"  req: { token, userId, canApprove }
+ * Grant or withdraw the right to sanction leave. ADMIN only, and an admin
+ * cannot withdraw their own right — that is how a district ends up with
+ * nobody able to approve anything.
+ */
+function apiSetLeaveApprover_(auth, req) {
+  if (auth.user.role !== 'ADMIN') return deny_();
+  const target = getUserById_(String(req.userId || ''));
+  if (!target) return { ok: false, code: 'NOT_FOUND' };
+  if (String(target.role) !== 'ADMIN') return { ok: false, code: 'NOT_ADMIN' };
+  const on = !!req.canApprove;
+  if (!on && String(target.user_id) === String(auth.userId)) {
+    return { ok: false, code: 'CANNOT_DISABLE_SELF' };
+  }
+  const old = String(target.can_approve_leave || '');
+  updateUser_(target, { can_approve_leave: on ? '1' : '0' });
+  audit_(auth.userId, 'LEAVE_APPROVER_SET', String(target.user_id), old, on ? '1' : '0');
+  return { ok: true, userId: String(target.user_id), canApprove: on };
 }
 
 function apiSetSchedules_(auth, req) {

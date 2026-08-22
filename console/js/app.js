@@ -147,6 +147,7 @@ const App = (() => {
     fillMonthControls();
     fillReportControls();
     fillRegisterControls();
+    initNewUserForm();
     fillAnalyticsControls();
     fillAwcPicker();
     await refreshAll();
@@ -904,6 +905,19 @@ const App = (() => {
     EARNED: 'Earned Leave', SICK: 'Medical Leave' };
   const LEAVE_ORDER = ['OPTIONAL', 'CASUAL', 'EARNED', 'SICK'];
 
+  /**
+   * Who sanctioned it. Applications decided before this was recorded carry no
+   * name and say so plainly — they are NOT relabelled with whoever holds the
+   * post today. 'AUTO' is the old auto-approval policy, not a person.
+   */
+  function decidedBy(l) {
+    if (l.status === 'PENDING') return '<span class="tag WARN">awaiting decision</span>';
+    if (!l.by) return '<span title="decided before the approver was recorded">not recorded</span>';
+    if (l.by === 'AUTO') return 'auto-approved (old policy)';
+    return esc(l.byName || l.by) +
+      (l.byAt ? '<br><span class="reg-sub">' + esc(String(l.byAt).slice(0, 10)) + '</span>' : '');
+  }
+
   /** Certificate cell: medical leave carries a Government certificate; every
    *  other type does not need one, so it reads '—' rather than looking wrong. */
   function certCell(l) {
@@ -930,8 +944,10 @@ const App = (() => {
       $('leaves-table').innerHTML = '<p class="info">No leave applications yet. Workers apply from the app menu.</p>';
       return;
     }
-    // Only Collector / District Admin decide; PENDING rows get both buttons.
-    const canDecide = me.role === 'ADMIN';
+    // Only Collector / District Admin decide, and only while they still hold
+    // the right. `!== false` keeps an already-open session working: the server
+    // is the authority either way, this only decides whether to draw buttons.
+    const canDecide = me.role === 'ADMIN' && me.canApproveLeave !== false;
     const actionsFor = (l, i) => {
       if (!canDecide) return '—';
       const btn = (dec, label) =>
@@ -942,14 +958,15 @@ const App = (() => {
     };
     const dayCount = l => Math.round((new Date(l.to) - new Date(l.from)) / 86400000) + 1;
     $('leaves-table').innerHTML = '<table><tr><th>Name</th><th>From</th><th>To</th><th>Days</th>' +
-      '<th>Type</th><th>Reason</th><th>Govt. certificate</th><th>Status</th><th>Applied</th><th>Action</th></tr>' +
+      '<th>Type</th><th>Reason</th><th>Govt. certificate</th><th>Status</th><th>Applied</th>' +
+      '<th>Decided by</th><th>Action</th></tr>' +
       rows.map((l, i) =>
         '<tr><td>' + esc(userName(l.u)) + '</td><td>' + esc(l.from) + '</td><td>' + esc(l.to) +
         '</td><td>' + dayCount(l) + '</td><td>' + esc(LEAVE_LABEL[l.type] || l.type) +
         '</td><td>' + esc(l.reason || '') + '</td><td>' + certCell(l) +
         '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK' : l.status === 'REJECTED' ? 'ERR' : 'WARN') +
         '">' + esc(l.status) + '</span></td><td>' + esc(String(l.at).slice(0, 10)) + '</td><td>' +
-        actionsFor(l, i) + '</td></tr>').join('') + '</table>';
+        decidedBy(l) + '</td><td>' + actionsFor(l, i) + '</td></tr>').join('') + '</table>';
     bindPhotoButtons($('leaves-table'));
     $('leaves-table').querySelectorAll('button[data-dec]').forEach(b => {
       b.onclick = async () => {
@@ -1151,7 +1168,7 @@ const App = (() => {
     if (!apps.length) { $('reg-apps').innerHTML = ''; return; }
     $('reg-apps').innerHTML = '<table><tr><th>Name</th><th>Sector</th><th>From</th><th>To</th>' +
       '<th>Days</th><th>Type</th><th>Reason</th><th>Govt. certificate</th>' +
-      '<th>Status</th><th>Applied</th></tr>' +
+      '<th>Status</th><th>Applied</th><th>Decided by</th></tr>' +
       apps.map(a => {
         const u = names.users[a.u] || {};
         return '<tr><td>' + esc(u.n || a.u) + '</td><td>' + esc(sectorName(u.sc)) +
@@ -1159,7 +1176,8 @@ const App = (() => {
           '</td><td>' + esc(LEAVE_LABEL[a.type] || a.type) + '</td><td>' + esc(a.reason || '') +
           '</td><td>' + certCell(a) + '</td><td><span class="tag ' +
           (a.status === 'APPROVED' ? 'OK' : a.status === 'REJECTED' ? 'ERR' : 'WARN') + '">' +
-          esc(a.status) + '</span></td><td>' + esc(String(a.at).slice(0, 10)) + '</td></tr>';
+          esc(a.status) + '</span></td><td>' + esc(String(a.at).slice(0, 10)) + '</td><td>' +
+          decidedBy(a) + '</td></tr>';
       }).join('') + '</table>';
     bindPhotoButtons($('reg-apps'));
   }
@@ -1187,13 +1205,13 @@ const App = (() => {
   function registerAppsCsv() {
     if (!regData) return;
     const rows = [['leave_id', 'user_id', 'name', 'sector', 'from', 'to', 'days', 'type',
-      'reason', 'status', 'applied_at', 'decided_by', 'govt_institution', 'certificate_no',
-      'certificate_photo_id']];
+      'reason', 'status', 'applied_at', 'decided_by', 'decided_by_name', 'decided_at',
+      'govt_institution', 'certificate_no', 'certificate_photo_id']];
     registerApps().forEach(a => {
       const u = names.users[a.u] || {};
       rows.push([a.id, a.u, u.n || '', sectorName(u.sc), a.from, a.to, a.days,
         LEAVE_LABEL[a.type] || a.type, a.reason || '', a.status, a.at, a.by || '',
-        a.mi || '', a.mc || '', a.mp || '']);
+        a.byName || '', a.byAt || '', a.mi || '', a.mc || '', a.mp || '']);
     });
     downloadCsv('leave-applications-' + regData.year + '.csv', rows);
   }
@@ -1680,12 +1698,13 @@ const App = (() => {
 
     const isAdmin = me.role === 'ADMIN';
     $('admin-table').innerHTML = '<table><tr><th>ID</th><th>Name</th><th>Cadre</th><th>Phone</th>' +
-      '<th>AWC / Sector</th><th>Role</th><th>Status</th><th>Login Status</th><th>Actions</th></tr>' +
+      '<th>AWC / Sector</th><th>Role</th><th>Status</th><th>Leave approval</th>' +
+      '<th>Login Status</th><th>Actions</th></tr>' +
       uids.map(uid => {
         const u = names.users[uid];
         return '<tr><td>' + esc(uid) + '</td><td>' + esc(u.n) + '</td><td>' + esc(u.c) + '</td><td>' +
           esc(u.p || 'NO PHONE') + '</td><td>' + esc(u.a ? awcName(u.a) : sectorDisplay(u.sc)) + '</td><td>' +
-          esc(u.r) + '</td><td>' + esc(u.s) + '</td><td>' +
+          esc(u.r) + '</td><td>' + esc(u.s) + '</td><td>' + leaveApprovalCell(uid, u, isAdmin) + '</td><td>' +
           (u.pn ? '<span class="tag OK">REGISTERED &amp; LOGGED</span>'
                 : '<span class="tag ERR">NOT REGISTERED</span>') + '</td><td>' +
           '<button class="btn btn-plain btn-inline" data-do="pinReset" data-uid="' + esc(uid) + '">Reset PIN</button> ' +
@@ -1700,6 +1719,21 @@ const App = (() => {
     });
   }
 
+  /**
+   * Leave sanction is separable from the ADMIN role: an officer can keep full
+   * console access with this right withdrawn. Only ADMINs can hold it at all,
+   * so everyone else reads '—' rather than an off switch that means nothing.
+   */
+  function leaveApprovalCell(uid, u, isAdmin) {
+    if (u.r !== 'ADMIN') return '—';
+    const on = u.la !== 0;
+    const tag = on ? '<span class="tag OK">CAN APPROVE</span>'
+                   : '<span class="tag ERR">WITHDRAWN</span>';
+    if (!isAdmin || uid === me.id) return tag;   // nobody withdraws their own
+    return tag + ' <button class="btn btn-plain btn-inline" data-do="leaveApprover" data-uid="' +
+      esc(uid) + '">' + (on ? 'Withdraw' : 'Grant') + '</button>';
+  }
+
   async function adminAction(what, uid) {
     const u = names.users[uid];
     if (what === 'pinReset') {
@@ -1710,6 +1744,13 @@ const App = (() => {
       if (!confirm('Unbind ' + u.n + '\'s phone? Their next login binds the new phone.')) return;
       const res = await Api.post({ action: 'deviceUnbind', token: token, userId: uid });
       alert(res.ok ? 'Device unbound.' : 'Failed: ' + res.code);
+    } else if (what === 'leaveApprover') {
+      const on = u.la !== 0;
+      if (!confirm((on ? 'Withdraw leave-sanction power from ' : 'Grant leave-sanction power to ') +
+        u.n + '?\n\nTheir other console access is unchanged.')) return;
+      const res = await Api.post({ action: 'setLeaveApprover', token: token,
+        userId: uid, canApprove: !on });
+      if (res.ok) { u.la = on ? 0 : 1; renderAdmin(); } else alert('Failed: ' + res.code);
     } else if (what === 'toggle') {
       const to = u.s === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
       if (!confirm((to === 'INACTIVE' ? 'Deactivate ' : 'Activate ') + u.n + '?')) return;
@@ -1720,6 +1761,68 @@ const App = (() => {
       });
       if (res.ok) { u.s = to; renderAdmin(); } else alert('Failed: ' + res.code);
     }
+  }
+
+  /** Create a console account. ADMIN only; the server checks that again. */
+  function initNewUserForm() {
+    const isAdmin = me.role === 'ADMIN';
+    $('admin-newuser').hidden = !isAdmin;
+    if (!isAdmin) return;
+    $('nu-project').innerHTML = (names.projects || []).map(pr =>
+      '<option value="' + esc(pr.code) + '">' + esc(pr.name) + ' (' + esc(pr.code) + ')</option>').join('');
+    $('nu-sector').innerHTML = (names.sectors || []).map(sc =>
+      '<option value="' + esc(sc.code) + '">' + esc(sc.name) + ' (' + esc(sc.code) + ')</option>').join('');
+    const sync = () => {
+      const r = $('nu-role').value;
+      $('nu-project').hidden = r !== 'CDPO';
+      $('nu-sector').hidden = r !== 'SUPERVISOR';
+    };
+    $('nu-role').onchange = sync;
+    sync();
+    $('btn-nu-add').onclick = createConsoleUser;
+  }
+
+  async function createConsoleUser() {
+    const msg = $('nu-msg');
+    msg.textContent = '';
+    const name = $('nu-name').value.trim();
+    const phone = $('nu-phone').value.replace(/\D/g, '');
+    const role = $('nu-role').value;
+    if (!name) { msg.textContent = 'Enter the officer\'s name or designation.'; return; }
+    if (!/^\d{10}$/.test(phone)) { msg.textContent = 'Enter a 10-digit mobile number.'; return; }
+
+    // A shared phone is normal for AWT+AWH pairs but never for a console
+    // officer — say so before creating a second account on the same number.
+    const clash = Object.keys(names.users).filter(id => names.users[id].p === phone);
+    if (clash.length && !confirm('This number already belongs to ' +
+      clash.map(id => names.users[id].n).join(', ') +
+      '.\n\nCreate a SEPARATE account on the same number?')) return;
+
+    const user = { name: name, phone: phone, role: role,
+      cadre: role === 'ADMIN' ? 'OTHER' : role,
+      project_code: role === 'CDPO' ? $('nu-project').value : '',
+      sector_code: role === 'SUPERVISOR' ? $('nu-sector').value : '', awc_id: '' };
+    $('btn-nu-add').disabled = true;
+    try {
+      const res = await Api.post({ action: 'userUpsert', token: token, user: user });
+      if (!res.ok) { msg.textContent = 'Failed: ' + res.code; return; }
+      msg.textContent = 'Created ' + name + ' as ' + role + ' (' + res.userId +
+        '). They log in with ' + phone + ' and set their own PIN.';
+      $('nu-name').value = '';
+      $('nu-phone').value = '';
+      await refreshNames();
+      renderAdmin();
+    } catch (e) {
+      msg.textContent = 'Could not reach the server — try again.';
+    } finally {
+      $('btn-nu-add').disabled = false;
+    }
+  }
+
+  /** Re-pull the name map so a new account appears without a full reload. */
+  async function refreshNames() {
+    const res = await Api.post({ action: 'nameMap', token: token });
+    if (res.ok) names = res;
   }
 
   function fillAwcPicker() {

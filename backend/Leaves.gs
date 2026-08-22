@@ -72,6 +72,32 @@ const OPTIONAL_HOLIDAYS = {
 };
 
 /**
+ * May this user decide leave applications?
+ *
+ * ADMIN is the approving role, but the right is separable from the role: a
+ * district officer can keep full console access and still have leave sanction
+ * withdrawn (Users & Admin -> Leave approval). Blank means the role default,
+ * so no existing row had to be touched to introduce this.
+ */
+function canApproveLeave_(u) {
+  if (!u || String(u.role) !== 'ADMIN') return false;
+  return String(u.can_approve_leave == null ? '' : u.can_approve_leave).trim() !== '0';
+}
+
+/** user_id -> display name, for the "decided by" trail. Cheap: one pass. */
+function deciderNames_(ids) {
+  const out = {};
+  ids.forEach(function (id) {
+    const key = String(id || '');
+    if (!key || out[key] !== undefined) return;
+    if (key === 'AUTO') { out[key] = 'auto-approved'; return; }
+    const u = getUserById_(key);
+    out[key] = u ? String(u.name) : key;
+  });
+  return out;
+}
+
+/**
  * Calendar days of one leave row that fall inside `year` (yyyy). A spell
  * crossing 31-Dec is charged to each year for the part that lies in it —
  * the single place this arithmetic lives, so the app's balance chips, the
@@ -241,12 +267,18 @@ function apiLeaveApply_(auth, req) {
 
 // action: "myLeaves"
 function apiMyLeaves_(auth, req) {
-  const mine = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId))
-    .slice(-20).reverse()
+  const rows = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId))
+    .slice(-20).reverse();
+  // Resolved server-side: the field app has no name map, and a worker is
+  // entitled to see WHO decided her leave, not a bare user id.
+  const who = deciderNames_(rows.map(l => l.decided_by));
+  const mine = rows
     .map(l => ({ id: String(l.leave_id), from: String(l.from_date), to: String(l.to_date),
       type: String(l.type), reason: String(l.reason), status: String(l.status),
       mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
-      mp: String(l.med_photo_id || '') }));
+      mp: String(l.med_photo_id || ''),
+      by: String(l.decided_by || ''), byName: who[String(l.decided_by || '')] || '',
+      byAt: String(l.decided_at || '') }));
   const optionalDays = Object.keys(OPTIONAL_HOLIDAYS).sort()
     .map(function (d) { return { d: d, n: OPTIONAL_HOLIDAYS[d] }; });
   return { ok: true, leaves: mine, balances: leaveBalances_(auth.userId),
@@ -259,15 +291,21 @@ function apiLeaveList_(auth, req) {
   const scope = sectorScope_(auth.user);
   const users = {};
   getUsersAll_().forEach(u => { users[String(u.user_id)] = u; });
-  const rows = getLeavesAll_().filter(l => {
+  const picked = getLeavesAll_().filter(l => {
     const u = users[String(l.user_id)];
     return u && (!scope || scope.indexOf(String(u.sector_code)) >= 0);
-  }).slice(-300).reverse().map(l => ({
+  }).slice(-300).reverse();
+  // Deciders are ADMINs with no sector, so a supervisor's scoped name map
+  // cannot resolve them — the name has to come from the server.
+  const who = deciderNames_(picked.map(l => l.decided_by));
+  const rows = picked.map(l => ({
     id: String(l.leave_id), u: String(l.user_id), from: String(l.from_date),
     to: String(l.to_date), type: String(l.type), reason: String(l.reason),
     status: String(l.status), at: String(l.applied_at),
     mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
-    mp: String(l.med_photo_id || '')
+    mp: String(l.med_photo_id || ''),
+    by: String(l.decided_by || ''), byName: who[String(l.decided_by || '')] || '',
+    byAt: String(l.decided_at || '')
   }));
   return { ok: true, leaves: rows };
 }
@@ -293,6 +331,7 @@ function apiLeaveRegister_(auth, req) {
   // (~1,400 in-scope users would otherwise be ~200 KB of mostly zeroes).
   const stat = {};
   const apps = [];
+  const who = deciderNames_(getLeavesAll_().map(function (l) { return l.decided_by; }));
   getLeavesAll_().forEach(function (l) {
     const uid = String(l.user_id);
     if (!users[uid]) return;
@@ -307,6 +346,7 @@ function apiLeaveRegister_(auth, req) {
       id: String(l.leave_id), u: uid, from: String(l.from_date), to: String(l.to_date),
       days: days, type: t, reason: String(l.reason), status: st,
       at: String(l.applied_at), by: String(l.decided_by || ''),
+      byName: who[String(l.decided_by || '')] || '', byAt: String(l.decided_at || ''),
       mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
       mp: String(l.med_photo_id || '')
     });
@@ -325,6 +365,9 @@ function apiLeaveRegister_(auth, req) {
 // Collector / District Admin only — supervisors see leaves but cannot decide.
 function apiLeaveDecide_(auth, req) {
   if (String(auth.user.role) !== 'ADMIN') return deny_();
+  // Separable from the role: an ADMIN whose leave sanction has been withdrawn
+  // keeps every other power and is told plainly why this one is refused.
+  if (!canApproveLeave_(auth.user)) return { ok: false, code: 'NOT_LEAVE_APPROVER' };
   const decision = String(req.decision || '').toUpperCase();
   if (decision !== 'APPROVED' && decision !== 'REJECTED') return { ok: false, code: 'BAD_DECISION' };
   const leave = getLeavesAll_().find(l => String(l.leave_id) === String(req.leaveId || ''));
@@ -337,5 +380,5 @@ function apiLeaveDecide_(auth, req) {
   CACHE.remove('leaves');
   audit_(auth.userId, 'LEAVE_' + decision, String(leave.leave_id),
     String(leave.status), String(req.reason || ''));
-  return { ok: true };
+  return { ok: true, by: String(auth.userId), byName: String(auth.user.name) };
 }

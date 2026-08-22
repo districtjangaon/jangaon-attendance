@@ -23,9 +23,13 @@ const PROPS = PropertiesService.getScriptProperties();
 const CACHE = CacheService.getScriptCache();
 
 // ---- sheet schemas (column order is the contract; never reorder) ----
+// can_approve_leave is APPENDED (column order is the contract). Blank means
+// "use the role default", so every existing row keeps working untouched; '0'
+// withdraws the right from an ADMIN who otherwise keeps full access, '1'
+// states it explicitly. See canApproveLeave_() in Leaves.gs.
 const USERS_H = ['user_id', 'phone', 'name', 'cadre', 'project_code', 'sector_code', 'awc_id',
   'role', 'status', 'pin_hash', 'pin_salt', 'pin_set_at', 'failed_attempts', 'locked_until',
-  'device_id', 'device_bound_at', 'created_at', 'updated_at'];
+  'device_id', 'device_bound_at', 'created_at', 'updated_at', 'can_approve_leave'];
 const AWC_H = ['awc_id', 'sector_code', 'project_code', 'name', 'lat', 'lng', 'radius_m', 'active'];
 const PROJ_H = ['project_code', 'name'];
 const SECT_H = ['sector_code', 'project_code', 'name', 'supervisor_user_id'];
