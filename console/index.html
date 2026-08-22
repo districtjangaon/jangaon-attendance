@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="vendor/leaflet.css">
   <link rel="stylesheet" href="css/console.css">
 </head>
 <body>
@@ -65,6 +66,7 @@
       <button id="tab-reports" class="tab">Reports</button>
       <button id="tab-leaves" class="tab">Leaves <span id="leaves-count" class="pill" hidden></span></button>
       <button id="tab-register" class="tab">Leave Register</button>
+      <button id="tab-map" class="tab">Map</button>
       <button id="tab-admin" class="tab" hidden>Users &amp; Admin</button>
       <button id="tab-perf" class="tab" hidden>Performance</button>
     </nav>
@@ -241,6 +243,25 @@
       <div id="reg-apps" class="tablewrap"></div>
     </section>
 
+    <!-- Map: where today's marks were actually taken -->
+    <section id="view-map" class="view" hidden>
+      <p class="info">Where today's attendance was actually marked. A <b>filled circle</b>
+        is a mark taken at that spot. A <b>ring</b> is not attendance: solid means the app
+        was opened there today, dashed means the last time that person marked anywhere was
+        an earlier date. Anyone with no location of their own is not on the map at all —
+        no office address or centre point is ever substituted.</p>
+      <div class="toolbar" id="map-chips"></div>
+      <div class="toolbar">
+        <button id="btn-map-fit" class="btn btn-plain btn-inline">Fit all</button>
+        <button id="btn-map-reload" class="btn btn-plain btn-inline">Reload</button>
+        <span id="map-when" class="info"></span>
+      </div>
+      <p id="map-tilenote" class="info" hidden></p>
+      <div id="map-canvas" class="mapwrap"></div>
+      <p class="info">Hold <b>Ctrl</b> and scroll to zoom — a plain scroll moves the page.
+        Accuracy worse than 250&nbsp;m is shown as "no fix": that is an area, not a place.</p>
+    </section>
+
     <!-- Monthly -->
     <section id="view-monthly" class="view" hidden>
       <div class="toolbar">
@@ -292,11 +313,13 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.5-20260822-1130</footer>
+  <footer class="build-tag">BUILD: v4.6-20260822-1210</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/charts.js"></script>
+  <script src="vendor/leaflet.js"></script>
+  <script src="js/map.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

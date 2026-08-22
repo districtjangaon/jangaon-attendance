@@ -67,6 +67,17 @@ function buildToday_() {
   if (!ss) return;
 
   const sh = ss.getSheetByName('Marks');
+  // The tz column was appended after this month's sheet was created. Heal the
+  // header here, in the trigger, rather than on the sync path — at most once
+  // every six hours, and never while 400 phones are writing.
+  if (!CACHE.get('marksHdr')) {
+    CACHE.put('marksHdr', '1', 21600);
+    try {
+      if (String(sh.getRange(1, MARKS_H.length).getValue()) !== MARKS_H[MARKS_H.length - 1]) {
+        sh.getRange(1, 1, 1, MARKS_H.length).setValues([MARKS_H]);
+      }
+    } catch (err) { console.error('marks header heal failed: ' + err); }
+  }
   const startRow = todayStartRow_(ss, sh, today);
   const last = sh.getLastRow();
 
@@ -218,6 +229,7 @@ function buildToday_() {
   STOCK_KEYS.forEach(k => { rpt.stock[k] = { ob: 0, used: 0, recd: 0, cb: 0 }; });
   const r1_ = v => Math.round(v * 10) / 10;
   const rptRows = []; // per-AWC detail for the console's Daily Reports tab
+  const rptGeo = [];  // the same reports, with coordinates, for the map
   const rsh = ss.getSheetByName('Reports');
   if (rsh && rsh.getLastRow() >= 2) {
     const rStart = Math.max(2, rsh.getLastRow() - 800);
@@ -245,6 +257,11 @@ function buildToday_() {
         t.ob = r1_(t.ob + vals[0]); t.used = r1_(t.used + vals[1]);
         t.recd = r1_(t.recd + vals[2]); t.cb = r1_(t.cb + vals[3]);
       });
+      rptGeo.push({ key: String(o.key), user_id: String(o.user_id),
+        sector_code: String(o.sector_code), awc_id: aid,
+        lat: o.lat, lng: o.lng, client_ts: String(o.client_ts),
+        children: Number(o.children) || 0, meals: Number(o.meals) || 0,
+        flags: String(o.flags || '') });
       rptRows.push({
         st: st,
         u: String(o.user_id), s: String(o.sector_code), a: aid,
@@ -310,6 +327,17 @@ function buildToday_() {
     users: userEntries, exceptions: exceptions
   };
   PROPS.setProperty('LAST_GEN', generatedAt);
+
+  // The map payload carries precise GPS of identifiable staff, so it is NOT
+  // committed to the public Pages repo like today.json — it goes to the
+  // private MapCache sheet and is served through an authorised call. Wrapped
+  // because a map failure must never cost the district its dashboard.
+  try {
+    writeMapCache_(buildMapDay_(today, marksByUser, users, leaveByUid, rptGeo));
+  } catch (err) {
+    console.error('map payload build failed: ' + err);
+  }
+
   ghCommit_([
     { path: 'summary/today.json', content: JSON.stringify(todayJson) },
     { path: 'summary/meta.json', content: JSON.stringify({ generatedAt: generatedAt,
@@ -391,6 +419,8 @@ function publishToday() {
 function nightlyJob() {
   const now = new Date();
   const ym = Utilities.formatDate(now, TZ, 'yyyy-MM');
+  // Seen pings are append-only; a week is all the map ever looks back.
+  try { pruneSeen_(); } catch (err) { console.error('seen prune failed: ' + err); }
   let files = buildMonthFiles_(ym, 'summary/month/', true);
   files.push(buildOrgFile_());
   files.push(buildPlacesFile_());
@@ -441,6 +471,7 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
   }
 
   const generatedAt = nowIso_();
+  const lastFixes = {};  // uid -> newest located mark, for the map's stale pins
   const bySector = {};   // sc -> uid -> dd -> {IN:{...}, OUT:{...}}
   const coordTrail = {}; // uid -> [{dd, coords}] for the static-coordinates anomaly
   const exceptions = [];
@@ -466,6 +497,16 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
 
     if (type === 'IN' && cell.gf !== 'UNVERIFIED' && o.lat !== '' && o.lng !== '') {
       (coordTrail[uid] = coordTrail[uid] || []).push({ dd: dd, c: o.lat + ',' + o.lng, sc: sc });
+    }
+    // Newest located mark wins. UNVERIFIED fixes count here: the map labels
+    // them as coarse rather than pretending the person was never anywhere.
+    if (o.lat !== '' && o.lng !== '') {
+      const fixDate = p[1].slice(0, 4) + '-' + p[1].slice(4, 6) + '-' + p[1].slice(6, 8);
+      const prev = lastFixes[uid];
+      if (!prev || fixDate >= prev.date) {
+        lastFixes[uid] = { date: fixDate, at: cell.t, lat: Number(o.lat), lng: Number(o.lng),
+          acc: o.accuracy_m === '' ? null : Number(o.accuracy_m) };
+      }
     }
     if (withExceptions && !corr && (cell.gf !== 'INSIDE' || cell.fl)) {
       exceptions.push({ key: key, u: uid, s: sc, d: p[1], t: type, at: cell.t, gf: cell.gf, fl: cell.fl, ph: cell.ph });
@@ -533,6 +574,12 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
       (sb[uid] = sb[uid] || {})[dd] = String(l.type);
     }
   });
+
+  // Only the authoritative nightly pass writes the table; the archive pass
+  // re-reads an old month and must not drag anyone's pin backwards.
+  if (withExceptions) {
+    try { writeLastFixes_(lastFixes); } catch (err) { console.error('LastFix write failed: ' + err); }
+  }
 
   const allSectors = {};
   Object.keys(bySector).forEach(sc => { allSectors[sc] = 1; });

@@ -250,6 +250,8 @@ const Api = (() => {
           sectors: scoped ? D.sectors.filter(s => scoped.indexOf(s.code) >= 0) : D.sectors
         };
       }
+      case 'mapDay':
+        return demoMapDay();
       case 'leaveList':
         return { ok: true, leaves: demoLeaveApps() };
       case 'leaveRegister': {
@@ -298,6 +300,47 @@ const Api = (() => {
         reason: 'Optional holiday', status: 'PENDING', at: new Date().toISOString(),
         mi: '', mc: '', mp: '' }
     ];
+  }
+
+  /** Demo map payload: one of every marker state, so the vocabulary can be
+   *  checked without a live district behind it. */
+  function demoMapDay() {
+    const uids = Object.keys(D.users).filter(id => D.users[id].r === 'FIELD');
+    const at = (i) => [17.60 + (i % 9) * 0.045, 79.00 + (i % 7) * 0.055];
+    const present = [], absent = [], onLeave = [], filed = [];
+    uids.forEach((id, i) => {
+      const u = D.users[id];
+      const c = at(i);
+      // Deterministic spread so every marker state is present in demo mode,
+      // whatever the demo roster size happens to be.
+      const bucket = i % 6;
+      if (bucket === 0) {
+        absent.push({ id: id, role: u.r, unit: u.a, s: u.sc, lat: c[0], lng: c[1],
+          acc: 40, seenAt: i % 12 === 0 ? '09:14' : '',
+          lastDate: i % 12 === 0 ? '' : dYm() + '-11' });
+      } else if (bucket === 1) {
+        onLeave.push({ id: id, role: u.r, unit: u.a, s: u.sc, lat: c[0], lng: c[1],
+          acc: 60, lv: 'CASUAL', seenAt: '', lastDate: dYm() + '-09' });
+      } else {
+        const doubtful = bucket === 2;
+        const coarse = bucket === 3;
+        present.push({ id: id, role: u.r, unit: u.a, s: u.sc, at: '09:0' + (i % 9),
+          lat: c[0], lng: c[1], acc: doubtful ? 900 : coarse ? 400 : 18,
+          verified: !doubtful && !coarse, tz: 'Asia/Kolkata', gf: 'INSIDE', fl: '',
+          marks: i % 3 === 0 ? 2 : 1,
+          doubts: doubtful ? ['accuracy is 900 m, worse than the 250 m limit'] : [] });
+      }
+    });
+    Object.keys(D.awcs).slice(0, 6).forEach((aid, i) => {
+      const a = D.awcs[aid], c = at(i + 2);
+      filed.push({ id: 'RPT' + i, unit: aid, s: a.sc, lat: c[0], lng: c[1], at: '11:2' + i,
+        children: 20 + i, meals: 18 + i, flag: i === 1 ? 'NO_PHOTO_MEAL' : '',
+        grade: i === 1 ? 'FLAGGED' : 'COMPLETE', date: dToday() });
+    });
+    return { ok: true, generatedAt: new Date().toISOString(), date: dToday(),
+      box: { minLat: 17.45, maxLat: 18.06, minLng: 78.67, maxLng: 79.60 },
+      centre: { lat: 17.7566, lng: 79.1361, zoom: 10 }, accLimit: 250,
+      present: present, onLeave: onLeave, absent: absent, filed: filed };
   }
 
   function demoPhoto() {

@@ -35,11 +35,13 @@ function doPost(e) {
       myIssues: apiMyIssues_,
       resolveIssue: apiResolveIssue_,
       appMode: apiAppMode_,
+      seenPing: apiSeenPing_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,
       leaveList: apiLeaveList_,
       leaveRegister: apiLeaveRegister_,
+      mapDay: apiMapDay_,
       leaveDecide: apiLeaveDecide_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,

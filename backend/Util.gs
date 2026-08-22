@@ -42,8 +42,19 @@ const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', '
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
   'lat', 'lng', 'accuracy_m', 'geofence', 'awc_id', 'distance_m', 'photo_id',
-  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags'];
+  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
+// Seen pings: one per person per working day, written when the app is opened
+// without a mark following. APPEND-ONLY and pruned nightly to 7 days — see
+// Map.gs for why an in-place upsert is the wrong shape at this peak load.
+const SEEN_H = ['date', 'user_id', 'at', 'lat', 'lng', 'accuracy_m', 'received_at'];
+// Last located mark per person, rebuilt by the nightly job from the month it
+// already reads. Feeds the map's "last marked here on dd.mm.yyyy" pins.
+const LASTFIX_H = ['user_id', 'date', 'at', 'lat', 'lng', 'accuracy_m'];
+// The map payload, pre-computed by the summary trigger and served to the
+// console through an authorised call. Chunked because one cell holds 50,000
+// characters and the district payload is bigger than that.
+const MAPCACHE_H = ['date', 'chunk', 'payload'];
 // New columns are APPENDED only (column order is the contract): the
 // pregnant/others photos and the stock tracker landed after first ship.
 const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',
@@ -74,6 +85,15 @@ const TOKEN_DAYS = 30;            // session lifetime
 const LOCKOUT_AFTER = 5;          // failed PINs before lockout
 const LOCKOUT_MIN = 15;           // lockout duration
 const GPS_UNVERIFIED_ACC_M = 250; // accuracy worse than this => UNVERIFIED
+// District bounding box, derived from the 691 AWC coordinates in the register
+// (extent 17.4994-18.0138 N, 78.7191-79.5531 E) padded ~5 km on every side.
+// A fix outside this box did not happen in Jangaon district.
+const DISTRICT_BOX = { minLat: 17.45, maxLat: 18.06, minLng: 78.67, maxLng: 79.60 };
+const DISTRICT_CENTRE = { lat: 17.7566, lng: 79.1361, zoom: 10 };
+// Both spellings are correct and in the wild: Android devices with older ICU
+// data (and Chromium itself) still report the legacy 'Asia/Calcutta' alias for
+// the same zone. Treating that as a foreign clock would flag honest marks.
+const EXPECTED_TZ = ['Asia/Kolkata', 'Asia/Calcutta'];
 const OUT_EARLIEST_HM = '16:00'; // district rule 2026-08-20: no OUT before 4 PM
 const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
 // coordinates and consumer GPS aren't precise enough for tighter fences —

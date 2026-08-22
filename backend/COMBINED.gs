@@ -53,8 +53,19 @@ const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', '
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
   'lat', 'lng', 'accuracy_m', 'geofence', 'awc_id', 'distance_m', 'photo_id',
-  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags'];
+  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
+// Seen pings: one per person per working day, written when the app is opened
+// without a mark following. APPEND-ONLY and pruned nightly to 7 days — see
+// Map.gs for why an in-place upsert is the wrong shape at this peak load.
+const SEEN_H = ['date', 'user_id', 'at', 'lat', 'lng', 'accuracy_m', 'received_at'];
+// Last located mark per person, rebuilt by the nightly job from the month it
+// already reads. Feeds the map's "last marked here on dd.mm.yyyy" pins.
+const LASTFIX_H = ['user_id', 'date', 'at', 'lat', 'lng', 'accuracy_m'];
+// The map payload, pre-computed by the summary trigger and served to the
+// console through an authorised call. Chunked because one cell holds 50,000
+// characters and the district payload is bigger than that.
+const MAPCACHE_H = ['date', 'chunk', 'payload'];
 // New columns are APPENDED only (column order is the contract): the
 // pregnant/others photos and the stock tracker landed after first ship.
 const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',
@@ -85,6 +96,15 @@ const TOKEN_DAYS = 30;            // session lifetime
 const LOCKOUT_AFTER = 5;          // failed PINs before lockout
 const LOCKOUT_MIN = 15;           // lockout duration
 const GPS_UNVERIFIED_ACC_M = 250; // accuracy worse than this => UNVERIFIED
+// District bounding box, derived from the 691 AWC coordinates in the register
+// (extent 17.4994-18.0138 N, 78.7191-79.5531 E) padded ~5 km on every side.
+// A fix outside this box did not happen in Jangaon district.
+const DISTRICT_BOX = { minLat: 17.45, maxLat: 18.06, minLng: 78.67, maxLng: 79.60 };
+const DISTRICT_CENTRE = { lat: 17.7566, lng: 79.1361, zoom: 10 };
+// Both spellings are correct and in the wild: Android devices with older ICU
+// data (and Chromium itself) still report the legacy 'Asia/Calcutta' alias for
+// the same zone. Treating that as a foreign clock would flag honest marks.
+const EXPECTED_TZ = ['Asia/Kolkata', 'Asia/Calcutta'];
 const OUT_EARLIEST_HM = '16:00'; // district rule 2026-08-20: no OUT before 4 PM
 const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
 // coordinates and consumer GPS aren't precise enough for tighter fences —
@@ -854,7 +874,7 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
     String(rec.clientTs || ''), fmtIso_(serverMs), skewSec,
     lat, lng, acc, gf.status, gf.awcId, gf.dist, it.photoId,
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
-    syncDelay, flags.join(',')
+    syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40)
   ];
 }
 
@@ -1849,6 +1869,381 @@ function apiLeaveDecide_(auth, req) {
 }
 
 ///////////////////////////////////////////////////////////////////////////
+//  Map.gs
+///////////////////////////////////////////////////////////////////////////
+
+/**
+ * Map.gs — the live district map: seen pings, last-known fixes, and the
+ * pre-computed payload the console draws.
+ *
+ * This is a record used to act against people. A pin that overstates what is
+ * known accuses someone of something they did not do, so every position on
+ * the map is one of exactly three things and says which:
+ *
+ *   1. a mark taken today, at the place it was taken;
+ *   2. a seen ping — "the app was opened here at HH:MM today", never
+ *      presented as attendance;
+ *   3. the person's last located mark, dated — "last marked here on
+ *      dd.mm.yyyy".
+ *
+ * There is no fourth case. An AWC centroid, a sector office, a unit address:
+ * none of these are ever used to place a person. Someone with no coordinates
+ * of their own simply does not appear on the map.
+ *
+ * WHERE THE PAYLOAD LIVES. today.json is committed to a PUBLIC GitHub Pages
+ * repo, which is why it is pseudonymous — ids, never names. Precise GPS of
+ * identifiable government employees must not go there at all, so the map
+ * payload is written to the MapCache sheet in the private master spreadsheet
+ * and served through an authorised, scope-checked call instead. The console
+ * still never touches the raw attendance sheet: buildMapDay_ runs inside the
+ * summary trigger that has already read today's marks, and apiMapDay_ only
+ * reads back the finished blob.
+ */
+
+// ---- seen pings -----------------------------------------------------------
+
+/**
+ * APPEND-ONLY, deliberately.
+ *
+ * The obvious shape is one row per person per day updated in place. At this
+ * district's load that means up to 400 read-modify-write cycles inside the
+ * same 45-minute window as the marking peak, each holding the script lock
+ * while it searches for its own row — the exact contention this system is
+ * built to avoid. Appending is a single unlocked write; the read path keeps
+ * the latest ping per person per day, and pruneSeen_() drops anything older
+ * than a week each night, so the sheet stays around 7,000 rows.
+ */
+function seenSheet_() {
+  const ss = masterSS_();
+  let sh = ss.getSheetByName('Seen');
+  if (!sh) {
+    sh = ss.insertSheet('Seen');
+    sh.getRange(1, 1, 1, SEEN_H.length).setValues([SEEN_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), SEEN_H.length).setNumberFormat('@');
+  }
+  return sh;
+}
+
+// action: "seenPing"  req: { token, lat, lng, acc, at }
+// Sent once per person per working day when the app is opened. It is NOT
+// attendance and is never counted as any: it exists so the map can say where
+// an unmarked person's phone was TODAY instead of showing last week's pin.
+function apiSeenPing_(auth, req) {
+  const today = fmtDay_(Date.now());
+  // One ping per person per day is all that is useful. The client also holds
+  // a per-day guard, but a reinstall or a second device would defeat that,
+  // so the server keeps its own cheap cache guard.
+  const guard = 'seen_' + today + '_' + auth.userId;
+  if (CACHE.get(guard)) return { ok: true, deduped: true };
+
+  const lat = numOrBlank_(req.lat);
+  const lng = numOrBlank_(req.lng);
+  const acc = numOrBlank_(req.acc);
+  if (lat === '' || lng === '') return { ok: false, code: 'NO_FIX' };
+
+  seenSheet_().appendRow([today, String(auth.userId), String(req.at || nowIso_()),
+    Number(Number(lat).toFixed(6)), Number(Number(lng).toFixed(6)),
+    acc === '' ? '' : Math.round(acc), nowIso_()]);
+  CACHE.put(guard, '1', 21600);
+  return { ok: true };
+}
+
+function numOrBlank_(v) {
+  if (v == null || v === '') return '';
+  const n = Number(v);
+  return isFinite(n) ? n : '';
+}
+
+/** Latest ping per user for one date: { uid -> {at, lat, lng, acc} }. */
+function seenForDate_(date) {
+  const sh = seenSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return {};
+  const vals = sh.getRange(2, 1, last - 1, SEEN_H.length).getValues();
+  const out = {};
+  for (const v of vals) {
+    const o = rowToObj_(SEEN_H, v);
+    if (String(o.date) !== date) continue;
+    if (o.lat === '' || o.lng === '') continue;
+    const uid = String(o.user_id);
+    // Later rows win: the newest ping of the day is the honest one.
+    if (!out[uid] || String(o.at) >= String(out[uid].at)) {
+      out[uid] = { at: String(o.at), lat: Number(o.lat), lng: Number(o.lng),
+        acc: o.accuracy_m === '' ? null : Number(o.accuracy_m) };
+    }
+  }
+  return out;
+}
+
+/** Nightly: keep a week of pings, drop the rest. Called from nightlyJob(). */
+function pruneSeen_() {
+  const sh = seenSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  const cutoff = fmtDay_(Date.now() - 7 * 86400000);
+  const dates = sh.getRange(2, 1, last - 1, 1).getValues();
+  // Rows are appended in date order, so everything to drop is a leading block.
+  let keepFrom = 0;
+  while (keepFrom < dates.length && String(dates[keepFrom][0]) < cutoff) keepFrom++;
+  if (keepFrom > 0) sh.deleteRows(2, keepFrom);
+  return keepFrom;
+}
+
+// ---- last located mark ----------------------------------------------------
+
+function lastFixSheet_() {
+  const ss = masterSS_();
+  let sh = ss.getSheetByName('LastFix');
+  if (!sh) {
+    sh = ss.insertSheet('LastFix');
+    sh.getRange(1, 1, 1, LASTFIX_H.length).setValues([LASTFIX_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), LASTFIX_H.length).setNumberFormat('@');
+  }
+  return sh;
+}
+
+/**
+ * Rewrite the whole LastFix table. Called from the nightly job, which has
+ * already read the month's marks — deriving it there costs nothing extra,
+ * whereas maintaining it on the sync path would add a write per mark.
+ * `fixes` is { uid -> {date, at, lat, lng, acc} }; existing entries survive
+ * unless the month supplies something newer.
+ */
+function writeLastFixes_(fixes) {
+  const sh = lastFixSheet_();
+  const last = sh.getLastRow();
+  const merged = {};
+  if (last >= 2) {
+    sh.getRange(2, 1, last - 1, LASTFIX_H.length).getValues().forEach(function (v) {
+      const o = rowToObj_(LASTFIX_H, v);
+      if (!o.user_id) return;
+      merged[String(o.user_id)] = { date: String(o.date), at: String(o.at),
+        lat: Number(o.lat), lng: Number(o.lng),
+        acc: o.accuracy_m === '' ? null : Number(o.accuracy_m) };
+    });
+  }
+  Object.keys(fixes).forEach(function (uid) {
+    const f = fixes[uid];
+    const cur = merged[uid];
+    if (!cur || String(f.date) >= String(cur.date)) merged[uid] = f;
+  });
+
+  const uids = Object.keys(merged).sort();
+  const rows = uids.map(function (uid) {
+    const f = merged[uid];
+    return [uid, f.date, f.at, f.lat, f.lng, f.acc == null ? '' : f.acc];
+  });
+  if (last >= 2) sh.getRange(2, 1, last - 1, LASTFIX_H.length).clearContent();
+  if (rows.length) sh.getRange(2, 1, rows.length, LASTFIX_H.length).setValues(rows);
+  return rows.length;
+}
+
+function readLastFixes_() {
+  const sh = lastFixSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return {};
+  const out = {};
+  sh.getRange(2, 1, last - 1, LASTFIX_H.length).getValues().forEach(function (v) {
+    const o = rowToObj_(LASTFIX_H, v);
+    if (!o.user_id || o.lat === '' || o.lng === '') return;
+    out[String(o.user_id)] = { date: String(o.date), at: String(o.at),
+      lat: Number(o.lat), lng: Number(o.lng),
+      acc: o.accuracy_m === '' ? null : Number(o.accuracy_m) };
+  });
+  return out;
+}
+
+// ---- trustworthiness ------------------------------------------------------
+
+/**
+ * Why a fix should not be believed, in the plain words the popup prints.
+ * Returns [] when nothing is wrong. Accuracy is re-derived from the stored
+ * raw metres here — never from anything the client asserted.
+ */
+function fixDoubts_(lat, lng, acc, tz) {
+  const out = [];
+  if (lat < DISTRICT_BOX.minLat || lat > DISTRICT_BOX.maxLat ||
+      lng < DISTRICT_BOX.minLng || lng > DISTRICT_BOX.maxLng) {
+    out.push('the fix falls outside Jangaon district');
+  }
+  if (acc == null) out.push('the phone reported no accuracy figure');
+  else if (acc > GPS_UNVERIFIED_ACC_M) {
+    out.push('accuracy is ' + Math.round(acc) + ' m, worse than the ' +
+      GPS_UNVERIFIED_ACC_M + ' m limit');
+  }
+  if (tz && EXPECTED_TZ.indexOf(tz) < 0) out.push('the phone clock is set to ' + tz);
+  return out;
+}
+
+// ---- payload --------------------------------------------------------------
+
+/**
+ * Build the map payload for `date` from data the caller already holds.
+ *
+ * marksByUser: uid -> { IN: markRow, OUT: markRow }   (today's rows)
+ * users:       the ACTIVE FIELD + SUPERVISOR list the summary already built
+ * leaveByUid:  uid -> leave type, for approved leave covering today
+ * rptRows:     today's daily reports (may be empty)
+ *
+ * Pseudonymous by construction: ids, sector and AWC codes only. The console
+ * resolves names through the authenticated nameMap call, exactly as it does
+ * for every other summary.
+ */
+function buildMapDay_(date, marksByUser, users, leaveByUid, rptRows) {
+  const seen = seenForDate_(date);
+  const lastFix = readLastFixes_();
+
+  const present = [], onLeave = [], absent = [], filed = [];
+
+  users.forEach(function (u) {
+    const uid = String(u.user_id);
+    const sc = primarySector_(u);
+    const base = { id: uid, role: String(u.role), unit: String(u.awc_id), s: sc };
+    const recs = marksByUser[uid] || {};
+    // The IN mark places the person; OUT only tells us they marked twice.
+    const m = recs.IN || recs.OUT || null;
+    const hasFix = m && m.lat !== '' && m.lng !== '';
+
+    if (hasFix) {
+      const lat = Number(m.lat), lng = Number(m.lng);
+      const acc = m.accuracy_m === '' ? null : Number(m.accuracy_m);
+      const tz = String(m.tz || '');
+      const doubts = fixDoubts_(lat, lng, acc, tz);
+      present.push(Object.assign({}, base, {
+        at: String(m.client_ts).slice(11, 16),
+        lat: lat, lng: lng, acc: acc,
+        verified: acc != null && acc <= GPS_UNVERIFIED_ACC_M,
+        tz: tz, gf: String(m.geofence), fl: String(m.flags || ''),
+        marks: (recs.IN ? 1 : 0) + (recs.OUT ? 1 : 0),
+        doubts: doubts
+      }));
+      return;
+    }
+    if (m) return; // marked, but with no coordinates at all: nothing to place
+
+    // Not marked. Sanctioned leave is not absence — read the register before
+    // colouring anyone, or a festival day paints every approved officer red.
+    const place = placeUnmarked_(uid, seen, lastFix);
+    if (!place) return;                       // no coordinates of their own
+    const row = Object.assign({}, base, place);
+    if (leaveByUid[uid]) {
+      row.lv = String(leaveByUid[uid]);
+      onLeave.push(row);
+    } else {
+      absent.push(row);
+    }
+  });
+
+  (rptRows || []).forEach(function (r) {
+    if (r.lat === '' || r.lng === '' || r.lat == null || r.lng == null) return;
+    filed.push({
+      id: String(r.key || ''), unit: String(r.awc_id || ''), s: String(r.sector_code || ''),
+      lat: Number(r.lat), lng: Number(r.lng),
+      at: String(r.client_ts || '').slice(11, 16),
+      children: Number(r.children) || 0, meals: Number(r.meals) || 0,
+      flag: String(r.flags || ''),
+      grade: String(r.flags || '') ? 'FLAGGED' : 'COMPLETE',
+      date: date
+    });
+  });
+
+  return {
+    generatedAt: nowIso_(), date: date,
+    box: DISTRICT_BOX, centre: DISTRICT_CENTRE, accLimit: GPS_UNVERIFIED_ACC_M,
+    present: present, onLeave: onLeave, absent: absent, filed: filed
+  };
+}
+
+/** Today's ping first, then the last located mark, then nothing. */
+function placeUnmarked_(uid, seen, lastFix) {
+  const s = seen[uid];
+  if (s) {
+    return { lat: s.lat, lng: s.lng, acc: s.acc,
+      seenAt: String(s.at).slice(11, 16), lastDate: '' };
+  }
+  const f = lastFix[uid];
+  if (f) {
+    return { lat: f.lat, lng: f.lng, acc: f.acc, seenAt: '', lastDate: String(f.date) };
+  }
+  return null;
+}
+
+// ---- cache sheet ----------------------------------------------------------
+
+function mapCacheSheet_() {
+  const ss = masterSS_();
+  let sh = ss.getSheetByName('MapCache');
+  if (!sh) {
+    sh = ss.insertSheet('MapCache');
+    sh.getRange(1, 1, 1, MAPCACHE_H.length).setValues([MAPCACHE_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), MAPCACHE_H.length).setNumberFormat('@');
+  }
+  return sh;
+}
+
+const MAP_CHUNK = 45000; // a Sheets cell holds 50,000 characters
+
+function writeMapCache_(payload) {
+  const json = JSON.stringify(payload);
+  const chunks = [];
+  for (let i = 0; i < json.length; i += MAP_CHUNK) chunks.push(json.slice(i, i + MAP_CHUNK));
+  const sh = mapCacheSheet_();
+  const last = sh.getLastRow();
+  if (last >= 2) sh.getRange(2, 1, last - 1, MAPCACHE_H.length).clearContent();
+  const rows = chunks.map(function (c, i) { return [payload.date, String(i), c]; });
+  if (rows.length) sh.getRange(2, 1, rows.length, MAPCACHE_H.length).setValues(rows);
+  // Short-lived memory copy so back-to-back console opens skip the sheet.
+  try { CACHE.put('mapday', json.length < 95000 ? json : '', 600); } catch (e) { /* size */ }
+  return { chunks: rows.length, bytes: json.length };
+}
+
+function readMapCache_() {
+  const hot = CACHE.get('mapday');
+  if (hot) {
+    try { return JSON.parse(hot); } catch (e) { /* fall through to the sheet */ }
+  }
+  const sh = mapCacheSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return null;
+  const vals = sh.getRange(2, 1, last - 1, MAPCACHE_H.length).getValues();
+  const parts = vals.slice()
+    .sort(function (a, b) { return Number(a[1]) - Number(b[1]); })
+    .map(function (v) { return String(v[2]); });
+  try { return JSON.parse(parts.join('')); } catch (e) { return null; }
+}
+
+// ---- the console call -----------------------------------------------------
+
+// action: "mapDay"  req: { token }
+// Serves the pre-computed payload, filtered to the caller's own scope on the
+// server. A supervisor must not reach another cluster's positions by editing
+// a request parameter, so the filtering happens here and not in the browser.
+function apiMapDay_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const payload = readMapCache_();
+  if (!payload) return { ok: false, code: 'NOT_BUILT' };
+
+  const scope = sectorScope_(auth.user);
+  if (!scope) return Object.assign({ ok: true }, payload);
+
+  const keep = function (arr) {
+    return (arr || []).filter(function (r) { return scope.indexOf(String(r.s)) >= 0; });
+  };
+  return Object.assign({}, payload, { ok: true,
+    present: keep(payload.present), onLeave: keep(payload.onLeave),
+    absent: keep(payload.absent), filed: keep(payload.filed) });
+}
+
+/** Owner-run: rebuild the map payload now, without waiting for a tick. */
+function publishMap() {
+  buildToday_();
+  const p = readMapCache_();
+  console.log(p ? 'map ' + p.date + ': present ' + p.present.length +
+    ', leave ' + p.onLeave.length + ', absent ' + p.absent.length +
+    ', filed ' + p.filed.length : 'map not built');
+}
+
+///////////////////////////////////////////////////////////////////////////
 //  Summary.gs
 ///////////////////////////////////////////////////////////////////////////
 
@@ -1921,6 +2316,17 @@ function buildToday_() {
   if (!ss) return;
 
   const sh = ss.getSheetByName('Marks');
+  // The tz column was appended after this month's sheet was created. Heal the
+  // header here, in the trigger, rather than on the sync path — at most once
+  // every six hours, and never while 400 phones are writing.
+  if (!CACHE.get('marksHdr')) {
+    CACHE.put('marksHdr', '1', 21600);
+    try {
+      if (String(sh.getRange(1, MARKS_H.length).getValue()) !== MARKS_H[MARKS_H.length - 1]) {
+        sh.getRange(1, 1, 1, MARKS_H.length).setValues([MARKS_H]);
+      }
+    } catch (err) { console.error('marks header heal failed: ' + err); }
+  }
   const startRow = todayStartRow_(ss, sh, today);
   const last = sh.getLastRow();
 
@@ -2072,6 +2478,7 @@ function buildToday_() {
   STOCK_KEYS.forEach(k => { rpt.stock[k] = { ob: 0, used: 0, recd: 0, cb: 0 }; });
   const r1_ = v => Math.round(v * 10) / 10;
   const rptRows = []; // per-AWC detail for the console's Daily Reports tab
+  const rptGeo = [];  // the same reports, with coordinates, for the map
   const rsh = ss.getSheetByName('Reports');
   if (rsh && rsh.getLastRow() >= 2) {
     const rStart = Math.max(2, rsh.getLastRow() - 800);
@@ -2099,6 +2506,11 @@ function buildToday_() {
         t.ob = r1_(t.ob + vals[0]); t.used = r1_(t.used + vals[1]);
         t.recd = r1_(t.recd + vals[2]); t.cb = r1_(t.cb + vals[3]);
       });
+      rptGeo.push({ key: String(o.key), user_id: String(o.user_id),
+        sector_code: String(o.sector_code), awc_id: aid,
+        lat: o.lat, lng: o.lng, client_ts: String(o.client_ts),
+        children: Number(o.children) || 0, meals: Number(o.meals) || 0,
+        flags: String(o.flags || '') });
       rptRows.push({
         st: st,
         u: String(o.user_id), s: String(o.sector_code), a: aid,
@@ -2164,6 +2576,17 @@ function buildToday_() {
     users: userEntries, exceptions: exceptions
   };
   PROPS.setProperty('LAST_GEN', generatedAt);
+
+  // The map payload carries precise GPS of identifiable staff, so it is NOT
+  // committed to the public Pages repo like today.json — it goes to the
+  // private MapCache sheet and is served through an authorised call. Wrapped
+  // because a map failure must never cost the district its dashboard.
+  try {
+    writeMapCache_(buildMapDay_(today, marksByUser, users, leaveByUid, rptGeo));
+  } catch (err) {
+    console.error('map payload build failed: ' + err);
+  }
+
   ghCommit_([
     { path: 'summary/today.json', content: JSON.stringify(todayJson) },
     { path: 'summary/meta.json', content: JSON.stringify({ generatedAt: generatedAt,
@@ -2245,6 +2668,8 @@ function publishToday() {
 function nightlyJob() {
   const now = new Date();
   const ym = Utilities.formatDate(now, TZ, 'yyyy-MM');
+  // Seen pings are append-only; a week is all the map ever looks back.
+  try { pruneSeen_(); } catch (err) { console.error('seen prune failed: ' + err); }
   let files = buildMonthFiles_(ym, 'summary/month/', true);
   files.push(buildOrgFile_());
   files.push(buildPlacesFile_());
@@ -2295,6 +2720,7 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
   }
 
   const generatedAt = nowIso_();
+  const lastFixes = {};  // uid -> newest located mark, for the map's stale pins
   const bySector = {};   // sc -> uid -> dd -> {IN:{...}, OUT:{...}}
   const coordTrail = {}; // uid -> [{dd, coords}] for the static-coordinates anomaly
   const exceptions = [];
@@ -2320,6 +2746,16 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
 
     if (type === 'IN' && cell.gf !== 'UNVERIFIED' && o.lat !== '' && o.lng !== '') {
       (coordTrail[uid] = coordTrail[uid] || []).push({ dd: dd, c: o.lat + ',' + o.lng, sc: sc });
+    }
+    // Newest located mark wins. UNVERIFIED fixes count here: the map labels
+    // them as coarse rather than pretending the person was never anywhere.
+    if (o.lat !== '' && o.lng !== '') {
+      const fixDate = p[1].slice(0, 4) + '-' + p[1].slice(4, 6) + '-' + p[1].slice(6, 8);
+      const prev = lastFixes[uid];
+      if (!prev || fixDate >= prev.date) {
+        lastFixes[uid] = { date: fixDate, at: cell.t, lat: Number(o.lat), lng: Number(o.lng),
+          acc: o.accuracy_m === '' ? null : Number(o.accuracy_m) };
+      }
     }
     if (withExceptions && !corr && (cell.gf !== 'INSIDE' || cell.fl)) {
       exceptions.push({ key: key, u: uid, s: sc, d: p[1], t: type, at: cell.t, gf: cell.gf, fl: cell.fl, ph: cell.ph });
@@ -2387,6 +2823,12 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
       (sb[uid] = sb[uid] || {})[dd] = String(l.type);
     }
   });
+
+  // Only the authoritative nightly pass writes the table; the archive pass
+  // re-reads an old month and must not drag anyone's pin backwards.
+  if (withExceptions) {
+    try { writeLastFixes_(lastFixes); } catch (err) { console.error('LastFix write failed: ' + err); }
+  }
 
   const allSectors = {};
   Object.keys(bySector).forEach(sc => { allSectors[sc] = 1; });
@@ -3153,11 +3595,13 @@ function doPost(e) {
       myIssues: apiMyIssues_,
       resolveIssue: apiResolveIssue_,
       appMode: apiAppMode_,
+      seenPing: apiSeenPing_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,
       leaveList: apiLeaveList_,
       leaveRegister: apiLeaveRegister_,
+      mapDay: apiMapDay_,
       leaveDecide: apiLeaveDecide_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,

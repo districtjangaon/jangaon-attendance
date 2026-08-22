@@ -135,6 +135,23 @@ never upload them anywhere, never commit them to GitHub.** The project's
   verification, photo link and timings. For an older month run it as
   `buildRegister('2026-07')` from a temporary function or keep the tab from
   month-end. File → Download → Excel for offline use.
+- **Map**: console → Map shows where today's marks were actually taken. Read
+  the shapes, not just the colours — a **filled circle** is a mark taken at
+  that spot; a **ring** is not attendance at all. A solid ring means the app
+  was opened there today; a dashed ring means the last time that person marked
+  anywhere was an earlier date, printed in the popup. Anyone with no location
+  of their own is simply absent from the map: no office address or centre
+  point is ever substituted, so **"not on the map" never means "not at work"**.
+  "No fix" means accuracy worse than 250 m — an area, not a place, and not
+  evidence of anything. Hold Ctrl and scroll to zoom.
+  The payload is built by the same trigger that refreshes the dashboard, so it
+  is as fresh as the staleness banner says. Unlike the other summaries it is
+  **not** published to the public Pages repo — it carries precise GPS of named
+  staff, so it is kept in the private `MapCache` tab and served only to a
+  logged-in console user, scoped to their own sectors.
+  Three tabs appear in ATTENDANCE_MASTER on first run and need no maintenance:
+  `Seen` (one row per person per day, pruned to 7 days each night), `LastFix`
+  (last located mark per person, rebuilt nightly) and `MapCache`.
 - **Trigger failure emails** from Google land in the department inbox — read
   them; the capacity doc's "what breaks first" section says what to do.
 

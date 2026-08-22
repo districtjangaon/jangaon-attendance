@@ -233,6 +233,18 @@ body.dark .mgrid td.d-leave { background: #1a1f3a; color: #aab4ff; }
 .crumb { font-size: 14px; font-weight: 600; color: var(--primary-dark); }
 .crumb a { color: var(--primary); cursor: pointer; text-decoration: underline; }
 
+.mapwrap { height: 62vh; min-height: 380px; border: 1px solid var(--line);
+  border-radius: 12px; overflow: hidden; background: var(--surface); }
+/* Leaflet's overlay pane IS an svg. Any global svg sizing rule added to this
+   stylesheet later would silently misplace every vector pin, so pin the width
+   back here rather than discovering it again the hard way. */
+.leaflet-container svg { width: auto; }
+.leaflet-container { font: inherit; }
+.map-chip { border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+.map-chip.sel { border-color: var(--primary); color: var(--primary); font-weight: 600; }
+.map-chip b { font-family: var(--font-mono); margin-left: 6px; color: inherit; }
+
 .tablewrap { overflow-x: auto; }
 
 /* Leave Register: the per-type header carries a 'taken . pending . balance'

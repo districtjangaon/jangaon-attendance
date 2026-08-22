@@ -962,6 +962,58 @@ const App = (() => {
     });
   }
 
+  // ---------------- Map ----------------
+  // The payload is pre-computed by the summary trigger and served through an
+  // authorised call — it holds precise GPS of identifiable staff and so is
+  // deliberately NOT among the public summary files the rest of this console
+  // reads. Scope filtering happens server-side.
+  let mapLoaded = false;
+
+  const MAP_CHIPS = [
+    { k: 'all', label: 'Everything', c: 'all' },
+    { k: 'present', label: 'Present', c: 'present' },
+    { k: 'doubt', label: 'Not trustworthy', c: 'doubt' },
+    { k: 'nofix', label: 'No fix', c: 'nofix' },
+    { k: 'unmarked', label: 'Not marked', c: 'unmarked' },
+    { k: 'filed', label: 'Filed', c: 'filed' }
+  ];
+
+  function renderMapChips() {
+    const n = DistrictMap.counts();
+    const cur = DistrictMap.getFilter();
+    $('map-chips').innerHTML = MAP_CHIPS.map(ch =>
+      '<button class="map-chip' + (ch.k === cur ? ' sel' : '') + '" data-f="' + ch.k + '">' +
+      esc(ch.label) + '<b>' + (n[ch.c] || 0) + '</b></button>').join('');
+    $('map-chips').querySelectorAll('button[data-f]').forEach(b => {
+      b.onclick = () => {
+        DistrictMap.setFilter(b.dataset.f, mapNameOf, mapUnitOf);
+        renderMapChips();
+      };
+    });
+  }
+
+  const mapNameOf = uid => (names.users[uid] && names.users[uid].n) || uid;
+  const mapUnitOf = aid => (names.awcs[aid] && names.awcs[aid].n) || aid;
+
+  async function loadMap() {
+    $('map-when').textContent = 'Loading…';
+    const res = await Api.post({ action: 'mapDay', token: token });
+    if (!res.ok) {
+      if (['AUTH', 'EXPIRED', 'REVOKED'].indexOf(res.code) >= 0) { authLost(); return; }
+      $('map-when').textContent = res.code === 'NOT_BUILT'
+        ? 'The map has not been built yet today — it is produced by the same job that refreshes the dashboard.'
+        : 'Could not load the map (' + res.code + ').';
+      return;
+    }
+    mapLoaded = true;
+    DistrictMap.render($('map-canvas'), res, mapNameOf, mapUnitOf);
+    renderMapChips();
+    const n = DistrictMap.counts();
+    $('map-when').textContent = 'As of ' + String(res.generatedAt || '').slice(11, 16) +
+      ' · ' + n.present + ' marked, ' + n.unmarked + ' not marked, ' + n.filed + ' reports' +
+      ' · positions shown for ' + n.all + ' of them';
+  }
+
   // ---------------- Leave Register ----------------
   // One tabular view of the whole annual register: entitlement, days taken,
   // days pending a decision, and balance for every person in scope. All the
@@ -1863,7 +1915,7 @@ const App = (() => {
   // ---------------- tabs & events ----------------
   function switchTab(name) {
     ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'register',
-      'admin', 'perf'].forEach(t => {
+      'map', 'admin', 'perf'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
@@ -1872,6 +1924,10 @@ const App = (() => {
     // The register is a full-year pull; fetch it on first open, then let the
     // Reload button decide — switching tabs must not re-hit the backend.
     if (name === 'register' && !regData) loadRegister();
+    // Leaflet measures its container on creation, so the first draw has to
+    // happen after this panel is visible — and every later visit needs a
+    // re-measure because the panel was display:none in between.
+    if (name === 'map') { if (!mapLoaded) loadMap(); else DistrictMap.invalidate(); }
     if (name === 'perf') renderPerf();
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
   }
@@ -1906,6 +1962,9 @@ const App = (() => {
     $('tab-reports').onclick = () => switchTab('reports');
     $('tab-leaves').onclick = () => switchTab('leaves');
     $('tab-register').onclick = () => switchTab('register');
+    $('tab-map').onclick = () => switchTab('map');
+    $('btn-map-fit').onclick = () => DistrictMap.fitAll();
+    $('btn-map-reload').onclick = loadMap;
     $('btn-reg-load').onclick = loadRegister;
     $('reg-year').onchange = loadRegister;
     // Sector / type / staff-set / search only re-filter what is already loaded.

@@ -227,7 +227,7 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
     String(rec.clientTs || ''), fmtIso_(serverMs), skewSec,
     lat, lng, acc, gf.status, gf.awcId, gf.dist, it.photoId,
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
-    syncDelay, flags.join(',')
+    syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40)
   ];
 }
 

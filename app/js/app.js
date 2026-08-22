@@ -181,6 +181,7 @@ const App = (() => {
       await goHome();
       Sync.schedule('startup');
       pingAppMode(); // fire-and-forget daily installed-vs-browser telemetry
+      sendSeenPing(); // one per person per day; never attendance, never blocking
     } else {
       resetLogin();
       show('screen-login');
@@ -196,6 +197,7 @@ const App = (() => {
     $('btn-capture').onclick = doCapture;
     $('btn-cam-cancel').onclick = () => {
       Camera.stop();
+      Geo.stop();   // a live watch left running drains the battery all day
       if (camMode === 'mark') goHome();
       else if (camMode === 'lvcert') show('screen-leave');
       else openReport();
@@ -292,6 +294,31 @@ const App = (() => {
     } catch (e) {
       alert('Needs internet.');
     }
+  }
+
+  /**
+   * The seen ping: one row per person per working day, sent when the app is
+   * opened. It is NEVER attendance and the console never draws it as such —
+   * it exists so an unmarked person's pin can say "app opened here at 09:14
+   * today" instead of showing a fix from last week. Fire-and-forget: it must
+   * never delay, block or fail a mark.
+   */
+  async function sendSeenPing() {
+    const acc = active();
+    if (!acc || !navigator.onLine || window.APP_CONFIG.DEMO) return;
+    const today = localIso().slice(0, 10);
+    const key = 'seenPing_' + acc.user.id;
+    try { if (localStorage.getItem(key) === today) return; } catch (e) { /* private mode */ }
+    const fix = await Geo.once(12000);
+    if (!fix) return;                      // no fix, no ping — nothing invented
+    try {
+      const res = await Api.post({ action: 'seenPing', token: acc.token,
+        lat: Number(fix.lat.toFixed(6)), lng: Number(fix.lng.toFixed(6)),
+        acc: Math.round(fix.accuracy), at: localIso() });
+      if (res && res.ok) {
+        try { localStorage.setItem(key, today); } catch (e) { /* private mode */ }
+      }
+    } catch (e) { /* offline or slow: tomorrow's ping is just as good */ }
   }
 
   // ---------- leave ----------
@@ -565,6 +592,7 @@ const App = (() => {
         await primePermissions();
         showWelcome(res.config.user);
         Sync.schedule('login');
+        sendSeenPing();
         return;
       }
       const texts = {
@@ -1304,17 +1332,25 @@ const App = (() => {
     const gpsLine = $('cam-gps');
     gpsLine.textContent = 'Getting GPS…';
     gpsLine.className = 'gps-line';
-    geoPromise = Geo.capture(12000).then(g => {
-      geoResult = g;
-      if (g) {
-        gpsLine.textContent = 'GPS OK (±' + Math.round(g.accuracy) + ' m)';
-        gpsLine.className = 'gps-line ok';
-      } else {
-        gpsLine.textContent = 'GPS not found — location is required. Move under open sky.';
-        gpsLine.className = 'gps-line bad';
+    // The fix keeps improving while she takes the photo — every better
+    // reading redraws this line, so what she sees is what will be filed.
+    Geo.start((fix, err) => {
+      geoResult = fix;
+      if (fix) {
+        gpsLine.textContent = fix.lat.toFixed(5) + ', ' + fix.lng.toFixed(5) +
+          ' · ±' + Math.round(fix.accuracy) + ' m' +
+          (fix.coarse ? ' (approximate — still improving)' : '');
+        gpsLine.className = 'gps-line ' + (fix.coarse ? '' : 'ok');
+        return;
       }
-      return g;
+      gpsLine.className = 'gps-line bad';
+      gpsLine.textContent = err === 'INSECURE'
+        ? 'This page is not on a secure (https) address, so the phone will not give its location. Open the app from the official link.'
+        : err === 'DENIED'
+          ? 'Location permission is blocked for this app. Allow it in the browser site settings, then try again.'
+          : 'GPS not found — location is required. Move under open sky.';
     });
+    geoPromise = Geo.settle(15000).then(g => { geoResult = g; return g; });
   }
 
   async function openCamera(title, face) {
@@ -1371,7 +1407,7 @@ const App = (() => {
       // District order 2026-08-19: photo AND a GPS fix are mandatory for an
       // attendance mark. Geofence miss or poor accuracy still saves (flagged)
       // — only the complete ABSENCE of a fix or photo blocks, with retry.
-      const g = geoResult || (await geoPromise);
+      const g = Geo.best() || (await geoPromise);
       if (!g) {
         $('cam-msg').textContent = 'Location is required to mark attendance. ' +
           'Move near a window or open sky — GPS is retrying, then tap capture again.';
@@ -1397,6 +1433,7 @@ const App = (() => {
         return;
       }
       Camera.stop();
+      Geo.stop();
 
       const record = {
         key: acc.user.id + '_' + todayCompact() + '_' + markType,
@@ -1406,6 +1443,7 @@ const App = (() => {
         lng: g ? Number(g.lng.toFixed(6)) : '',
         accuracy: g ? Math.round(g.accuracy) : '',
         netState: navigator.onLine ? 'ONLINE' : 'OFFLINE',
+        tz: Geo.tz(),
         photoBlob: photoBlob
       };
       await Sync.enqueue(record);
@@ -1523,7 +1561,7 @@ const App = (() => {
     setBusy('btn-capture', true, 'Saving…');
     try {
       const clientTs = localIso();
-      const g = geoResult ||
+      const g = Geo.best() ||
         (await Promise.race([geoPromise, new Promise(r => setTimeout(() => r(null), 1500))]));
       const kind = camMode.slice(4); // 'rpt-child' -> 'child'
       const video = $('cam-video');
@@ -1625,7 +1663,7 @@ const App = (() => {
     });
     setBusy('btn-rp-submit', true, 'Saving report…');
     try {
-      const g = rptPhotos.geo || (await Geo.capture(5000));
+      const g = rptPhotos.geo || Geo.best() || (await Geo.once(5000));
       const record = {
         key: acc.user.id + '_' + todayCompact() + '_RPT',
         type: 'RPT',
