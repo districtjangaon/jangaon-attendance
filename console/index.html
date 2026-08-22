@@ -183,13 +183,6 @@
 
     <!-- Daily AWC reports (children / pregnant women / others / meals) -->
     <section id="view-rpts" class="view" hidden>
-      <h3 class="rpts-h" id="rpts-today-h">Filed today &mdash; who and what</h3>
-      <p id="rpts-today-sum" class="info"></p>
-      <div class="toolbar">
-        <input id="rpts-today-search" type="search" placeholder="Search AWC / sector / name…">
-      </div>
-      <div id="rpts-today-table" class="tablewrap"></div>
-
       <h3 class="rpts-h">Daily summary &mdash; pick a day, or a whole range</h3>
       <div class="toolbar">
         <select id="rpts-range">
@@ -218,11 +211,13 @@
       </div>
       <h3 class="rpts-h">Resource register &mdash; <span id="rpts-rangelabel"></span></h3>
       <div id="rpts-stock" class="tablewrap"></div>
-      <h3 class="rpts-h">Filing record by centre</h3>
+
+      <h3 class="rpts-h" id="rpts-today-h">Filed today &mdash; who and what</h3>
+      <p id="rpts-today-sum" class="info"></p>
       <div class="toolbar">
-        <input id="rpts-search" type="search" placeholder="Search AWC / sector…">
+        <input id="rpts-today-search" type="search" placeholder="Search AWC / sector / name…">
       </div>
-      <div id="rpts-table" class="tablewrap"></div>
+      <div id="rpts-today-table" class="tablewrap"></div>
 
       <h3 class="rpts-h">Download reports</h3>
       <p class="info">Every file opens in Excel. The four range files cover
@@ -388,7 +383,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.13-20260822-1750</footer>
+  <footer class="build-tag">BUILD: v4.14-20260822-1820</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

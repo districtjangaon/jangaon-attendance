@@ -1063,7 +1063,6 @@ const App = (() => {
       $('rpts-trend').innerHTML = Charts.empty(msg);
       $('rpts-meals').innerHTML = Charts.empty(msg);
       renderRptStock(A);
-      renderRptTable(A);
       return;
     }
     $('rpts-trend').innerHTML = b.rows.length
@@ -1079,7 +1078,6 @@ const App = (() => {
       : Charts.empty('No reported days in this range.');
 
     renderRptStock(A);
-    renderRptTable(A);
   }
 
   /**
@@ -1143,36 +1141,6 @@ const App = (() => {
       'multi-month view is not double counted. <b>Difference</b> is closing minus ' +
       '(opening + received − used): anything other than zero is a register that does not ' +
       'balance, and is worth a call to the sector.</p>';
-  }
-
-  /** One row per centre for the selected range — the summary of all the data. */
-  function renderRptTable(A) {
-    const q = ($('rpts-search').value || '').trim().toLowerCase();
-    const rows = rptScopeAwcs().filter(aid => {
-      if (!q) return true;
-      return (awcName(aid) + ' ' + sectorName(names.awcs[aid].sc)).toLowerCase().indexOf(q) >= 0;
-    }).map(aid => {
-      const a = A.perAwc[aid] || { days: 0, c: 0, p: 0, o: 0, m: 0, last: null,
-        used: RPT_ITEMS.reduce((u, it) => { u[it.k] = 0; return u; }, {}) };
-      return { aid: aid, sc: names.awcs[aid].sc, a: a };
-    }).sort((x, y) => x.a.days === y.a.days
-      ? awcName(x.aid).localeCompare(awcName(y.aid)) : x.a.days - y.a.days);
-
-    if (!rows.length) { $('rpts-table').innerHTML = Charts.empty('No centres match.'); return; }
-    // Filing record only. This table answers "who is filing and who is not";
-    // what they filed is today's table above, and the CSVs for the range.
-    $('rpts-table').innerHTML = '<table><tr><th>Sector</th><th>AWC</th><th>Days filed</th>' +
-      '<th>Days missed</th><th>Filed</th><th>Last filed</th></tr>' +
-      rows.map(r => {
-        const missed = Math.max(0, A.tot.days - r.a.days);
-        const pc = A.tot.days ? Math.round(100 * r.a.days / A.tot.days) : 0;
-        return '<tr><td>' + esc(sectorName(r.sc)) + '</td><td>' + esc(awcName(r.aid)) +
-          '</td><td>' + r.a.days + '</td><td' + (missed ? ' class="reg-zero"' : '') + '>' + missed +
-          '</td><td' + (pc < 60 ? ' class="reg-zero"' : '') + '>' + pc + '%</td><td>' +
-          esc(r.a.last ? prettyDay(r.a.last) : '—') + '</td></tr>';
-      }).join('') + '</table>' +
-      '<p class="info">Filing record for the selected range. What each centre reported is in ' +
-      '<b>Filed today</b> above for today, and in the <b>Full detail CSV</b> for the range.</p>';
   }
 
   // ---- exports -------------------------------------------------------------
@@ -2527,7 +2495,6 @@ const App = (() => {
     // The archive is fetched on first open, not at boot: six month files is
     // not something to pull for every console login.
     $('tab-rpts').onclick = () => { switchTab('rpts'); markRptsSeen(); loadRpts(); };
-    $('rpts-search').oninput = renderRpts;
     $('rpts-today-search').oninput = renderRptToday;
     $('btn-rpts-todaycsv').onclick = rptsTodayCsv;
     $('rpts-range').onchange = loadRpts;
