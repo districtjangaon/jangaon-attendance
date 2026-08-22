@@ -749,10 +749,14 @@ const App = (() => {
   const rptArchive = {};   // ym -> parsed file (cached for the session)
   let rptDays = [];        // [{ ym, dd, iso }] oldest -> newest, across the range
   let rptLoadedFor = null; // the range currently in memory
+  let rptRangeMonths = [];  // the months THIS range covers, not everything cached
 
   const r1 = v => Math.round(v * 10) / 10;
   const isoDay = (ym, dd) => ym + '-' + dd;
   const prettyDay = iso => iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4);
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthName = ym => MONTH_NAMES[Number(ym.slice(5, 7)) - 1] + ' ' + ym.slice(0, 4);
 
   function rptMonthsBack(n) {
     const out = [];
@@ -784,6 +788,7 @@ const App = (() => {
       // 404 on every redraw; the nightly job fills it in.
       rptArchive[ym] = got[i] || { ym: ym, days: {}, awcs: {}, missing: true };
     });
+    rptRangeMonths = want;
     rptMergeToday();
     rptDays = [];
     want.forEach(ym => {
@@ -1015,13 +1020,19 @@ const App = (() => {
       ? prettyDay(rptDays[Math.min(rptDays.length - 1, Number($('rpts-day').value) || 0)].iso) : '—';
 
     const totalAwcs = rptScopeAwcs().length;
-    const missing = Object.keys(rptArchive).filter(ym => rptArchive[ym].missing);
+    // A month with no archive is almost always a month before this system was
+    // running, not a job that has yet to build. Saying "no archive yet" for
+    // five months that never had reports reads as a fault; naming the first
+    // month that HAS reports says the same thing truthfully.
+    const missing = rptRangeMonths.filter(ym => rptArchive[ym] && rptArchive[ym].missing);
+    const firstWithData = rptDays.length ? rptDays[0].ym : null;
+    const gap = (missing.length && firstWithData)
+      ? ' &middot; no daily reports on file before ' + esc(monthName(firstWithData)) : '';
     $('rpts-summary').innerHTML = !rptDays.length
-      ? 'No report archive published for this range yet. The nightly job builds it; ' +
-        'run <b>buildReportHistory</b> once in the Apps Script editor to backfill older months.'
+      ? 'No daily reports on file for this range. Centres file them from the app; ' +
+        'the archive is rebuilt each night.'
       : '<b>' + A.tot.awcs + '</b> of ' + totalAwcs + ' centres reported over <b>' +
-        A.tot.days + '</b> reported day' + (A.tot.days === 1 ? '' : 's') + ' (' + esc(label) + ')' +
-        (missing.length ? ' &middot; no archive yet for ' + esc(missing.join(', ')) : '');
+        A.tot.days + '</b> reported day' + (A.tot.days === 1 ? '' : 's') + ' (' + esc(label) + ')' + gap;
 
     // Same count row as the Dashboard: every headline number on the daily
     // report gets its own tile, beneficiaries and resources alike, so the tab

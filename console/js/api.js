@@ -242,7 +242,16 @@ const Api = (() => {
       };
     }
     const rm = path.match(/^summary\/reports\/(\d{4}-\d{2})\.json$/);
-    if (rm) return demoReportMonth(rm[1]);
+    if (rm) {
+      // A real district has no archive from before the system existed, and the
+      // console has to render that case without implying a job is pending —
+      // so the demo stops four months back rather than inventing history.
+      const [ry, rmo] = rm[1].split('-').map(Number);
+      const now = new Date();
+      const back = (now.getFullYear() - ry) * 12 + (now.getMonth() + 1 - rmo);
+      if (back > 3) return null;
+      return demoReportMonth(rm[1]);
+    }
     const m = path.match(/^summary\/month\/(S\d+)\.json$/) || path.match(/^summary\/archive\/[\d-]+\/(S\d+)\.json$/);
     if (m) return demoMonthJson(m[1]);
     return null;
