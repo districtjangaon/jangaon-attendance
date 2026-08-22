@@ -39,6 +39,7 @@ function doPost(e) {
       nameMap: apiNameMap_,
       correction: apiCorrection_,
       leaveList: apiLeaveList_,
+      leaveRegister: apiLeaveRegister_,
       leaveDecide: apiLeaveDecide_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,

@@ -64,6 +64,7 @@
       <button id="tab-monthly" class="tab">Monthly</button>
       <button id="tab-reports" class="tab">Reports</button>
       <button id="tab-leaves" class="tab">Leaves <span id="leaves-count" class="pill" hidden></span></button>
+      <button id="tab-register" class="tab">Leave Register</button>
       <button id="tab-admin" class="tab" hidden>Users &amp; Admin</button>
       <button id="tab-perf" class="tab" hidden>Performance</button>
     </nav>
@@ -208,6 +209,38 @@
       <div id="leaves-table" class="tablewrap"></div>
     </section>
 
+    <!-- Leave Register: annual entitlement / taken / balance per person -->
+    <section id="view-register" class="view" hidden>
+      <p class="info">Annual leave register — <b>Optional Holiday 5</b>, <b>Casual Leave 6</b>,
+        <b>Earned Leave 30</b> days per calendar year; <b>Medical Leave has no day limit</b> but
+        is counted only against a Government medical certificate. Taken = approved days.
+        Pending days are held against the balance until the Collector decides.</p>
+      <div class="toolbar">
+        <select id="reg-year"></select>
+        <select id="reg-sector"></select>
+        <select id="reg-type">
+          <option value="">All leave types</option>
+          <option value="OPTIONAL">Optional Holiday</option>
+          <option value="CASUAL">Casual Leave</option>
+          <option value="EARNED">Earned Leave</option>
+          <option value="SICK">Medical Leave</option>
+        </select>
+        <select id="reg-only">
+          <option value="all">All staff</option>
+          <option value="active">Only staff who took leave</option>
+          <option value="exhausted">Only exhausted balances</option>
+        </select>
+        <input id="reg-search" type="search" placeholder="Search name / user id…">
+        <button id="btn-reg-load" class="btn btn-plain btn-inline">Reload</button>
+        <button id="btn-reg-csv" class="btn btn-plain btn-inline">Export register CSV</button>
+        <button id="btn-reg-apps-csv" class="btn btn-plain btn-inline">Export applications CSV</button>
+      </div>
+      <div id="reg-cards" class="bigcards"></div>
+      <div id="reg-table" class="tablewrap"><p class="info">Loading register&hellip;</p></div>
+      <h3 id="reg-apps-head" hidden>Applications this year</h3>
+      <div id="reg-apps" class="tablewrap"></div>
+    </section>
+
     <!-- Monthly -->
     <section id="view-monthly" class="view" hidden>
       <div class="toolbar">
@@ -259,7 +292,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.4-20260821-1815</footer>
+  <footer class="build-tag">BUILD: v4.5-20260822-1130</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

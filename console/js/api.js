@@ -251,15 +251,25 @@ const Api = (() => {
         };
       }
       case 'leaveList':
+        return { ok: true, leaves: demoLeaveApps() };
+      case 'leaveRegister': {
+        const apps = demoLeaveApps().map(l => Object.assign({ days: 1, by: 'ADMIN' }, l,
+          { days: Math.round((new Date(l.to) - new Date(l.from)) / 86400000) + 1 }));
+        const rows = {};
+        apps.forEach(a => {
+          const r = rows[a.u] || (rows[a.u] = { u: a.u, taken: {}, pend: {}, rej: {} });
+          const b = a.status === 'APPROVED' ? r.taken : a.status === 'REJECTED' ? r.rej : r.pend;
+          b[a.type] = (b[a.type] || 0) + a.days;
+        });
         return {
-          ok: true,
-          leaves: [
-            { id: 'LV-demo1', u: 'U9107', from: dToday(), to: dToday(), type: 'CASUAL',
-              reason: 'Family function', status: 'APPROVED', at: new Date().toISOString() },
-            { id: 'LV-demo2', u: 'U9103', from: dYm() + '-02', to: dYm() + '-03', type: 'SICK',
-              reason: 'Fever', status: 'APPROVED', at: new Date().toISOString() }
-          ]
+          ok: true, year: String(new Date().getFullYear()),
+          ent: { CASUAL: 6, EARNED: 30, OPTIONAL: 5 },
+          types: ['OPTIONAL', 'CASUAL', 'EARNED', 'SICK'], uncapped: ['SICK'],
+          labels: { OPTIONAL: 'Optional Holiday', CASUAL: 'Casual Leave',
+            EARNED: 'Earned Leave', SICK: 'Medical Leave' },
+          rows: Object.keys(rows).map(k => rows[k]), apps: apps
         };
+      }
       case 'correction':
       case 'pinReset':
       case 'deviceUnbind':
@@ -272,6 +282,22 @@ const Api = (() => {
       default:
         return { ok: true };
     }
+  }
+
+  /** Demo leave applications — shared by leaveList and leaveRegister so the
+   *  Leaves tab and the register never show different data in demo mode. */
+  function demoLeaveApps() {
+    return [
+      { id: 'LV-demo1', u: 'U9107', from: dToday(), to: dToday(), type: 'CASUAL',
+        reason: 'Family function', status: 'APPROVED', at: new Date().toISOString(),
+        mi: '', mc: '', mp: '' },
+      { id: 'LV-demo2', u: 'U9103', from: dYm() + '-02', to: dYm() + '-03', type: 'SICK',
+        reason: 'Fever', status: 'APPROVED', at: new Date().toISOString(),
+        mi: 'Area Hospital, Jangaon', mc: 'MC/2026/4417', mp: 'demo-photo' },
+      { id: 'LV-demo3', u: 'U9103', from: dYm() + '-10', to: dYm() + '-10', type: 'OPTIONAL',
+        reason: 'Optional holiday', status: 'PENDING', at: new Date().toISOString(),
+        mi: '', mc: '', mp: '' }
+    ];
   }
 
   function demoPhoto() {

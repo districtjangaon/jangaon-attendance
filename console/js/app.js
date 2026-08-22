@@ -146,6 +146,7 @@ const App = (() => {
       window.CONSOLE_CONFIG.DEMO);
     fillMonthControls();
     fillReportControls();
+    fillRegisterControls();
     fillAnalyticsControls();
     fillAwcPicker();
     await refreshAll();
@@ -896,6 +897,22 @@ const App = (() => {
   }
 
   // ---------------- Leaves ----------------
+  // The four types the district recognises. Older rows may still carry a
+  // retired type (MATERNITY/OTHER) — those fall through to the raw code
+  // rather than being hidden, because the register must show what was filed.
+  const LEAVE_LABEL = { OPTIONAL: 'Optional Holiday', CASUAL: 'Casual Leave',
+    EARNED: 'Earned Leave', SICK: 'Medical Leave' };
+  const LEAVE_ORDER = ['OPTIONAL', 'CASUAL', 'EARNED', 'SICK'];
+
+  /** Certificate cell: medical leave carries a Government certificate; every
+   *  other type does not need one, so it reads '—' rather than looking wrong. */
+  function certCell(l) {
+    if (l.type !== 'SICK') return '—';
+    if (!l.mp) return '<span class="tag ERR">missing</span>';
+    return esc(l.mi || '') + (l.mc ? ' · ' + esc(l.mc) : '') +
+      ' <button class="btn btn-plain btn-inline" data-ph="' + esc(l.mp) + '">View</button>';
+  }
+
   async function renderLeaves() {
     const res = await Api.post({ action: 'leaveList', token: token });
     if (!res.ok) {
@@ -925,13 +942,15 @@ const App = (() => {
     };
     const dayCount = l => Math.round((new Date(l.to) - new Date(l.from)) / 86400000) + 1;
     $('leaves-table').innerHTML = '<table><tr><th>Name</th><th>From</th><th>To</th><th>Days</th>' +
-      '<th>Type</th><th>Reason</th><th>Status</th><th>Applied</th><th>Action</th></tr>' +
+      '<th>Type</th><th>Reason</th><th>Govt. certificate</th><th>Status</th><th>Applied</th><th>Action</th></tr>' +
       rows.map((l, i) =>
         '<tr><td>' + esc(userName(l.u)) + '</td><td>' + esc(l.from) + '</td><td>' + esc(l.to) +
-        '</td><td>' + dayCount(l) + '</td><td>' + esc(l.type) + '</td><td>' + esc(l.reason || '') +
+        '</td><td>' + dayCount(l) + '</td><td>' + esc(LEAVE_LABEL[l.type] || l.type) +
+        '</td><td>' + esc(l.reason || '') + '</td><td>' + certCell(l) +
         '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK' : l.status === 'REJECTED' ? 'ERR' : 'WARN') +
         '">' + esc(l.status) + '</span></td><td>' + esc(String(l.at).slice(0, 10)) + '</td><td>' +
         actionsFor(l, i) + '</td></tr>').join('') + '</table>';
+    bindPhotoButtons($('leaves-table'));
     $('leaves-table').querySelectorAll('button[data-dec]').forEach(b => {
       b.onclick = async () => {
         const l = rows[Number(b.dataset.i)];
@@ -941,6 +960,190 @@ const App = (() => {
         if (r.ok) renderLeaves(); else alert('Failed: ' + r.code);
       };
     });
+  }
+
+  // ---------------- Leave Register ----------------
+  // One tabular view of the whole annual register: entitlement, days taken,
+  // days pending a decision, and balance for every person in scope. All the
+  // arithmetic that decides a balance is done SERVER-side (apiLeaveRegister_)
+  // and shipped here as numbers, so this tab can never disagree with the
+  // balance the worker sees in the app.
+  let regData = null;
+
+  function fillRegisterControls() {
+    const y = new Date().getFullYear();
+    $('reg-year').innerHTML = [y, y - 1, y - 2]
+      .map(v => '<option value="' + v + '">' + v + '</option>').join('');
+    $('reg-sector').innerHTML = '<option value="ALL">All sectors in my scope</option>' +
+      (names.sectors || []).map(sc =>
+        '<option value="' + esc(sc.code) + '">' + esc(sc.name) + ' (' + esc(sc.code) + ')</option>').join('');
+  }
+
+  async function loadRegister() {
+    $('reg-table').innerHTML = '<p class="info">Loading register&hellip;</p>';
+    const res = await Api.post({ action: 'leaveRegister', token: token, year: $('reg-year').value });
+    if (!res.ok) {
+      if (['AUTH', 'EXPIRED', 'REVOKED'].indexOf(res.code) >= 0) { authLost(); return; }
+      $('reg-table').innerHTML = '<p class="info">Could not load the register (' + esc(res.code) + ').</p>';
+      return;
+    }
+    regData = res;
+    renderRegister();
+  }
+
+  /** Rows for the current filters: every in-scope person, zero-filled. */
+  function registerRows() {
+    if (!regData) return [];
+    const stat = {};
+    (regData.rows || []).forEach(r => { stat[r.u] = r; });
+    const sec = $('reg-sector').value;
+    const q = $('reg-search').value.trim().toLowerCase();
+    const only = $('reg-only').value;
+    const ent = regData.ent || {};
+    const out = [];
+    Object.keys(names.users || {}).forEach(uid => {
+      const u = names.users[uid];
+      if (u.s && u.s !== 'ACTIVE') return;   // retired/blocked staff hold no live balance
+      if (sec !== 'ALL' && u.sc !== sec) return;
+      if (q && (u.n || '').toLowerCase().indexOf(q) < 0 && uid.toLowerCase().indexOf(q) < 0) return;
+      const st = stat[uid] || { taken: {}, pend: {} };
+      const per = {};
+      let totTaken = 0, totPend = 0, exhausted = false;
+      LEAVE_ORDER.forEach(t => {
+        const taken = st.taken[t] || 0;
+        const pend = st.pend[t] || 0;
+        const cap = ent[t];                  // undefined for SICK = uncapped
+        const bal = cap == null ? null : Math.max(0, cap - taken - pend);
+        per[t] = { ent: cap == null ? null : cap, taken: taken, pend: pend, bal: bal };
+        totTaken += taken;
+        totPend += pend;
+        if (bal === 0) exhausted = true;
+      });
+      if (only === 'active' && !totTaken && !totPend) return;
+      if (only === 'exhausted' && !exhausted) return;
+      out.push({ uid: uid, name: u.n || uid, cadre: u.c || '', sc: u.sc || '',
+        role: u.r || '', per: per, totTaken: totTaken, totPend: totPend });
+    });
+    out.sort((a, b) => a.sc === b.sc ? a.name.localeCompare(b.name) : a.sc.localeCompare(b.sc));
+    return out;
+  }
+
+  /** Column set: all four types, or just the one the type filter selects. */
+  function registerTypes() {
+    const t = $('reg-type').value;
+    return t ? [t] : LEAVE_ORDER.slice();
+  }
+
+  function renderRegister() {
+    if (!regData) return;
+    const rows = registerRows();
+    const types = registerTypes();
+
+    const sum = { taken: 0, pend: 0, people: 0, med: 0 };
+    rows.forEach(r => {
+      types.forEach(t => { sum.taken += r.per[t].taken; sum.pend += r.per[t].pend; });
+      sum.med += r.per.SICK.taken;
+      if (types.some(t => r.per[t].taken || r.per[t].pend)) sum.people++;
+    });
+    $('reg-cards').innerHTML =
+      bigcard('bc-grey', 'Staff in register', rows.length, 'active staff in scope') +
+      bigcard('bc-teal', 'Staff who took leave', sum.people, String(regData.year)) +
+      bigcard('bc-olive', 'Days taken', sum.taken, 'approved days') +
+      bigcard('bc-maroon', 'Days awaiting decision', sum.pend, 'held against balance') +
+      bigcard('bc-blue', 'Medical days', sum.med, 'no annual limit');
+
+    if (!rows.length) {
+      $('reg-table').innerHTML = '<p class="info">No staff match these filters.</p>';
+      $('reg-apps-head').hidden = true;
+      $('reg-apps').innerHTML = '';
+      return;
+    }
+
+    const head = '<table><tr><th>Name</th><th>User ID</th><th>Cadre</th><th>Sector</th>' +
+      types.map(t => '<th>' + esc(LEAVE_LABEL[t]) +
+        (regData.ent[t] != null ? ' (' + regData.ent[t] + ')' : ' (no limit)') +
+        '<br><span class="reg-sub">taken &middot; pending &middot; balance</span></th>').join('') +
+      '<th>Total taken</th></tr>';
+    const body = rows.map(r => '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.uid) +
+      '</td><td>' + esc(r.cadre) + '</td><td>' + esc(sectorName(r.sc)) + '</td>' +
+      types.map(t => {
+        const c = r.per[t];
+        const bal = c.bal == null ? '&infin;' : c.bal;
+        const cls = c.bal === 0 ? ' class="reg-zero"' : '';
+        return '<td' + cls + '>' + c.taken + ' &middot; ' + c.pend + ' &middot; <b>' + bal + '</b></td>';
+      }).join('') +
+      '<td>' + r.totTaken + (r.totPend ? ' (+' + r.totPend + ')' : '') + '</td></tr>').join('');
+    $('reg-table').innerHTML = head + body + '</table>';
+
+    renderRegisterApps();
+  }
+
+  function registerApps() {
+    if (!regData) return [];
+    const sec = $('reg-sector').value;
+    const q = $('reg-search').value.trim().toLowerCase();
+    const type = $('reg-type').value;
+    return (regData.apps || []).filter(a => {
+      const u = names.users[a.u];
+      if (!u) return false;
+      if (type && a.type !== type) return false;
+      if (sec !== 'ALL' && u.sc !== sec) return false;
+      if (q && (u.n || '').toLowerCase().indexOf(q) < 0 && a.u.toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+
+  function renderRegisterApps() {
+    const apps = registerApps();
+    $('reg-apps-head').hidden = !apps.length;
+    if (!apps.length) { $('reg-apps').innerHTML = ''; return; }
+    $('reg-apps').innerHTML = '<table><tr><th>Name</th><th>Sector</th><th>From</th><th>To</th>' +
+      '<th>Days</th><th>Type</th><th>Reason</th><th>Govt. certificate</th>' +
+      '<th>Status</th><th>Applied</th></tr>' +
+      apps.map(a => {
+        const u = names.users[a.u] || {};
+        return '<tr><td>' + esc(u.n || a.u) + '</td><td>' + esc(sectorName(u.sc)) +
+          '</td><td>' + esc(a.from) + '</td><td>' + esc(a.to) + '</td><td>' + a.days +
+          '</td><td>' + esc(LEAVE_LABEL[a.type] || a.type) + '</td><td>' + esc(a.reason || '') +
+          '</td><td>' + certCell(a) + '</td><td><span class="tag ' +
+          (a.status === 'APPROVED' ? 'OK' : a.status === 'REJECTED' ? 'ERR' : 'WARN') + '">' +
+          esc(a.status) + '</span></td><td>' + esc(String(a.at).slice(0, 10)) + '</td></tr>';
+      }).join('') + '</table>';
+    bindPhotoButtons($('reg-apps'));
+  }
+
+  function registerCsv() {
+    if (!regData) return;
+    const types = registerTypes();
+    const head = ['user_id', 'name', 'cadre', 'sector_code', 'sector'];
+    types.forEach(t => head.push(t + '_entitled', t + '_taken', t + '_pending', t + '_balance'));
+    head.push('total_taken', 'total_pending');
+    const rows = [head];
+    registerRows().forEach(r => {
+      const line = [r.uid, r.name, r.cadre, r.sc, sectorName(r.sc)];
+      types.forEach(t => {
+        const c = r.per[t];
+        line.push(c.ent == null ? 'NO LIMIT' : c.ent, c.taken, c.pend,
+          c.bal == null ? 'NO LIMIT' : c.bal);
+      });
+      line.push(r.totTaken, r.totPend);
+      rows.push(line);
+    });
+    downloadCsv('leave-register-' + regData.year + '.csv', rows);
+  }
+
+  function registerAppsCsv() {
+    if (!regData) return;
+    const rows = [['leave_id', 'user_id', 'name', 'sector', 'from', 'to', 'days', 'type',
+      'reason', 'status', 'applied_at', 'decided_by', 'govt_institution', 'certificate_no',
+      'certificate_photo_id']];
+    registerApps().forEach(a => {
+      const u = names.users[a.u] || {};
+      rows.push([a.id, a.u, u.n || '', sectorName(u.sc), a.from, a.to, a.days,
+        LEAVE_LABEL[a.type] || a.type, a.reason || '', a.status, a.at, a.by || '',
+        a.mi || '', a.mc || '', a.mp || '']);
+    });
+    downloadCsv('leave-applications-' + regData.year + '.csv', rows);
   }
 
   // ---------------- Reports ----------------
@@ -1659,12 +1862,16 @@ const App = (() => {
 
   // ---------------- tabs & events ----------------
   function switchTab(name) {
-    ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'admin', 'perf'].forEach(t => {
+    ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'register',
+      'admin', 'perf'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
     if (name === 'admin') renderAdmin();
     if (name === 'leaves') renderLeaves();
+    // The register is a full-year pull; fetch it on first open, then let the
+    // Reload button decide — switching tabs must not re-hit the backend.
+    if (name === 'register' && !regData) loadRegister();
     if (name === 'perf') renderPerf();
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
   }
@@ -1698,6 +1905,16 @@ const App = (() => {
     $('tab-monthly').onclick = () => switchTab('monthly');
     $('tab-reports').onclick = () => switchTab('reports');
     $('tab-leaves').onclick = () => switchTab('leaves');
+    $('tab-register').onclick = () => switchTab('register');
+    $('btn-reg-load').onclick = loadRegister;
+    $('reg-year').onchange = loadRegister;
+    // Sector / type / staff-set / search only re-filter what is already loaded.
+    $('reg-sector').onchange = renderRegister;
+    $('reg-type').onchange = renderRegister;
+    $('reg-only').onchange = renderRegister;
+    $('reg-search').oninput = renderRegister;
+    $('btn-reg-csv').onclick = registerCsv;
+    $('btn-reg-apps-csv').onclick = registerAppsCsv;
     $('tab-admin').onclick = () => switchTab('admin');
     $('tab-perf').onclick = () => switchTab('perf');
     $('btn-perf-run').onclick = () => renderPerf();

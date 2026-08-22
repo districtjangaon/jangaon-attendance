@@ -24,9 +24,10 @@ const App = (() => {
   let geoPromise = null;
   let geoResult = null;
   let markType = null;
-  let camMode = 'mark';                 // 'mark' | 'rpt-child'|'rpt-preg'|'rpt-others'|'rpt-meal'
+  let camMode = 'mark';   // 'mark' | 'rpt-child'|'rpt-preg'|'rpt-others'|'rpt-meal' | 'lvcert'
   let rptPhotos = { child: null, preg: null, others: null, meal: null, geo: null };
   let rptCamFail = {}; // kinds the camera could not photograph (broken/denied)
+  let lvCertBlob = null; // photographed government medical certificate (SICK only)
 
   const active = () => (activeUid && accounts[activeUid]) || null;
 
@@ -195,7 +196,9 @@ const App = (() => {
     $('btn-capture').onclick = doCapture;
     $('btn-cam-cancel').onclick = () => {
       Camera.stop();
-      if (camMode === 'mark') goHome(); else openReport();
+      if (camMode === 'mark') goHome();
+      else if (camMode === 'lvcert') show('screen-leave');
+      else openReport();
     };
     $('btn-cam-flip').onclick = async () => {
       try {
@@ -219,9 +222,15 @@ const App = (() => {
     $('btn-leave-back').onclick = goHome;
     $('btn-leave-submit').onclick = submitLeave;
     $('lv-type').onchange = () => {
-      const opt = $('lv-type').value === 'OPTIONAL';
-      $('lv-dates').hidden = opt;
-      $('lv-opt-block').hidden = !opt;
+      const t = $('lv-type').value;
+      $('lv-dates').hidden = t === 'OPTIONAL';
+      $('lv-opt-block').hidden = t !== 'OPTIONAL';
+      $('lv-med-block').hidden = t !== 'SICK';
+    };
+    $('btn-lv-cert-photo').onclick = () => {
+      camMode = 'lvcert';
+      // A certificate is a document on a table, not a selfie — rear camera.
+      openCamera('Medical certificate — photograph the whole page', 'environment');
     };
     $('btn-test-reset').onclick = testReset;
     $('btn-refresh-app').onclick = refreshApp;
@@ -286,14 +295,67 @@ const App = (() => {
   }
 
   // ---------- leave ----------
+  // The four leave types the district recognises (order matches the picker).
+  const LEAVE_LABELS = { CASUAL: 'Casual', EARNED: 'Earned',
+    OPTIONAL: 'Optional', SICK: 'Medical' };
+  const leaveLabel = t => LEAVE_LABELS[t] || t;
+
   async function showLeave() {
     if (!navigator.onLine && !window.APP_CONFIG.DEMO) {
       alert('Leave application needs internet. Marks work offline, leave requests do not.');
       return;
     }
     $('leave-msg').textContent = '';
+    // Fresh form every time: a certificate photographed for an abandoned
+    // application must never attach itself to the next one.
+    lvCertBlob = null;
+    $('lv-type').value = 'CASUAL';
+    $('lv-type').onchange();
+    $('lv-med-inst').value = '';
+    $('lv-med-cert').value = '';
+    updateCertButton();
     show('screen-leave');
     await renderMyLeaves();
+  }
+
+  /** Capture handler for camMode 'lvcert' — the government medical certificate. */
+  async function captureLeaveCert(acc) {
+    setBusy('btn-capture', true, 'Saving…');
+    try {
+      const video = $('cam-video');
+      if (video.srcObject && video.srcObject.active && video.videoWidth > 0) {
+        const stamp = [
+          localIso().slice(0, 16).replace('T', ' '),
+          'MEDICAL CERTIFICATE — ' + acc.user.name.slice(0, 28)
+        ];
+        lvCertBlob = await Camera.captureDoc(video, stamp,
+          (acc.config && acc.config.docMaxKB) || 120);
+      }
+      Camera.stop();
+      show('screen-leave');
+      updateCertButton();
+      $('leave-msg').textContent = lvCertBlob
+        ? '' : 'Camera not available — medical leave cannot be submitted without the certificate photo.';
+    } finally {
+      setBusy('btn-capture', false);
+    }
+  }
+
+  function updateCertButton() {
+    const b = $('btn-lv-cert-photo');
+    b.textContent = lvCertBlob
+      ? '✓ Certificate photographed — tap to retake'
+      : '📷 Photograph the medical certificate';
+    b.classList.toggle('taken', !!lvCertBlob);
+  }
+
+  function blobToB64(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result).split(',')[1]);
+      fr.onerror = () => reject(fr.error);
+      fr.readAsDataURL(blob);
+    });
   }
 
   async function renderMyLeaves() {
@@ -307,8 +369,9 @@ const App = (() => {
       list.innerHTML = '';
       res.leaves.forEach(l => {
         const li = document.createElement('li');
-        li.innerHTML = '<span class="tag">' + l.type + '</span><span>' +
-          l.from + (l.to !== l.from ? ' → ' + l.to : '') + '</span>' +
+        li.innerHTML = '<span class="tag">' + leaveLabel(l.type) + '</span><span>' +
+          l.from + (l.to !== l.from ? ' → ' + l.to : '') +
+          (l.mp ? ' 📄' : '') + '</span>' +
           '<span class="' + (l.status === 'APPROVED' ? 'sync' : l.status === 'REJECTED' ? 'pend' : '') + '">' +
           l.status + '</span>';
         list.appendChild(li);
@@ -328,7 +391,7 @@ const App = (() => {
       '<span class="bal-chip">Earned <b>' + b.earned.left + '</b> of ' + b.earned.ent + ' left</span>' +
       (b.optional ? '<span class="bal-chip">Optional <b>' + b.optional.left + '</b> of ' +
         b.optional.ent + ' left</span>' : '') +
-      '<span class="bal-chip">Medical <b>' + b.medical.used + '</b> used</span>';
+      '<span class="bal-chip">Medical <b>' + b.medical.used + '</b> used (no limit)</span>';
   }
 
   /** Optional-holiday picker: only listed dates, recent past ≤31 d + future. */
@@ -354,17 +417,33 @@ const App = (() => {
       to = $('lv-to').value || $('lv-from').value;
       if (!from) { msg.textContent = 'Pick the from-date.'; return; }
     }
+    // Medical leave: the government certificate is part of the application,
+    // so all three pieces are checked here before a round trip is spent.
+    const payload = {
+      action: 'leaveApply', token: active().token,
+      from: from, to: to, type: type, reason: $('lv-reason').value.trim()
+    };
+    if (type === 'SICK') {
+      const inst = $('lv-med-inst').value.trim();
+      const cert = $('lv-med-cert').value.trim();
+      if (!inst) { msg.textContent = 'Enter the Government hospital / PHC / CHC that issued the certificate.'; return; }
+      if (!cert) { msg.textContent = 'Enter the certificate number.'; return; }
+      if (!lvCertBlob) { msg.textContent = 'Photograph the medical certificate — medical leave is not accepted without it.'; return; }
+      payload.medInstitution = inst;
+      payload.medCertNo = cert;
+      payload.medPhotoB64 = await blobToB64(lvCertBlob);
+    }
     $('btn-leave-submit').disabled = true;
     try {
-      const res = await Api.post({
-        action: 'leaveApply', token: active().token,
-        from: from, to: to, type: type, reason: $('lv-reason').value.trim()
-      });
+      const res = await Api.post(payload);
       if (res.ok) {
         msg.textContent = res.status === 'APPROVED'
           ? 'Leave recorded and approved.'
           : 'Sent to the Collector for approval — you will see the decision here.';
         $('lv-from').value = ''; $('lv-to').value = ''; $('lv-reason').value = '';
+        $('lv-med-inst').value = ''; $('lv-med-cert').value = '';
+        lvCertBlob = null;
+        updateCertButton();
         renderLeaveBal(res.balances);
         await renderMyLeaves();
       } else {
@@ -374,11 +453,17 @@ const App = (() => {
             ' balance — only ' + res.left + ' day(s) left this year.'
           : {
             FROM_AFTER_TO: 'From-date is after to-date.',
-            TOO_LONG: 'Maximum 31 days per application.',
-            TOO_OLD: 'That period is too far in the past.',
+            TOO_LONG: 'Maximum ' + (res.maxDays || 31) + ' days in one application.',
+            TOO_OLD: 'That period is too far in the past (limit ' +
+              (res.maxBackDays || 31) + ' days).',
             OVERLAPS_EXISTING: 'You already have a leave covering those dates.',
             OPT_SINGLE_DAY: 'Optional holiday is one single day.',
             BAD_OPT_DATE: 'That date is not on the optional-holiday list.',
+            BAD_TYPE: 'Choose one of the four leave types.',
+            MED_INSTITUTION_REQUIRED: 'Enter the Government institution that issued the certificate.',
+            MED_CERT_NO_REQUIRED: 'Enter the certificate number.',
+            MED_PHOTO_REQUIRED: 'Photograph the medical certificate before submitting.',
+            MED_UPLOAD_FAILED: 'The certificate photo could not be uploaded — try again on a better network.',
             BAD_DATE: 'Pick valid dates.'
           }[res.code] || ('Failed (' + res.code + ').');
       }
@@ -1278,6 +1363,7 @@ const App = (() => {
   async function doCapture() {
     const acc = active();
     if (!acc) { Camera.stop(); resetLogin(); show('screen-login'); return; }
+    if (camMode === 'lvcert') { await captureLeaveCert(acc); return; }
     if (camMode !== 'mark') { await captureRptPhoto(acc); return; }
     setBusy('btn-capture', true, 'Saving…');
     try {

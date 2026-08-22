@@ -74,5 +74,43 @@ const Camera = (() => {
     return last; // smallest attempt; better slightly over than no photo
   }
 
-  return { start, stop, capture, flip, facing: () => facing };
+  /**
+   * Document snapshot: full frame, aspect preserved, longest side 1280.
+   * A medical certificate has to stay READABLE for the approver — the 480px
+   * square used for faces crops an A4 page and turns its text to mush — so
+   * this path allows a larger frame and a larger byte budget (default 120 KB
+   * against 60 KB for attendance photos). Certificates are a handful a day,
+   * not 400 in a 45-minute window, so the extra bytes cost nothing at scale.
+   */
+  async function captureDoc(videoEl, stampLines, maxKB) {
+    const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+    if (!vw || !vh) return null;
+    const longest = 1280;
+    const scale = Math.min(1, longest / Math.max(vw, vh));
+    const w = Math.round(vw * scale), h = Math.round(vh * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoEl, 0, 0, vw, vh, 0, 0, w, h);
+
+    const lineH = Math.max(16, Math.round(h * 0.028));
+    const barH = lineH * stampLines.length + 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, h - barH, w, barH);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold ' + Math.round(lineH * 0.78) + 'px monospace';
+    stampLines.forEach((line, i) => ctx.fillText(line, 8, h - barH + lineH * (i + 1)));
+
+    let last = null;
+    for (let q = 0.75; q >= 0.3; q -= 0.1) {
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', q));
+      if (!blob) break;
+      last = blob;
+      if (blob.size <= (maxKB || 120) * 1024) return blob;
+    }
+    return last; // smallest attempt; an over-size certificate beats none
+  }
+
+  return { start, stop, capture, captureDoc, flip, facing: () => facing };
 })();

@@ -42,8 +42,13 @@ const PROJ_H = ['project_code', 'name'];
 const SECT_H = ['sector_code', 'project_code', 'name', 'supervisor_user_id'];
 const SCH_H = ['project_code', 'cadre', 'in_start', 'in_end', 'late_after', 'out_start', 'out_end'];
 const HOL_H = ['date', 'name'];
+// Medical columns were APPENDED after first ship (append-only rule): a SICK
+// application must carry a government medical certificate, so the issuing
+// institution, its certificate number and the Drive id of the photographed
+// certificate ride along on the same row.
 const LEAVE_H = ['leave_id', 'user_id', 'from_date', 'to_date', 'type', 'reason',
-  'status', 'applied_at', 'decided_by', 'decided_at'];
+  'status', 'applied_at', 'decided_by', 'decided_at',
+  'med_institution', 'med_cert_no', 'med_photo_id'];
 const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', 'revoked'];
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
@@ -1510,18 +1515,38 @@ function upsertUser_(f, actor) {
  * (set script property LEAVE_AUTO_APPROVE=1 to restore auto-approval).
  * Rejecting an APPROVED leave retroactively returns those days to absent.
  *
- * Annual entitlements (calendar year, calendar days): CASUAL 6, EARNED 30,
- * SICK/medical uncapped. Balances are derived from the Leaves sheet — no
- * separate balance store to drift. PENDING applications hold their days
- * (can't over-apply); a REJECTED application returns them automatically.
+ * Four leave types only (district order 2026-08-22): OPTIONAL holiday 5/yr,
+ * CASUAL 6/yr, EARNED 30/yr, SICK (medical) with NO annual day limit.
+ * Balances are derived from the Leaves sheet — no separate balance store to
+ * drift. PENDING applications hold their days (can't over-apply); a REJECTED
+ * application returns them automatically. Only days falling inside the
+ * calendar year are counted, so a leave spanning 31-Dec splits correctly.
+ *
+ * SICK is uncapped per year but MUST carry a government medical certificate:
+ * issuing institution + certificate number + a photograph of the certificate
+ * (stored in the same Drive tree as attendance photos, so the existing
+ * token-checked photo proxy serves it and no Drive link is ever public).
+ * Per-application span caps are form sanity limits, not entitlement:
+ * 31 days for CASUAL/EARNED/OPTIONAL, 180 for SICK.
  *
  * Approved leave days show as ON_LEAVE on the dashboard (instead of "not
  * marked"), grey-blue in the monthly grid, and fill leaveId/leaveType in the
  * register.
  */
 
-const LEAVE_TYPES = ['CASUAL', 'SICK', 'EARNED', 'MATERNITY', 'OTHER', 'OPTIONAL'];
+const LEAVE_TYPES = ['OPTIONAL', 'CASUAL', 'EARNED', 'SICK'];
 const LEAVE_ENT = { CASUAL: 6, EARNED: 30, OPTIONAL: 5 }; // per calendar year; SICK uncapped
+// Per-application span cap (form sanity, not entitlement). Medical spells run
+// long — a 31-day cap would force a worker to file a 90-day certificate in
+// three pieces — so SICK gets 180.
+const LEAVE_MAX_SPAN = { SICK: 180 };
+const LEAVE_MAX_SPAN_DEFAULT = 31;
+// How far back an application may reach. A government certificate is often
+// issued/collected weeks after the illness, so SICK reaches back further.
+const LEAVE_BACKDATE_DAYS = { SICK: 90 };
+const LEAVE_BACKDATE_DEFAULT = 31;
+const LEAVE_TYPE_LABEL = { OPTIONAL: 'Optional Holiday', CASUAL: 'Casual Leave',
+  EARNED: 'Earned Leave', SICK: 'Medical Leave' };
 
 // Optional Holidays 2026 — G.O.Rt.No.1715 Annexure-II. An employee may take
 // at most 5 of these per calendar year, single-day, ONLY on these dates.
@@ -1554,6 +1579,19 @@ const OPTIONAL_HOLIDAYS = {
   '2026-12-26': 'Birthday of Hazrath Ali'
 };
 
+/**
+ * Calendar days of one leave row that fall inside `year` (yyyy). A spell
+ * crossing 31-Dec is charged to each year for the part that lies in it —
+ * the single place this arithmetic lives, so the app's balance chips, the
+ * apply-time check and the console register can never disagree.
+ */
+function leaveDaysInYear_(l, year) {
+  const a = String(l.from_date) < year + '-01-01' ? year + '-01-01' : String(l.from_date);
+  const b = String(l.to_date) > year + '-12-31' ? year + '-12-31' : String(l.to_date);
+  if (a > b) return 0;
+  return (new Date(b).getTime() - new Date(a).getTime()) / 86400000 + 1;
+}
+
 /** Per-type leave days used this calendar year (PENDING + APPROVED). */
 function leaveBalances_(userId) {
   const year = String(new Date().getFullYear());
@@ -1561,10 +1599,8 @@ function leaveBalances_(userId) {
   getLeavesAll_().forEach(function (l) {
     if (String(l.user_id) !== String(userId)) return;
     if (String(l.status) === 'REJECTED') return;
-    const a = String(l.from_date) < year + '-01-01' ? year + '-01-01' : String(l.from_date);
-    const b = String(l.to_date) > year + '-12-31' ? year + '-12-31' : String(l.to_date);
-    if (a > b) return;
-    const days = (new Date(b).getTime() - new Date(a).getTime()) / 86400000 + 1;
+    const days = leaveDaysInYear_(l, year);
+    if (!days) return;
     const t = String(l.type);
     used[t] = (used[t] || 0) + days;
   });
@@ -1590,6 +1626,11 @@ function leavesSheet_() {
   let sh = ss.getSheetByName('Leaves');
   if (!sh) {
     sh = ss.insertSheet('Leaves');
+    sh.getRange(1, 1, 1, LEAVE_H.length).setValues([LEAVE_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), LEAVE_H.length).setNumberFormat('@');
+  } else if (String(sh.getRange(1, LEAVE_H.length).getValue()) !== LEAVE_H[LEAVE_H.length - 1]) {
+    // Sheet written by a build before the medical-certificate columns: heal
+    // the header. Columns were only ever APPENDED, so old rows stay aligned.
     sh.getRange(1, 1, 1, LEAVE_H.length).setValues([LEAVE_H]);
     sh.getRange(1, 1, sh.getMaxRows(), LEAVE_H.length).setNumberFormat('@');
   }
@@ -1618,7 +1659,9 @@ function leavesOverlapping_(fromStr, toStr) {
     String(l.from_date) <= toStr && String(l.to_date) >= fromStr);
 }
 
-// action: "leaveApply"  req: { token, from, to, type, reason }
+// action: "leaveApply"
+// req: { token, from, to, type, reason,
+//        medInstitution, medCertNo, medPhotoB64 }   <- SICK only, all three required
 function apiLeaveApply_(auth, req) {
   const from = String(req.from || '').trim();
   const to = String(req.to || '').trim();
@@ -1628,10 +1671,15 @@ function apiLeaveApply_(auth, req) {
     return { ok: false, code: 'BAD_DATE' };
   }
   if (from > to) return { ok: false, code: 'FROM_AFTER_TO' };
-  const spanDays = (new Date(to).getTime() - new Date(from).getTime()) / 86400000 + 1;
-  if (spanDays > 31) return { ok: false, code: 'TOO_LONG', maxDays: 31 };
-  if (to < fmtDay_(Date.now() - 31 * 86400000)) return { ok: false, code: 'TOO_OLD' };
+  // Type is validated BEFORE the span/backdate caps because both are per-type.
   if (LEAVE_TYPES.indexOf(type) < 0) return { ok: false, code: 'BAD_TYPE', types: LEAVE_TYPES };
+  const spanDays = (new Date(to).getTime() - new Date(from).getTime()) / 86400000 + 1;
+  const maxSpan = LEAVE_MAX_SPAN[type] || LEAVE_MAX_SPAN_DEFAULT;
+  if (spanDays > maxSpan) return { ok: false, code: 'TOO_LONG', maxDays: maxSpan };
+  const backDays = LEAVE_BACKDATE_DAYS[type] || LEAVE_BACKDATE_DEFAULT;
+  if (to < fmtDay_(Date.now() - backDays * 86400000)) {
+    return { ok: false, code: 'TOO_OLD', maxBackDays: backDays };
+  }
 
   const mine = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId) &&
     String(l.status) !== 'REJECTED' && String(l.from_date) <= to && String(l.to_date) >= from);
@@ -1641,6 +1689,20 @@ function apiLeaveApply_(auth, req) {
   if (type === 'OPTIONAL') {
     if (from !== to) return { ok: false, code: 'OPT_SINGLE_DAY' };
     if (!OPTIONAL_HOLIDAYS[from]) return { ok: false, code: 'BAD_OPT_DATE' };
+  }
+
+  // Medical leave: uncapped in days, but the district accepts it ONLY against
+  // a certificate issued by a government institution. All three parts are
+  // mandatory — refusing here is correct: this is a document requirement, not
+  // a data-quality flag.
+  let medInst = '', medCert = '', medB64 = '';
+  if (type === 'SICK') {
+    medInst = String(req.medInstitution || '').trim().slice(0, 120);
+    medCert = String(req.medCertNo || '').trim().slice(0, 60);
+    medB64 = String(req.medPhotoB64 || '');
+    if (!medInst) return { ok: false, code: 'MED_INSTITUTION_REQUIRED' };
+    if (!medCert) return { ok: false, code: 'MED_CERT_NO_REQUIRED' };
+    if (!medB64) return { ok: false, code: 'MED_PHOTO_REQUIRED' };
   }
 
   const bal = leaveBalances_(auth.userId);
@@ -1656,11 +1718,27 @@ function apiLeaveApply_(auth, req) {
 
   const status = PROPS.getProperty('LEAVE_AUTO_APPROVE') === '1' ? 'APPROVED' : 'PENDING';
   const leaveId = 'LV-' + Utilities.getUuid().slice(0, 8);
+
+  // Drive write happens BEFORE the lock (Drive doesn't contend, and holding a
+  // script lock across an upload is what serialises 400 phones). The file name
+  // starts with the user_id because apiPhoto_ authorises on that prefix.
+  let medPhotoId = '';
+  if (medB64) {
+    try {
+      medPhotoId = storePhoto_(fmtDay_(Date.now()).replace(/-/g, ''),
+        String(auth.userId) + '_LVCERT_' + leaveId, medB64);
+    } catch (e) {
+      // The certificate IS the application — no silent half-saved row.
+      return { ok: false, code: 'MED_UPLOAD_FAILED' };
+    }
+  }
+
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     leavesSheet_().appendRow([leaveId, String(auth.userId), from, to, type, reason,
-      status, nowIso_(), status === 'APPROVED' ? 'AUTO' : '', status === 'APPROVED' ? nowIso_() : '']);
+      status, nowIso_(), status === 'APPROVED' ? 'AUTO' : '', status === 'APPROVED' ? nowIso_() : '',
+      medInst, medCert, medPhotoId]);
   } finally {
     lock.releaseLock();
   }
@@ -1674,7 +1752,9 @@ function apiMyLeaves_(auth, req) {
   const mine = getLeavesAll_().filter(l => String(l.user_id) === String(auth.userId))
     .slice(-20).reverse()
     .map(l => ({ id: String(l.leave_id), from: String(l.from_date), to: String(l.to_date),
-      type: String(l.type), reason: String(l.reason), status: String(l.status) }));
+      type: String(l.type), reason: String(l.reason), status: String(l.status),
+      mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
+      mp: String(l.med_photo_id || '') }));
   const optionalDays = Object.keys(OPTIONAL_HOLIDAYS).sort()
     .map(function (d) { return { d: d, n: OPTIONAL_HOLIDAYS[d] }; });
   return { ok: true, leaves: mine, balances: leaveBalances_(auth.userId),
@@ -1693,9 +1773,60 @@ function apiLeaveList_(auth, req) {
   }).slice(-300).reverse().map(l => ({
     id: String(l.leave_id), u: String(l.user_id), from: String(l.from_date),
     to: String(l.to_date), type: String(l.type), reason: String(l.reason),
-    status: String(l.status), at: String(l.applied_at)
+    status: String(l.status), at: String(l.applied_at),
+    mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
+    mp: String(l.med_photo_id || '')
   }));
   return { ok: true, leaves: rows };
+}
+
+// action: "leaveRegister"  req: { token, year? }
+// The annual leave register: entitlement / taken / balance per type for every
+// user in the viewer's scope, plus that year's applications. Entitlements and
+// day arithmetic are computed HERE, never in the console — one source of truth
+// so the field app's balance chips and the register always agree.
+function apiLeaveRegister_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const year = /^\d{4}$/.test(String(req.year || ''))
+    ? String(req.year) : String(new Date().getFullYear());
+  const scope = sectorScope_(auth.user);
+  const users = {};
+  getUsersAll_().forEach(function (u) {
+    if (scope && scope.indexOf(String(u.sector_code)) < 0) return;
+    users[String(u.user_id)] = u;
+  });
+
+  // Only users with activity carry a row; the console fills everyone else in
+  // from its own name map at full balance. That keeps this response small
+  // (~1,400 in-scope users would otherwise be ~200 KB of mostly zeroes).
+  const stat = {};
+  const apps = [];
+  getLeavesAll_().forEach(function (l) {
+    const uid = String(l.user_id);
+    if (!users[uid]) return;
+    const days = leaveDaysInYear_(l, year);
+    if (!days) return;
+    const st = String(l.status);
+    const t = String(l.type);
+    const row = stat[uid] || (stat[uid] = { u: uid, taken: {}, pend: {}, rej: {} });
+    const bucket = st === 'APPROVED' ? row.taken : st === 'REJECTED' ? row.rej : row.pend;
+    bucket[t] = (bucket[t] || 0) + days;
+    apps.push({
+      id: String(l.leave_id), u: uid, from: String(l.from_date), to: String(l.to_date),
+      days: days, type: t, reason: String(l.reason), status: st,
+      at: String(l.applied_at), by: String(l.decided_by || ''),
+      mi: String(l.med_institution || ''), mc: String(l.med_cert_no || ''),
+      mp: String(l.med_photo_id || '')
+    });
+  });
+  apps.sort(function (a, b) { return a.from < b.from ? 1 : a.from > b.from ? -1 : 0; });
+
+  return {
+    ok: true, year: year, ent: LEAVE_ENT, types: LEAVE_TYPES,
+    labels: LEAVE_TYPE_LABEL, uncapped: ['SICK'],
+    rows: Object.keys(stat).map(function (k) { return stat[k]; }),
+    apps: apps
+  };
 }
 
 // action: "leaveDecide"  req: { token, leaveId, decision: APPROVED|REJECTED, reason? }
@@ -3026,6 +3157,7 @@ function doPost(e) {
       nameMap: apiNameMap_,
       correction: apiCorrection_,
       leaveList: apiLeaveList_,
+      leaveRegister: apiLeaveRegister_,
       leaveDecide: apiLeaveDecide_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,

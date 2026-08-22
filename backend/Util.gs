@@ -31,8 +31,13 @@ const PROJ_H = ['project_code', 'name'];
 const SECT_H = ['sector_code', 'project_code', 'name', 'supervisor_user_id'];
 const SCH_H = ['project_code', 'cadre', 'in_start', 'in_end', 'late_after', 'out_start', 'out_end'];
 const HOL_H = ['date', 'name'];
+// Medical columns were APPENDED after first ship (append-only rule): a SICK
+// application must carry a government medical certificate, so the issuing
+// institution, its certificate number and the Drive id of the photographed
+// certificate ride along on the same row.
 const LEAVE_H = ['leave_id', 'user_id', 'from_date', 'to_date', 'type', 'reason',
-  'status', 'applied_at', 'decided_by', 'decided_at'];
+  'status', 'applied_at', 'decided_by', 'decided_at',
+  'med_institution', 'med_cert_no', 'med_photo_id'];
 const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', 'revoked'];
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',

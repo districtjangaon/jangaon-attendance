@@ -234,6 +234,14 @@ body.dark .mgrid td.d-leave { background: #1a1f3a; color: #aab4ff; }
 .crumb a { color: var(--primary); cursor: pointer; text-decoration: underline; }
 
 .tablewrap { overflow-x: auto; }
+
+/* Leave Register: the per-type header carries a 'taken . pending . balance'
+   legend, and an exhausted balance is tinted so it is findable by eye in a
+   1,400-row register instead of only by reading every number. */
+.reg-sub { display: block; font-weight: 400; font-size: 11px; letter-spacing: 0;
+  text-transform: none; color: var(--muted); }
+td.reg-zero { background: var(--err-soft); color: var(--err); }
+body.dark td.reg-zero { background: #3a1a1f; color: #ff9aa4; }
 table { border-collapse: collapse; width: 100%; font-size: 15px; }
 th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; white-space: nowrap; }
 th {

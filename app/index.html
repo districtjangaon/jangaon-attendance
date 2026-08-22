@@ -177,12 +177,10 @@
     <div id="lv-bal" class="lv-bal" hidden></div>
     <label for="lv-type">Type</label>
     <select id="lv-type">
-      <option value="CASUAL">Casual leave (6/year)</option>
-      <option value="SICK">Medical / sick leave</option>
-      <option value="EARNED">Earned leave (30/year)</option>
-      <option value="OPTIONAL">Optional holiday (5/year)</option>
-      <option value="MATERNITY">Maternity leave</option>
-      <option value="OTHER">Other</option>
+      <option value="CASUAL">Casual Leave (6 / year)</option>
+      <option value="EARNED">Earned Leave (30 / year)</option>
+      <option value="OPTIONAL">Optional Holiday (5 / year, listed days only)</option>
+      <option value="SICK">Medical Leave (no day limit, certificate required)</option>
     </select>
     <div id="lv-dates">
       <label for="lv-from">From date</label>
@@ -193,6 +191,16 @@
     <div id="lv-opt-block" hidden>
       <label for="lv-opt">Festival / occasion (government optional-holiday list)</label>
       <select id="lv-opt"><option value="">Loading&hellip;</option></select>
+    </div>
+    <div id="lv-med-block" hidden>
+      <p class="info">Medical leave has <b>no limit on the number of days</b>, but it is
+        accepted <b>only</b> against a medical certificate issued by a <b>Government</b>
+        hospital / PHC / CHC / Area Hospital. All three below are compulsory.</p>
+      <label for="lv-med-inst">Government institution that issued the certificate</label>
+      <input id="lv-med-inst" type="text" maxlength="120" placeholder="e.g. Area Hospital, Jangaon">
+      <label for="lv-med-cert">Certificate number</label>
+      <input id="lv-med-cert" type="text" maxlength="60" placeholder="e.g. MC/2026/4417">
+      <button id="btn-lv-cert-photo" class="btn btn-plain photo-btn">&#128247; Photograph the medical certificate</button>
     </div>
     <label for="lv-reason">Reason</label>
     <input id="lv-reason" type="text" maxlength="200" placeholder="Short reason">
@@ -265,7 +273,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v5.13-20260821-1800</footer>
+  <footer class="build-tag">BUILD: v5.14-20260822-1130</footer>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button id="nav-home"><span>&#127968;</span>Home</button>

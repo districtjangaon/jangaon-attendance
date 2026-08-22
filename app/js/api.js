@@ -84,7 +84,9 @@ const Api = (() => {
         const uid2 = String(body.token || '').replace('demo-token-', '');
         (demoLeaves[uid2] = demoLeaves[uid2] || []).unshift({
           id: 'LV-demo' + Math.random().toString(36).slice(2, 6),
-          from: body.from, to: body.to, type: body.type, reason: body.reason, status: 'APPROVED'
+          from: body.from, to: body.to, type: body.type, reason: body.reason, status: 'APPROVED',
+          mi: body.medInstitution || '', mc: body.medCertNo || '',
+          mp: body.medPhotoB64 ? 'demo-cert' : ''
         });
         return { ok: true, leaveId: 'LV-demo', status: 'APPROVED' };
       }
