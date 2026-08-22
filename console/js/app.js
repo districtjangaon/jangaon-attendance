@@ -246,88 +246,110 @@ const App = (() => {
   }
 
   // ---------------- Today / Dashboard ----------------
-  const PALETTE = ['#4f5ce5', '#0ca38a', '#e8a020', '#e4572e', '#d13438', '#8b5cf6'];
 
   function bigcard(cls, k, v, sub) {
     return '<div class="bigcard ' + cls + '"><div class="k">' + esc(k) + '</div>' +
       '<div class="v">' + esc(v) + '</div>' + (sub ? '<div class="sub">' + esc(sub) + '</div>' : '') + '</div>';
   }
 
-  function donutSVG(parts) {
-    const total = parts.reduce((s, p) => s + p.value, 0);
-    if (!total) return '<p class="info">No IN marks yet today.</p>';
-    const R = 45, C = 2 * Math.PI * R;
-    let off = 0, segs = '';
-    parts.forEach((p, i) => {
-      if (!p.value) return;
-      const frac = p.value / total;
-      segs += '<circle r="' + R + '" cx="60" cy="60" fill="none" stroke="' + PALETTE[i % 6] +
-        '" stroke-width="22" stroke-dasharray="' + (frac * C).toFixed(2) + ' ' + C.toFixed(2) +
-        '" stroke-dashoffset="' + (-off * C).toFixed(2) + '" transform="rotate(-90 60 60)"></circle>';
-      off += frac;
-    });
-    const legend = parts.map((p, i) => '<div><i style="background:' + PALETTE[i % 6] + '"></i>' +
-      esc(p.label) + ' — ' + p.value + '</div>').join('');
-    return '<svg width="130" height="130" viewBox="0 0 120 120">' + segs +
-      '<text x="60" y="66" text-anchor="middle" font-size="20" font-weight="700">' + total + '</text></svg>' +
-      '<div class="legend">' + legend + '</div>';
+  /**
+   * Arrival/departure time bands are an ORDERED scale, not a set of identities:
+   * "before 9:00" and "after 11:00" are the two ends of one axis. A donut in
+   * five unrelated hues said they were five separate things and hid the shape.
+   * Columns on a single-hue ramp show the distribution at a glance.
+   */
+  function bandsChart(buckets, emptyMsg) {
+    if (!buckets.some(b => b.value > 0)) return Charts.empty(emptyMsg);
+    return Charts.bar(buckets.map((b, i) => ({
+      label: b.label, value: b.value,
+      title: (b.full || b.label) + ': ' + b.value,
+      color: Charts.ORD[Math.min(i, Charts.ORD.length - 1)]
+    })));
   }
 
   function trendSVG(inTimes, opts) {
     opts = opts || {};
     const word = opts.word || 'IN';
-    const col = opts.color || '#4f5ce5';
-    const fill = opts.fill || 'rgba(79,92,229,.14)';
+    const col = opts.color || Charts.PAL[0];
     if (!inTimes.length) return '<p class="info">No ' + word + ' marks yet today.</p>';
     const mins = inTimes.map(t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))).sort((a, b) => a - b);
     const start = (opts.startH || 6) * 60, end = (opts.endH || 18) * 60, W = 340, H = 130, PB = 22, PL = 30;
     const x = m => PL + Math.min(1, Math.max(0, (m - start) / (end - start))) * (W - PL - 8);
     const y = c => (H - PB) - (c / mins.length) * (H - PB - 12);
-    let path = 'M' + PL + ',' + (H - PB);
+    // A cumulative curve needs a run to be a curve. With one or two marks the
+    // line would sweep up from the window's start hour, implying arrivals that
+    // never happened — so start the path at the first actual mark.
+    let path = 'M' + x(mins[0]).toFixed(1) + ',' + (H - PB);
     mins.forEach((m, i) => { path += ' L' + x(m).toFixed(1) + ',' + y(i + 1).toFixed(1); });
     const area = path + ' L' + x(mins[mins.length - 1]).toFixed(1) + ',' + (H - PB) + ' Z';
+    const cumLabel = mins.length + ' marked ' + word;
     let labels = '';
     for (let h = start / 60; h <= end / 60; h += 3) {
-      labels += '<text x="' + x(h * 60).toFixed(0) + '" y="' + (H - 6) +
-        '" font-size="10" fill="#888" text-anchor="middle">' + h + ':00</text>';
+      const tx = x(h * 60);
+      // The last tick would otherwise be clipped by the viewBox edge.
+      const anchor = tx > W - 24 ? 'end' : (tx < PL + 12 ? 'start' : 'middle');
+      labels += '<text class="c-tick" x="' + tx.toFixed(0) + '" y="' + (H - 6) +
+        '" text-anchor="' + anchor + '">' + h + ':00</text>';
     }
-    return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">' +
-      '<line x1="' + PL + '" y1="' + (H - PB) + '" x2="' + (W - 6) + '" y2="' + (H - PB) + '" stroke="#ddd"/>' +
-      '<path d="' + area + '" fill="' + fill + '"/>' +
-      '<path d="' + path + '" fill="none" stroke="' + col + '" stroke-width="2"/>' +
-      '<text x="' + PL + '" y="12" font-size="11" fill="#555">' + mins.length + ' marked ' + word + ' (cumulative)</text>' +
+    // Single-hue wash under the curve, fading to nothing at the baseline —
+    // decoration that cannot imply a value the data does not hold.
+    const gid = 'tg' + (trendSeq++);
+    const lastX = x(mins[mins.length - 1]), lastY = y(mins.length);
+    return '<svg class="c-line" viewBox="0 0 ' + W + ' ' + H + '" role="img">' +
+      '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" style="stop-color:' + col + ';stop-opacity:.34"/>' +
+        '<stop offset="100%" style="stop-color:' + col + ';stop-opacity:0"/></linearGradient></defs>' +
+      '<line class="c-grid" x1="' + PL + '" y1="' + (H - PB) + '" x2="' + (W - 6) +
+        '" y2="' + (H - PB) + '"/>' +
+      '<path d="' + area + '" fill="url(#' + gid + ')"/>' +
+      '<path d="' + path + '" fill="none" style="stroke:' + col +
+        '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<circle class="c-enddot" cx="' + lastX.toFixed(1) + '" cy="' + lastY.toFixed(1) +
+        '" r="4.5" style="fill:' + col + '"/>' +
+      '<text class="c-endlab" x="' + Math.min(W - 8, lastX + 10).toFixed(1) + '" y="' +
+        // Above the dot normally; below it when the curve has run to the top,
+        // where the label would otherwise sit outside the viewBox.
+        (lastY - 10 < 14 ? lastY + 16 : lastY - 10).toFixed(1) +
+        '" text-anchor="' + (lastX > W - 90 ? 'end' : 'start') + '">' +
+        esc(cumLabel) + '</text>' +
       labels + '</svg>';
   }
+  let trendSeq = 0;
 
   function renderCharts(rows) {
     const inTimes = rows.map(e => e.in).filter(Boolean);
+    // Short axis labels, full range in the tooltip: five long labels across one
+    // card overlap each other into an unreadable smear.
     const buckets = [
-      { label: 'Before 9:00', value: 0 }, { label: '9:00–9:30', value: 0 },
-      { label: '9:30–10:00', value: 0 }, { label: '10:00–11:00', value: 0 },
-      { label: 'After 11:00', value: 0 }
+      { label: '<9:00', full: 'Before 9:00', value: 0 },
+      { label: '9–9:30', full: '9:00–9:30', value: 0 },
+      { label: '9:30–10', full: '9:30–10:00', value: 0 },
+      { label: '10–11', full: '10:00–11:00', value: 0 },
+      { label: '>11:00', full: 'After 11:00', value: 0 }
     ];
     inTimes.forEach(t => {
       const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
       buckets[m < 540 ? 0 : m < 570 ? 1 : m < 600 ? 2 : m < 660 ? 3 : 4].value++;
     });
-    $('chart-intime').innerHTML = donutSVG(buckets);
+    $('chart-intime').innerHTML = bandsChart(buckets, 'No IN marks yet today.');
     $('chart-trend').innerHTML = trendSVG(inTimes);
 
     // OUT mirrors of the two charts above; buckets follow the OUT window
     // (out_start 15:30 · out_end 17:30 in the default schedule).
     const outTimes = rows.map(e => e.out).filter(Boolean);
     const outBuckets = [
-      { label: 'Before 15:30', value: 0 }, { label: '15:30–16:30', value: 0 },
-      { label: '16:30–17:30', value: 0 }, { label: 'After 17:30', value: 0 }
+      { label: '<15:30', full: 'Before 15:30', value: 0 },
+      { label: '15:30–16:30', full: '15:30–16:30', value: 0 },
+      { label: '16:30–17:30', full: '16:30–17:30', value: 0 },
+      { label: '>17:30', full: 'After 17:30', value: 0 }
     ];
     outTimes.forEach(t => {
       const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
       outBuckets[m < 930 ? 0 : m < 990 ? 1 : m < 1050 ? 2 : 3].value++;
     });
-    $('chart-outtime').innerHTML = outTimes.length
-      ? donutSVG(outBuckets) : '<p class="info">No OUT marks yet today.</p>';
+    $('chart-outtime').innerHTML = bandsChart(outBuckets, 'No OUT marks yet today.');
     $('chart-outtrend').innerHTML = trendSVG(outTimes,
-      { word: 'OUT', startH: 12, endH: 21, color: '#0ca38a', fill: 'rgba(12,163,138,.14)' });
+      { word: 'OUT', startH: 12, endH: 21, color: Charts.PAL[1] });
 
     // Sector Top-10 (horizontal — sector names stay readable) and project
     // bars, per the district's BI sample. The '?' bucket (users with no
@@ -335,98 +357,98 @@ const App = (() => {
     const secBars = today.sectors.filter(s => s.code && s.code !== '?').map(s => ({
       label: sectorName(s.code),
       title: sectorName(s.code) + ': ' + (s.in + s.late) + '/' + s.expected + ' marked',
-      value: s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0,
-      color: Charts.PAL[3]
+      value: s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0
     })).sort((a, b) => b.value - a.value).slice(0, 10);
+    // One series, one colour. Giving each bar its own hue would encode length
+    // twice and spend the only free channel saying nothing new.
     $('chart-sector').innerHTML = secBars.some(b => b.value > 0)
-      ? Charts.hbar(secBars, { pct: true })
-      : '<p class="info">No sector has marks yet today.</p>';
+      ? Charts.hbar(secBars, { pct: true, color: Charts.PAL[0] })
+      : Charts.empty('No sector has marks yet today.');
 
-    const projBars = today.projects.filter(p => p.code && p.code !== '?').map((p, i) => ({
+    const projBars = today.projects.filter(p => p.code && p.code !== '?').map(p => ({
       label: projectName(p.code),
       title: projectName(p.code) + ': ' + (p.in + p.late) + ' of ' + p.expected + ' marked IN',
-      value: p.in + p.late,
-      color: Charts.PAL[(i + 4) % 8]
+      value: p.in + p.late
     }));
     $('chart-project').innerHTML = projBars.some(b => b.value > 0)
-      ? Charts.hbar(projBars)
-      : '<p class="info">No marks yet today.</p>';
+      ? Charts.hbar(projBars, { color: Charts.PAL[1] })
+      : Charts.empty('No marks yet today.');
 
     // Geofence verification and status donuts fill the remaining grid cells.
     const gf = { INSIDE: 0, OUTSIDE: 0, UNVERIFIED: 0 };
     rows.forEach(e => { if (e.gf && gf[e.gf] != null) gf[e.gf]++; });
     $('chart-verify').innerHTML = Charts.donut([
-      { label: 'Inside fence', value: gf.INSIDE, color: '#178a4c' },
-      { label: 'Outside fence', value: gf.OUTSIDE, color: '#d97706' },
-      { label: 'GPS unverified', value: gf.UNVERIFIED, color: '#9aa1b8' }
-    ]);
+      { label: 'Inside fence', value: gf.INSIDE, color: Charts.STATUS.ok },
+      { label: 'Outside fence', value: gf.OUTSIDE, color: Charts.STATUS.warn },
+      { label: 'GPS unverified', value: gf.UNVERIFIED, color: Charts.STATUS.idle }
+    ], { centerLabel: 'marked', emptyMsg: 'No marks yet today.' });
 
     const st = { PRESENT: 0, LATE: 0, ON_LEAVE: 0, NOT_MARKED: 0 };
     rows.forEach(e => { if (!e.x && st[e.st] != null) st[e.st]++; });
-    $('chart-status').innerHTML = Charts.donut([
-      { label: 'On time', value: st.PRESENT, color: '#178a4c' },
-      { label: 'Late', value: st.LATE, color: '#d97706' },
-      { label: 'On leave', value: st.ON_LEAVE, color: '#4f5ce5' },
-      { label: 'Not marked', value: st.NOT_MARKED, color: '#d13438' }
-    ]);
+    // Part-to-whole across the whole roll: one bar reads the split faster than
+    // a ring, and the four shares stay comparable when three of them are small.
+    $('chart-status').innerHTML = Charts.stack([
+      { label: 'On time', value: st.PRESENT, color: Charts.STATUS.ok },
+      { label: 'Late', value: st.LATE, color: Charts.STATUS.warn },
+      { label: 'On leave', value: st.ON_LEAVE, color: Charts.STATUS.idle },
+      { label: 'Not marked', value: st.NOT_MARKED, color: Charts.STATUS.bad }
+    ], { center: st.PRESENT + st.LATE + st.ON_LEAVE + st.NOT_MARKED,
+      centerLabel: 'on the rolls', emptyMsg: 'No staff in view.' });
 
     // ---- second-row fillers: reports, beneficiaries, stock, OUT, adoption,
     // bottom sectors — all from today.json, no extra requests.
     const rpt = today.rpt || {};
     const totalAwcs = names && names.awcs ? Object.keys(names.awcs).length : 0;
+    // A two-slice ring is a stat tile in a costume — show the ratio itself.
     $('chart-rptprog').innerHTML = totalAwcs
-      ? Charts.donut([
-          { label: 'Reported', value: rpt.awcs || 0, color: '#178a4c' },
-          { label: 'Pending', value: Math.max(0, totalAwcs - (rpt.awcs || 0)), color: '#d13438' }
-        ])
-      : '<p class="info">No AWC list loaded.</p>';
+      ? Charts.meter(rpt.awcs || 0, totalAwcs, { color: Charts.STATUS.ok, unit: 'centres',
+          foot: Math.max(0, totalAwcs - (rpt.awcs || 0)) + ' centres still to report today' })
+      : Charts.empty('No AWC list loaded.');
 
     $('chart-benef').innerHTML = (rpt.awcs || 0)
       ? Charts.bar([
-          { label: 'Children', value: rpt.children || 0, color: Charts.PAL[0] },
-          { label: 'Pregnant', value: rpt.pregnant || 0, color: Charts.PAL[5] },
-          { label: 'Others', value: rpt.others || 0, color: Charts.PAL[6] },
-          { label: 'Meals', value: rpt.meals || 0, color: Charts.PAL[1] }
-        ])
-      : '<p class="info">No reports yet today.</p>';
+          { label: 'Children', value: rpt.children || 0 },
+          { label: 'Pregnant', value: rpt.pregnant || 0 },
+          { label: 'Others', value: rpt.others || 0 },
+          { label: 'Meals', value: rpt.meals || 0 }
+        ], { color: Charts.PAL[0] })
+      : Charts.empty('No reports yet today.');
 
     const stk = rpt.stock || {};
     const stkDef = [['eggs', 'Eggs', ''], ['rice', 'Rice', ' kg'], ['pulses', 'Pulses', ' kg'],
       ['bal', 'Balamrutham', ' ml'], ['balp', 'Balamrutham+', ' ml'], ['milk', 'Milk', ' L']];
     $('chart-stockused').innerHTML = stkDef.some(d => stk[d[0]] && stk[d[0]].used)
-      ? Charts.bar(stkDef.map((d, i) => ({
+      ? Charts.bar(stkDef.map(d => ({
           label: d[1].slice(0, 6), value: (stk[d[0]] && stk[d[0]].used) || 0,
-          title: d[1] + ' used: ' + ((stk[d[0]] && stk[d[0]].used) || 0) + d[2],
-          color: Charts.PAL[i % 8]
-        })))
-      : '<p class="info">No stock usage reported yet.</p>';
+          title: d[1] + ' used: ' + ((stk[d[0]] && stk[d[0]].used) || 0) + d[2]
+        })), { color: Charts.PAL[1] })
+      : Charts.empty('No stock usage reported yet.');
 
     const outDone = rows.filter(e => e.out).length;
     const stillIn = rows.filter(e => (e.st === 'PRESENT' || e.st === 'LATE') && !e.out).length;
     $('chart-outdone').innerHTML = (outDone + stillIn)
-      ? Charts.donut([
-          { label: 'Marked OUT', value: outDone, color: '#4f5ce5' },
-          { label: 'IN, not yet OUT', value: stillIn, color: '#d97706' }
-        ])
-      : '<p class="info">Nobody has marked yet.</p>';
+      ? Charts.meter(outDone, outDone + stillIn, { color: Charts.PAL[0], unit: 'staff',
+          foot: stillIn + ' still to mark OUT' })
+      : Charts.empty('Nobody has marked yet.');
 
     $('chart-adopt').innerHTML = (today.adopt && today.adopt.staff)
-      ? Charts.donut([
-          { label: 'Installed app', value: today.adopt.app || 0, color: '#178a4c' },
-          { label: 'Chrome only', value: today.adopt.chrome || 0, color: '#d97706' },
-          { label: 'Never logged in', value: Math.max(0, today.adopt.staff - today.adopt.onboarded), color: '#d13438' }
-        ])
-      : '<p class="info">No adoption data yet.</p>';
+      ? Charts.stack([
+          { label: 'Installed app', value: today.adopt.app || 0, color: Charts.STATUS.ok },
+          { label: 'Chrome only', value: today.adopt.chrome || 0, color: Charts.STATUS.warn },
+          { label: 'Never logged in',
+            value: Math.max(0, today.adopt.staff - today.adopt.onboarded), color: Charts.STATUS.bad }
+        ], { center: today.adopt.staff, centerLabel: 'staff', emptyMsg: 'No adoption data yet.' })
+      : Charts.empty('No adoption data yet.');
 
     const lowBars = today.sectors.filter(s => s.code && s.code !== '?' && s.expected > 0).map(s => ({
       label: sectorName(s.code),
       title: sectorName(s.code) + ': ' + (s.in + s.late) + '/' + s.expected + ' marked',
-      value: s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0,
-      color: '#d13438'
+      value: s.expected ? Math.round(100 * (s.in + s.late) / s.expected) : 0
     })).sort((a, b) => a.value - b.value).slice(0, 10);
+    // Red is a status colour here and means it: these are the sectors to chase.
     $('chart-sector-low').innerHTML = lowBars.length
-      ? Charts.hbar(lowBars, { pct: true })
-      : '<p class="info">No sectors to show.</p>';
+      ? Charts.hbar(lowBars, { pct: true, color: Charts.STATUS.bad })
+      : Charts.empty('No sectors to show.');
   }
 
   function renderToday() {
@@ -1534,21 +1556,19 @@ const App = (() => {
       ]) + '</div>' +
       '<div class="chartbox"><h3>Month composition (person-days)</h3>' +
       Charts.donut([
-        { label: 'Present', value: totPresent, color: '#0ca38a' },
-        { label: 'On leave', value: totLeave, color: '#2aa7d8' },
-        { label: 'Absent', value: totAbsent, color: '#d13438' }
-      ], { center: attPct + '%' }) + '</div>' +
+        { label: 'Present', value: totPresent, color: Charts.STATUS.ok },
+        { label: 'On leave', value: totLeave, color: Charts.STATUS.idle },
+        { label: 'Absent', value: totAbsent, color: Charts.STATUS.bad }
+      ], { center: attPct + '%', centerLabel: 'attendance' }) + '</div>' +
       '<div class="chartbox"><h3>GPS verification (IN marks)</h3>' +
       Charts.donut([
-        { label: 'Inside fence', value: Math.max(0, totPresent - totOutside - totUnv), color: '#0ca38a' },
-        { label: 'Outside fence', value: totOutside, color: '#e4572e' },
-        { label: 'Unverified', value: totUnv, color: '#e8a020' }
-      ], { center: verifPct + '%' }) + '</div>' +
+        { label: 'Inside fence', value: Math.max(0, totPresent - totOutside - totUnv), color: Charts.STATUS.ok },
+        { label: 'Outside fence', value: totOutside, color: Charts.STATUS.warn },
+        { label: 'Unverified', value: totUnv, color: Charts.STATUS.idle }
+      ], { center: verifPct + '%', centerLabel: 'verified' }) + '</div>' +
       '<div class="chartbox"><h3>Day closure (OUT marked)</h3>' +
-      Charts.donut([
-        { label: 'IN + OUT', value: totOut, color: '#4f5ce5' },
-        { label: 'IN only', value: Math.max(0, totPresent - totOut), color: '#e8a020' }
-      ], { center: (totPresent ? Math.round(100 * totOut / totPresent) : 0) + '%' }) + '</div>' +
+      Charts.meter(totOut, totPresent, { color: Charts.PAL[0], unit: 'person-days',
+        foot: Math.max(0, totPresent - totOut) + ' person-days closed without an OUT mark' }) + '</div>' +
       '<div class="chartbox"><h3>Attendance rate by day (%)</h3>' +
       Charts.line(labels, [
         { name: '% of staff present', color: Charts.PAL[1], area: true,
@@ -1560,16 +1580,16 @@ const App = (() => {
         value: wd[i].length ? Math.round(wd[i].reduce((a, b) => a + b, 0) / wd[i].length) : 0
       })), { pct: true }) + '</div>' +
       '<div class="chartbox"><h3>Punctuality (all IN marks)</h3>' +
-      Charts.donut([
+      bandsChart([
         { label: 'Before 9:00', value: inBuckets[0] }, { label: '9:00–9:30', value: inBuckets[1] },
         { label: '9:30–10:00', value: inBuckets[2] }, { label: '10:00–11:00', value: inBuckets[3] },
         { label: 'After 11:00', value: inBuckets[4] }
-      ]) + '</div>' +
+      ], 'No IN marks this month.') + '</div>' +
       '<div class="chartbox"><h3>Data-quality flags</h3>' +
       (Object.keys(flagCount).length
         ? Charts.bar(Object.keys(flagCount).sort((a, b) => flagCount[b] - flagCount[a]).slice(0, 6)
-            .map((fl, i) => ({ label: fl.slice(0, 12), title: fl + ': ' + flagCount[fl],
-              value: flagCount[fl], color: Charts.PAL[(i + 2) % 8] })))
+            .map(fl => ({ label: fl.slice(0, 12), title: fl + ': ' + flagCount[fl],
+              value: flagCount[fl] })), { color: Charts.STATUS.warn })
         : '<p class="info">No flags this month — clean data.</p>') + '</div></div>';
 
     // ---- sector league (ALL) or coverage heatmap rows ----
