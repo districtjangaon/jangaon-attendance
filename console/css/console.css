@@ -330,6 +330,22 @@ body.dark {
 .legend-row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
 .legend-row div { margin: 0; }
 
+/* Daily-reports controls: the day slider needs room to be draggable and a
+   fixed-width readout, or the row jumps as the date text changes width. */
+.rpts-dayrow { align-items: center; }
+.rpts-dayrow .chk, .rpts-dayrow .sliderlab {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0;
+  font-family: var(--font-display); font-size: 13px; font-weight: 400;
+  letter-spacing: 0; text-transform: none; white-space: nowrap;
+}
+.rpts-dayrow .chk input { width: auto; margin: 0; }
+.rpts-dayrow .sliderlab { color: var(--muted); }
+.rpts-dayrow input[type="range"] { flex: 1 1 260px; min-width: 180px; accent-color: var(--primary); }
+.rpts-dayrow .daylab {
+  font-family: var(--font-mono); font-size: 13px; min-width: 92px; text-align: right;
+}
+.rpts-h { margin: 18px 0 8px; font-size: 15px; }
+
 .mgrid td.d-leave { background: var(--primary-soft); color: var(--primary-dark); font-weight: 700; }
 
 .insights { background: var(--primary-soft); border-left: 4px solid var(--primary); }

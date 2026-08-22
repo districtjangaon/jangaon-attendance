@@ -147,6 +147,7 @@ const App = (() => {
     fillMonthControls();
     fillReportControls();
     fillRegisterControls();
+    fillRptControls();
     initNewUserForm();
     fillAnalyticsControls();
     fillAwcPicker();
@@ -170,7 +171,8 @@ const App = (() => {
     renderStale();
     renderToday();
     renderExceptions();
-    renderRpts();
+    // Daily reports render on first open of their tab — the archive is up to
+    // six month files and nobody should pay for it just by logging in.
   }
 
   function renderStale() {
@@ -732,90 +734,383 @@ const App = (() => {
   }
 
   // ---------------- Daily Reports (AWC diary: children / pregnant / others / meals) ----------------
-  function rptRowsFiltered() {
-    const q = ($('rpts-search').value || '').trim().toLowerCase();
-    return ((today && today.rpts) || []).filter(r => {
-      if (!inScopeUid(r.u)) return false;
-      if (!q) return true;
-      return (awcName(r.a) + ' ' + sectorName(r.s) + ' ' + userName(r.u)).toLowerCase().indexOf(q) >= 0;
+  // ---------------- Daily reports: today, plus six months of history --------
+  // The archive files (summary/reports/<ym>.json) are district-wide static
+  // JSON, so scope is enforced the same way every other summary file does it:
+  // the viewer's name map only contains their own centres, and anything not in
+  // it is dropped before a single number is counted.
+  const RPT_ITEMS = [
+    { k: 'eggs', n: 'Eggs', u: '' }, { k: 'rice', n: 'Rice', u: 'kg' },
+    { k: 'pulses', n: 'Pulses', u: 'kg' }, { k: 'bal', n: 'Balamrutham', u: 'ml' },
+    { k: 'balp', n: 'Balamrutham+', u: 'ml' }, { k: 'milk', n: 'Milk', u: 'L' }
+  ];
+  const rptArchive = {};   // ym -> parsed file (cached for the session)
+  let rptDays = [];        // [{ ym, dd, iso }] oldest -> newest, across the range
+  let rptLoadedFor = null; // the range currently in memory
+
+  const r1 = v => Math.round(v * 10) / 10;
+  const isoDay = (ym, dd) => ym + '-' + dd;
+  const prettyDay = iso => iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4);
+
+  function rptMonthsBack(n) {
+    const out = [];
+    const now = new Date();
+    for (let i = 0; i < n; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      out.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+    }
+    return out.reverse();   // oldest first, so the slider runs left to right
+  }
+
+  async function loadRpts() {
+    const months = Number($('rpts-range').value) || 1;
+    const want = rptMonthsBack(months);
+    const key = want.join(',');
+    if (rptLoadedFor === key) { renderRpts(); return; }
+    $('rpts-loading').textContent = 'Loading ' + months + ' month' + (months > 1 ? 's' : '') + '…';
+    const missing = want.filter(ym => !rptArchive[ym]);
+    const got = await Promise.all(missing.map(ym => Api.fetchJson('summary/reports/' + ym + '.json')));
+    missing.forEach((ym, i) => {
+      // A month with no archive yet is cached as empty so we do not re-fetch a
+      // 404 on every redraw; the nightly job fills it in.
+      rptArchive[ym] = got[i] || { ym: ym, days: {}, awcs: {}, missing: true };
     });
+    rptDays = [];
+    want.forEach(ym => {
+      Object.keys(rptArchive[ym].days || {}).sort()
+        .forEach(dd => rptDays.push({ ym: ym, dd: dd, iso: isoDay(ym, dd) }));
+    });
+    rptLoadedFor = key;
+    $('rpts-loading').textContent = '';
+    const slider = $('rpts-day');
+    slider.max = String(Math.max(0, rptDays.length - 1));
+    slider.value = String(Math.max(0, rptDays.length - 1));
+    renderRpts();
+  }
+
+  /** The centres this viewer may see, optionally narrowed to one sector. */
+  function rptScopeAwcs() {
+    const sc = $('rpts-scope').value;
+    return Object.keys(names.awcs || {}).filter(a => sc === 'ALL' || names.awcs[a].sc === sc);
+  }
+
+  /** Days currently selected: the whole range, or the one the slider points at. */
+  function rptSelectedDays() {
+    if ($('rpts-allday').checked || !rptDays.length) return rptDays;
+    const i = Math.min(rptDays.length - 1, Math.max(0, Number($('rpts-day').value) || 0));
+    return [rptDays[i]];
+  }
+
+  /**
+   * Roll the selected days up per centre and per day. One pass produces both
+   * tables, the cards and the charts, so they can never disagree.
+   */
+  function rptAggregate() {
+    const inScope = {};
+    rptScopeAwcs().forEach(a => { inScope[a] = 1; });
+    const days = rptSelectedDays();
+    const perAwc = {};    // aid -> { days, c, p, o, m, used{}, st{} }
+    const perDay = [];    // [{ iso, awcs, c, p, o, m, used{} }]
+    const blankUsed = () => { const u = {}; RPT_ITEMS.forEach(it => { u[it.k] = 0; }); return u; };
+    const tot = { awcs: 0, days: days.length, c: 0, p: 0, o: 0, m: 0, used: blankUsed() };
+
+    days.forEach(d => {
+      const file = rptArchive[d.ym];
+      const dayRow = { iso: d.iso, awcs: 0, c: 0, p: 0, o: 0, m: 0, used: blankUsed() };
+      Object.keys(file.awcs || {}).forEach(aid => {
+        if (!inScope[aid]) return;
+        const row = file.awcs[aid].d[d.dd];
+        if (!row) return;
+        const a = perAwc[aid] || (perAwc[aid] = { days: 0, c: 0, p: 0, o: 0, m: 0,
+          used: blankUsed(), st: null });
+        a.days++;
+        a.c += row[0]; a.p += row[1]; a.o += row[2]; a.m += row[3];
+        dayRow.awcs++; dayRow.c += row[0]; dayRow.p += row[1]; dayRow.o += row[2]; dayRow.m += row[3];
+        RPT_ITEMS.forEach((it, i) => {
+          const v = row[4 + i] || 0;
+          a.used[it.k] = r1(a.used[it.k] + v);
+          dayRow.used[it.k] = r1(dayRow.used[it.k] + v);
+        });
+      });
+      tot.c += dayRow.c; tot.p += dayRow.p; tot.o += dayRow.o; tot.m += dayRow.m;
+      RPT_ITEMS.forEach(it => { tot.used[it.k] = r1(tot.used[it.k] + dayRow.used[it.k]); });
+      perDay.push(dayRow);
+    });
+    tot.awcs = Object.keys(perAwc).length;
+
+    // Stock balances are month-level in the archive: opening from the first
+    // month in view, closing from the last. Summing openings across months
+    // would count the same sack of rice six times.
+    const months = [...new Set(days.map(d => d.ym))].sort();
+    const stock = {};
+    RPT_ITEMS.forEach(it => { stock[it.k] = { ob: 0, used: 0, recd: 0, cb: 0 }; });
+    if (months.length) {
+      const first = rptArchive[months[0]], last = rptArchive[months[months.length - 1]];
+      Object.keys(first.awcs || {}).forEach(aid => {
+        if (!inScope[aid]) return;
+        RPT_ITEMS.forEach(it => {
+          const v = (first.awcs[aid].st || {})[it.k];
+          if (v) stock[it.k].ob = r1(stock[it.k].ob + v[0]);
+        });
+      });
+      Object.keys(last.awcs || {}).forEach(aid => {
+        if (!inScope[aid]) return;
+        RPT_ITEMS.forEach(it => {
+          const v = (last.awcs[aid].st || {})[it.k];
+          if (v) stock[it.k].cb = r1(stock[it.k].cb + v[3]);
+        });
+      });
+      months.forEach(ym => {
+        Object.keys(rptArchive[ym].awcs || {}).forEach(aid => {
+          if (!inScope[aid]) return;
+          RPT_ITEMS.forEach(it => {
+            const v = (rptArchive[ym].awcs[aid].st || {})[it.k];
+            if (!v) return;
+            stock[it.k].used = r1(stock[it.k].used + v[1]);
+            stock[it.k].recd = r1(stock[it.k].recd + v[2]);
+          });
+        });
+      });
+    }
+    return { tot: tot, perAwc: perAwc, perDay: perDay, stock: stock, days: days };
   }
 
   function renderRpts() {
-    const wrap = $('rpts-table'), info = $('rpts-summary');
-    const agg = today && today.rpt;
-    const awcTotal = Object.keys(names.awcs || {}).length;
-    if (!agg) {
-      info.textContent = '';
-      wrap.innerHTML = '<p class="info">No report data published yet. AWC daily reports appear here ' +
-        'within ~5 minutes of centres submitting them from the app (backend v2.3+).</p>';
-      return;
-    }
-    const stk = agg.stock;
-    info.innerHTML = '<b>' + agg.awcs + '</b> of ' + awcTotal + ' AWCs reported today &middot; ' +
-      'children <b>' + agg.children + '</b> &middot; pregnant women <b>' + agg.pregnant + '</b> &middot; ' +
-      'other beneficiaries <b>' + agg.others + '</b> &middot; meals <b>' + agg.meals + '</b>' +
-      (stk
-        ? ' &middot; closing stock: eggs <b>' + stk.eggs.cb + '</b>, rice <b>' + stk.rice.cb +
-          ' kg</b>, pulses <b>' + stk.pulses.cb + ' kg</b>, Balamrutham <b>' + stk.bal.cb +
-          ' ml</b>, Balamrutham+ <b>' + stk.balp.cb + ' ml</b>, milk <b>' + stk.milk.cb + ' L</b>'
-        : ' &middot; stock: eggs <b>' + (agg.eggs || 0) + '</b>, rice <b>' + (agg.riceKg || 0) +
-          ' kg</b>, pulses <b>' + (agg.pulsesKg || 0) + ' kg</b>');
+    if (!rptLoadedFor) { loadRpts(); return; }
+    const A = rptAggregate();
+    const single = !$('rpts-allday').checked && rptDays.length;
+    const label = !rptDays.length ? 'no reported days yet'
+      : single ? prettyDay(A.days[0].iso)
+        : prettyDay(rptDays[0].iso) + ' – ' + prettyDay(rptDays[rptDays.length - 1].iso);
+    $('rpts-rangelabel').textContent = label;
+    $('rpts-daylabel').textContent = rptDays.length
+      ? prettyDay(rptDays[Math.min(rptDays.length - 1, Number($('rpts-day').value) || 0)].iso) : '—';
 
-    const rows = rptRowsFiltered();
-    if (!rows.length) {
-      wrap.innerHTML = '<p class="info">' + (agg.awcs ? 'No reports match the search.'
-        : 'No centre has submitted today\'s report yet.') + '</p>';
-      return;
-    }
-    const phBtn = (id, label) => id
-      ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(id) + '">' + label + '</button> ' : '';
-    // stock cells show the CLOSING balance; hover reveals open/used/received
-    const stCell = v => '<td title="opening ' + v[0] + ' · used ' + v[1] +
-      ' · received ' + v[2] + '"><b>' + v[3] + '</b></td>';
-    const stCells = r => r.st
-      ? r.st.map(stCell).join('')
-      : '<td>' + (r.eg || 0) + '</td><td>' + (r.rk || 0) + '</td><td>' + (r.pk || 0) +
-        '</td><td>–</td><td>–</td><td>–</td>';
-    wrap.innerHTML = '<table><tr><th>Sector</th><th>AWC</th><th>Reported by</th><th>Time</th>' +
-      '<th>Children</th><th>Pregnant</th><th>Others</th><th>Meals</th>' +
-      '<th>Eggs</th><th>Rice kg</th><th>Pulses kg</th><th>Balam. ml</th><th>Balam+ ml</th><th>Milk L</th>' +
-      '<th>Flags</th><th>Photos</th></tr>' +
-      rows.map(r =>
-        '<tr><td>' + esc(sectorName(r.s)) + '</td><td>' + esc(awcName(r.a)) + '</td><td>' +
-        esc(userName(r.u)) + '</td><td>' + esc(r.at || '–') + '</td><td><b>' + r.c + '</b></td><td>' +
-        r.p + '</td><td>' + r.o + '</td><td><b>' + r.m + '</b></td>' + stCells(r) +
-        '<td class="flags">' + esc(r.f || '') + '</td><td>' +
-        phBtn(r.ph1, 'children') + phBtn(r.ph3, 'pregnant') +
-        phBtn(r.ph4, 'others') + phBtn(r.ph2, 'meal') +
-        '</td></tr>').join('') + '</table>';
-    bindPhotoButtons(wrap);
+    const totalAwcs = rptScopeAwcs().length;
+    const missing = Object.keys(rptArchive).filter(ym => rptArchive[ym].missing);
+    $('rpts-summary').innerHTML = !rptDays.length
+      ? 'No report archive published for this range yet. The nightly job builds it; ' +
+        'run <b>buildReportHistory</b> once in the Apps Script editor to backfill older months.'
+      : '<b>' + A.tot.awcs + '</b> of ' + totalAwcs + ' centres reported over <b>' +
+        A.tot.days + '</b> reported day' + (A.tot.days === 1 ? '' : 's') + ' (' + esc(label) + ')' +
+        (missing.length ? ' &middot; no archive yet for ' + esc(missing.join(', ')) : '');
+
+    const covered = totalAwcs * A.tot.days;
+    const filed = Object.keys(A.perAwc).reduce((s, a) => s + A.perAwc[a].days, 0);
+    $('rpts-cards').innerHTML =
+      bigcard('bc-teal', 'Centre-days filed', filed,
+        covered ? Math.round(100 * filed / covered) + '% of ' + covered + ' expected' : '') +
+      bigcard('bc-blue', 'Children', A.tot.c, single ? 'on this day' : 'total across the range') +
+      bigcard('bc-olive', 'Meals served', A.tot.m, single ? 'on this day' : 'total across the range') +
+      bigcard('bc-grey', 'Pregnant women', A.tot.p, 'reported') +
+      bigcard('bc-maroon', 'Other beneficiaries', A.tot.o, 'reported');
+
+    // The trend always spans the whole range — a one-day chart is a dot — but
+    // 150 daily points in one card is a zigzag nobody can read, so long ranges
+    // are bucketed and the heading says so rather than quietly implying days.
+    const all = rptAggregateAllDays();
+    const b = rptBucket(all);
+    const word = (b.size === 1 ? 'per day' : b.size === 7 ? 'per week' : 'per ' + b.size + ' days') +
+      (b.partial ? ' (part-finished ' + (b.size === 7 ? 'week' : 'period') + ' not plotted)' : '');
+    $('rpts-trend-h').textContent = 'Beneficiaries reported ' + word;
+    $('rpts-meals-h').textContent = 'Meals served ' + word;
+    $('rpts-trend').innerHTML = b.rows.length
+      ? Charts.line(b.labels, [
+          { name: 'Children', color: Charts.PAL[0], area: true, values: b.rows.map(d => d.c) },
+          { name: 'Pregnant', color: Charts.PAL[1], values: b.rows.map(d => d.p) },
+          { name: 'Others', color: Charts.PAL[5], values: b.rows.map(d => d.o) }
+        ])
+      : Charts.empty('No reported days in this range.');
+    $('rpts-meals').innerHTML = b.rows.length
+      ? Charts.line(b.labels, [{ name: 'Meals', color: Charts.PAL[1], area: true,
+          values: b.rows.map(d => d.m) }])
+      : Charts.empty('No reported days in this range.');
+
+    renderRptStock(A);
+    renderRptTable(A);
   }
 
+  /**
+   * Collapse a long daily series into readable buckets. Whole weeks once the
+   * range passes six weeks, so the x-axis stays a date the reader recognises.
+   */
+  function rptBucket(rows) {
+    if (rows.length <= 45) {
+      return { size: 1, rows: rows, labels: rows.map(d => prettyDay(d.iso).slice(0, 5)) };
+    }
+    const size = rows.length <= 220 ? 7 : 14;
+    const out = [], labels = [];
+    let partial = false;
+    for (let i = 0; i < rows.length; i += size) {
+      const chunk = rows.slice(i, i + size);
+      // A part-finished final bucket plots as a cliff and reads as a collapse
+      // in service when it is only a short week. Leave it out and say so; the
+      // days are still in every table and export.
+      if (chunk.length < size) { partial = true; break; }
+      out.push(chunk.reduce((a, d) => ({ c: a.c + d.c, p: a.p + d.p, o: a.o + d.o, m: a.m + d.m }),
+        { c: 0, p: 0, o: 0, m: 0 }));
+      labels.push(prettyDay(chunk[0].iso).slice(0, 5));
+    }
+    return { size: size, rows: out, labels: labels, partial: partial };
+  }
+
+  /** The per-day series for the charts: the whole range regardless of the slider. */
+  function rptAggregateAllDays() {
+    const inScope = {};
+    rptScopeAwcs().forEach(a => { inScope[a] = 1; });
+    return rptDays.map(d => {
+      const file = rptArchive[d.ym];
+      const row = { iso: d.iso, c: 0, p: 0, o: 0, m: 0 };
+      Object.keys(file.awcs || {}).forEach(aid => {
+        if (!inScope[aid]) return;
+        const r = file.awcs[aid].d[d.dd];
+        if (!r) return;
+        row.c += r[0]; row.p += r[1]; row.o += r[2]; row.m += r[3];
+      });
+      return row;
+    });
+  }
+
+  /** The resource register: what came in, what went out, what is left. */
+  function renderRptStock(A) {
+    if (!rptDays.length) { $('rpts-stock').innerHTML = ''; return; }
+    const rows = RPT_ITEMS.map(it => {
+      const s = A.stock[it.k];
+      const expected = r1(s.ob + s.recd - s.used);
+      const drift = r1(s.cb - expected);
+      return '<tr><td>' + esc(it.n) + (it.u ? ' <span class="reg-sub">' + esc(it.u) + '</span>' : '') +
+        '</td><td>' + s.ob + '</td><td>' + s.recd + '</td><td>' + s.used + '</td><td><b>' + s.cb +
+        '</b></td><td>' + expected + '</td><td' + (Math.abs(drift) > 0.05 ? ' class="reg-zero"' : '') +
+        ' title="closing minus (opening + received − used)">' + (drift > 0 ? '+' : '') + drift +
+        '</td><td>' + (A.tot.used[it.k] || 0) + '</td></tr>';
+    }).join('');
+    $('rpts-stock').innerHTML = '<table><tr><th>Item</th><th>Opening</th><th>Received</th>' +
+      '<th>Used</th><th>Closing</th><th>Expected closing</th><th>Difference</th>' +
+      '<th>Used in view</th></tr>' + rows + '</table>' +
+      '<p class="info">Opening is the first balance in the range and closing the last, so a ' +
+      'multi-month view is not double counted. <b>Difference</b> is closing minus ' +
+      '(opening + received − used): anything other than zero is a register that does not ' +
+      'balance, and is worth a call to the sector.</p>';
+  }
+
+  /** One row per centre for the selected range — the summary of all the data. */
+  function renderRptTable(A) {
+    const q = ($('rpts-search').value || '').trim().toLowerCase();
+    const rows = rptScopeAwcs().filter(aid => {
+      if (!q) return true;
+      return (awcName(aid) + ' ' + sectorName(names.awcs[aid].sc)).toLowerCase().indexOf(q) >= 0;
+    }).map(aid => {
+      const a = A.perAwc[aid] || { days: 0, c: 0, p: 0, o: 0, m: 0,
+        used: RPT_ITEMS.reduce((u, it) => { u[it.k] = 0; return u; }, {}) };
+      return { aid: aid, sc: names.awcs[aid].sc, a: a };
+    }).sort((x, y) => x.a.days === y.a.days
+      ? awcName(x.aid).localeCompare(awcName(y.aid)) : x.a.days - y.a.days);
+
+    if (!rows.length) { $('rpts-table').innerHTML = Charts.empty('No centres match.'); return; }
+    const avg = (v, d) => d ? Math.round(v / d) : 0;
+    $('rpts-table').innerHTML = '<table><tr><th>Sector</th><th>AWC</th><th>Days filed</th>' +
+      '<th>Days missed</th><th>Children total</th><th>Avg/day</th><th>Pregnant</th>' +
+      '<th>Others</th><th>Meals total</th><th>Avg/day</th>' +
+      RPT_ITEMS.map(it => '<th>' + esc(it.n) + ' used' +
+        (it.u ? ' <span class="reg-sub">' + esc(it.u) + '</span>' : '') + '</th>').join('') +
+      '</tr>' + rows.map(r => {
+        const missed = Math.max(0, A.tot.days - r.a.days);
+        return '<tr><td>' + esc(sectorName(r.sc)) + '</td><td>' + esc(awcName(r.aid)) +
+          '</td><td>' + r.a.days + '</td><td' + (missed ? ' class="reg-zero"' : '') + '>' + missed +
+          '</td><td>' + r.a.c + '</td><td>' + avg(r.a.c, r.a.days) + '</td><td>' + r.a.p +
+          '</td><td>' + r.a.o + '</td><td>' + r.a.m + '</td><td>' + avg(r.a.m, r.a.days) + '</td>' +
+          RPT_ITEMS.map(it => '<td>' + (r.a.used[it.k] || 0) + '</td>').join('') + '</tr>';
+      }).join('') + '</table>';
+  }
+
+  // ---- exports -------------------------------------------------------------
+  function rptRangeTag() {
+    if (!rptDays.length) return 'empty';
+    return rptDays[0].iso + '_to_' + rptDays[rptDays.length - 1].iso;
+  }
+
+  /** One row per centre — the summary table, as filed. */
   function rptsCsv() {
-    const SKEYS = ['eggs', 'rice', 'pulses', 'balamrutham', 'balamrutham_plus', 'milk'];
-    const head = ['sector', 'awc', 'reported_by', 'time', 'children', 'pregnant', 'others', 'meals'];
-    SKEYS.forEach(k => head.push(k + '_open', k + '_used', k + '_received', k + '_closing'));
-    head.push('flags');
+    const A = rptAggregate();
+    const head = ['sector_code', 'sector', 'awc_id', 'awc', 'days_filed', 'days_missed',
+      'children_total', 'children_avg', 'pregnant_total', 'others_total',
+      'meals_total', 'meals_avg'];
+    RPT_ITEMS.forEach(it => head.push(it.k + '_used' + (it.u ? '_' + it.u : '')));
     const rows = [head];
-    rptRowsFiltered().forEach(r => {
-      const base = [sectorName(r.s), awcName(r.a), userName(r.u), r.at || '', r.c, r.p, r.o, r.m];
-      const st = r.st || SKEYS.map(() => ['', '', '', '']);
-      st.forEach(v => base.push(v[0], v[1], v[2], v[3]));
-      base.push(r.f || '');
-      rows.push(base);
+    rptScopeAwcs().forEach(aid => {
+      const a = A.perAwc[aid];
+      const d = a ? a.days : 0;
+      const line = [names.awcs[aid].sc, sectorName(names.awcs[aid].sc), aid, awcName(aid),
+        d, Math.max(0, A.tot.days - d),
+        a ? a.c : 0, d ? Math.round(a.c / d) : 0, a ? a.p : 0, a ? a.o : 0,
+        a ? a.m : 0, d ? Math.round(a.m / d) : 0];
+      RPT_ITEMS.forEach(it => line.push(a ? (a.used[it.k] || 0) : 0));
+      rows.push(line);
     });
-    downloadCsv('daily-reports-' + ((today && today.date) || '') + '.csv', rows);
+    downloadCsv('daily-reports-summary-' + rptRangeTag() + '.csv', rows);
   }
 
-  function rptsMissingCsv() {
-    const reported = {};
-    ((today && today.rpts) || []).forEach(r => { reported[r.a] = 1; });
-    const rows = [['awc_id', 'awc_name', 'sector']];
-    Object.keys(names.awcs || {}).forEach(id => {
-      if (!reported[id]) rows.push([id, awcName(id), sectorName(names.awcs[id].sc)]);
+  /** One row per day — the district (or sector) totals, for the date-wise view. */
+  function rptsDayCsv() {
+    const inScope = {};
+    rptScopeAwcs().forEach(a => { inScope[a] = 1; });
+    const head = ['date', 'centres_reported', 'children', 'pregnant', 'others', 'meals'];
+    RPT_ITEMS.forEach(it => head.push(it.k + '_used' + (it.u ? '_' + it.u : '')));
+    const rows = [head];
+    rptDays.forEach(d => {
+      const file = rptArchive[d.ym];
+      const line = [d.iso, 0, 0, 0, 0, 0];
+      const used = RPT_ITEMS.map(() => 0);
+      Object.keys(file.awcs || {}).forEach(aid => {
+        if (!inScope[aid]) return;
+        const r = file.awcs[aid].d[d.dd];
+        if (!r) return;
+        line[1]++; line[2] += r[0]; line[3] += r[1]; line[4] += r[2]; line[5] += r[3];
+        RPT_ITEMS.forEach((it, i) => { used[i] = r1(used[i] + (r[4 + i] || 0)); });
+      });
+      rows.push(line.concat(used));
     });
-    downloadCsv('awcs-not-reported-' + ((today && today.date) || '') + '.csv', rows);
+    downloadCsv('daily-reports-daywise-' + rptRangeTag() + '.csv', rows);
+  }
+
+  /** Every filed report in the range, one row each — the full record. */
+  function rptsDetailCsv() {
+    const inScope = {};
+    rptScopeAwcs().forEach(a => { inScope[a] = 1; });
+    const head = ['date', 'sector_code', 'sector', 'awc_id', 'awc',
+      'children', 'pregnant', 'others', 'meals'];
+    RPT_ITEMS.forEach(it => head.push(it.k + '_used' + (it.u ? '_' + it.u : '')));
+    const rows = [head];
+    rptDays.forEach(d => {
+      const file = rptArchive[d.ym];
+      Object.keys(file.awcs || {}).sort().forEach(aid => {
+        if (!inScope[aid]) return;
+        const r = file.awcs[aid].d[d.dd];
+        if (!r) return;
+        rows.push([d.iso, names.awcs[aid].sc, sectorName(names.awcs[aid].sc), aid, awcName(aid),
+          r[0], r[1], r[2], r[3]].concat(RPT_ITEMS.map((it, i) => r[4 + i] || 0)));
+      });
+    });
+    downloadCsv('daily-reports-detail-' + rptRangeTag() + '.csv', rows);
+  }
+
+  /** Centres that filed nothing on the selected day (or nothing at all in the range). */
+  function rptsMissingCsv() {
+    const A = rptAggregate();
+    const rows = [['awc_id', 'awc_name', 'sector', 'days_filed', 'days_missed']];
+    rptScopeAwcs().forEach(aid => {
+      const d = A.perAwc[aid] ? A.perAwc[aid].days : 0;
+      if (d >= A.tot.days && A.tot.days > 0) return;
+      rows.push([aid, awcName(aid), sectorName(names.awcs[aid].sc), d,
+        Math.max(0, A.tot.days - d)]);
+    });
+    downloadCsv('awcs-not-reported-' + rptRangeTag() + '.csv', rows);
+  }
+
+  function fillRptControls() {
+    $('rpts-scope').innerHTML = '<option value="ALL">All centres in my scope</option>' +
+      (names.sectors || []).map(sc =>
+        '<option value="' + esc(sc.code) + '">' + esc(sc.name) + ' (' + esc(sc.code) + ')</option>').join('');
   }
 
   function bindPhotoButtons(root) {
@@ -2077,9 +2372,18 @@ const App = (() => {
     };
     if (document.body.classList.contains('dark')) $('btn-theme').textContent = '☀️';
     $('tab-exceptions').onclick = () => { switchTab('exceptions'); markExcSeen(); };
-    $('tab-rpts').onclick = () => { switchTab('rpts'); markRptsSeen(); };
+    // The archive is fetched on first open, not at boot: six month files is
+    // not something to pull for every console login.
+    $('tab-rpts').onclick = () => { switchTab('rpts'); markRptsSeen(); loadRpts(); };
     $('rpts-search').oninput = renderRpts;
+    $('rpts-range').onchange = loadRpts;
+    $('btn-rpts-load').onclick = loadRpts;
+    $('rpts-scope').onchange = renderRpts;
+    $('rpts-day').oninput = () => { $('rpts-allday').checked = false; renderRpts(); };
+    $('rpts-allday').onchange = renderRpts;
     $('btn-rpts-csv').onclick = rptsCsv;
+    $('btn-rpts-daycsv').onclick = rptsDayCsv;
+    $('btn-rpts-detailcsv').onclick = rptsDetailCsv;
     $('btn-rpts-missing-csv').onclick = rptsMissingCsv;
     $('tab-monthly').onclick = () => switchTab('monthly');
     $('tab-reports').onclick = () => switchTab('reports');

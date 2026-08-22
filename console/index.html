@@ -183,11 +183,39 @@
 
     <!-- Daily AWC reports (children / pregnant women / others / meals) -->
     <section id="view-rpts" class="view" hidden>
-      <p id="rpts-summary" class="info"></p>
       <div class="toolbar">
-        <input id="rpts-search" type="search" placeholder="Search AWC / sector / name…">
-        <button id="btn-rpts-csv" class="btn btn-plain btn-inline">Export reported CSV</button>
-        <button id="btn-rpts-missing-csv" class="btn btn-plain btn-inline">Export not-reported CSV</button>
+        <select id="rpts-range">
+          <option value="1">This month</option>
+          <option value="3">Last 3 months</option>
+          <option value="6">Last 6 months</option>
+        </select>
+        <select id="rpts-scope"></select>
+        <button id="btn-rpts-load" class="btn btn-plain btn-inline">Load</button>
+        <span id="rpts-loading" class="info"></span>
+      </div>
+      <div class="toolbar rpts-dayrow">
+        <label class="chk"><input id="rpts-allday" type="checkbox" checked> Whole range</label>
+        <label for="rpts-day" class="sliderlab">Day</label>
+        <input id="rpts-day" type="range" min="0" max="0" value="0" step="1">
+        <b id="rpts-daylabel" class="daylab"></b>
+      </div>
+      <p id="rpts-summary" class="info"></p>
+      <div id="rpts-cards" class="bigcards"></div>
+      <div class="charts">
+        <div class="chartbox span2"><h3 id="rpts-trend-h">Beneficiaries reported per day</h3>
+          <div id="rpts-trend" class="plot"></div></div>
+        <div class="chartbox span2"><h3 id="rpts-meals-h">Meals served per day</h3>
+          <div id="rpts-meals" class="plot"></div></div>
+      </div>
+      <h3 class="rpts-h">Resource register &mdash; <span id="rpts-rangelabel"></span></h3>
+      <div id="rpts-stock" class="tablewrap"></div>
+      <h3 class="rpts-h">Summary by centre</h3>
+      <div class="toolbar">
+        <input id="rpts-search" type="search" placeholder="Search AWC / sector…">
+        <button id="btn-rpts-csv" class="btn btn-plain btn-inline">Summary CSV</button>
+        <button id="btn-rpts-daycsv" class="btn btn-plain btn-inline">Day-wise CSV</button>
+        <button id="btn-rpts-detailcsv" class="btn btn-plain btn-inline">Full detail CSV</button>
+        <button id="btn-rpts-missing-csv" class="btn btn-plain btn-inline">Not-reported CSV</button>
       </div>
       <div id="rpts-table" class="tablewrap"></div>
     </section>
@@ -334,7 +362,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.8-20260822-1420</footer>
+  <footer class="build-tag">BUILD: v4.9-20260822-1520</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

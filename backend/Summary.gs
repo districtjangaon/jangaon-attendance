@@ -429,6 +429,12 @@ function nightlyJob() {
   let files = buildMonthFiles_(ym, 'summary/month/', true);
   files.push(buildOrgFile_());
   files.push(buildPlacesFile_());
+  // The daily-report archive for this month. Wrapped: a report-build failure
+  // must never cost the district its attendance summaries.
+  try {
+    const rf = buildReportFile_(ym);
+    if (rf) files.push(rf);
+  } catch (err) { console.error('report archive build failed: ' + err); }
   const firstOfMonth = Utilities.formatDate(now, TZ, 'd') === '1';
   if (firstOfMonth) {
     // Freeze last month under summary/archive/ before it goes cold.

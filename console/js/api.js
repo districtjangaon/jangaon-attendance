@@ -194,6 +194,8 @@ const Api = (() => {
         open: [{ key: 'ANOM_U9103_' + dYm(), u: 'U9103', s: 'S01', d: dCompact(), t: 'ANOMALY', at: null, gf: 'STATIC_COORDS', fl: 'REPEAT_COORDS_5D', ph: null }]
       };
     }
+    const rm = path.match(/^summary\/reports\/(\d{4}-\d{2})\.json$/);
+    if (rm) return demoReportMonth(rm[1]);
     const m = path.match(/^summary\/month\/(S\d+)\.json$/) || path.match(/^summary\/archive\/[\d-]+\/(S\d+)\.json$/);
     if (m) return demoMonthJson(m[1]);
     return null;
@@ -347,6 +349,60 @@ const Api = (() => {
       box: { minLat: 17.45, maxLat: 18.06, minLng: 78.67, maxLng: 79.60 },
       centre: { lat: 17.7566, lng: 79.1361, zoom: 10 }, accLimit: 250,
       present: present, onLeave: onLeave, absent: absent, filed: filed };
+  }
+
+  /**
+   * Demo daily-report archive. Deterministic from (awc, day) so the numbers
+   * stay put across redraws — a demo whose figures jiggle on every render is
+   * useless for checking a table.
+   */
+  function demoReportMonth(ym) {
+    const STOCK = ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'];
+    const y = Number(ym.slice(0, 4)), mo = Number(ym.slice(5, 7));
+    const dim = new Date(y, mo, 0).getDate();
+    const today = new Date();
+    const isCur = ym === dYm();
+    const lastDay = isCur ? today.getDate() : dim;
+    // Only months at or before the current one have any data at all.
+    if (new Date(y, mo - 1, 1) > new Date(today.getFullYear(), today.getMonth(), 1)) {
+      return { ym: ym, generatedAt: new Date().toISOString(), days: {}, awcs: {} };
+    }
+    const ids = Object.keys(D.awcs);
+    const days = {}, awcs = {};
+    const blank = () => { const o = {}; STOCK.forEach(k => { o[k] = [0, 0, 0, 0]; }); return o; };
+    // Sum the whole id: indexing past its length yields NaN, which poisons
+    // every number downstream.
+    const seed = (a, d) => {
+      let h = d * 13;
+      for (let i = 0; i < a.length; i++) h += a.charCodeAt(i) * (i + 3);
+      return h % 17;
+    };
+    for (let d = 1; d <= lastDay; d++) {
+      const dow = new Date(y, mo - 1, d).getDay();
+      if (dow === 0) continue;                       // no Sunday reports
+      const dd = String(d).padStart(2, '0');
+      const day = { awcs: 0, c: 0, p: 0, o: 0, m: 0, st: blank() };
+      ids.forEach(aid => {
+        if (seed(aid, d) % 5 === 0) return;          // that centre missed the day
+        const c = 16 + seed(aid, d), p = 2 + (seed(aid, d) % 4);
+        const ot = 1 + (seed(aid, d) % 3), m = c + p;
+        const a = awcs[aid] || (awcs[aid] = { s: D.awcs[aid].sc, d: {}, st: blank() });
+        const used = [c, Math.round(c * 0.12 * 10) / 10, Math.round(c * 0.03 * 10) / 10,
+          c * 5, p * 5, Math.round(c * 0.15 * 10) / 10];
+        a.d[dd] = [c, p, ot, m].concat(used);
+        STOCK.forEach((k, i) => {
+          a.st[k][1] = Math.round((a.st[k][1] + used[i]) * 10) / 10;
+          a.st[k][2] = Math.round((a.st[k][2] + used[i] * 1.05) * 10) / 10;
+          a.st[k][0] = 100; a.st[k][3] = Math.round((100 + a.st[k][2] - a.st[k][1]) * 10) / 10;
+          day.st[k][1] = Math.round((day.st[k][1] + used[i]) * 10) / 10;
+        });
+        day.awcs++; day.c += c; day.p += p; day.o += ot; day.m += m;
+      });
+      days[dd] = day;
+    }
+    return { ym: ym, generatedAt: new Date().toISOString(),
+      fields: ['children', 'pregnant', 'others', 'meals'].concat(STOCK.map(k => k + '_used')),
+      items: STOCK, days: days, awcs: awcs };
   }
 
   function demoPhoto() {
