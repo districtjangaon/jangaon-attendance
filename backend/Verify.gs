@@ -17,11 +17,29 @@
  * arithmetic has pointed somewhere, which turns 695 centres into a queue of
  * about twenty worth a person's time.
  *
- * NO INVENTED NORMS. This district has no per-centre enrolment figure and this
- * file does not pretend to know the scheme's per-head entitlements. Per-head
- * checks compare a centre against the DISTRICT'S OWN MEDIAN for that item on
- * that day, so the yardstick is what everyone else actually did. A Norms sheet
- * can override any of it when the real figures are to hand.
+ * NO INVENTED NORMS, AND NO SINGLE PER-HEAD FIGURE. A centre feeds three
+ * different groups — children, pregnant and lactating women, and other
+ * beneficiaries — and they do not eat the same things in the same amounts.
+ * Balamrutham+ is for the women, Balamrutham for the children; eggs and the
+ * cooked meal reach different mixes of both. Dividing what a centre used by its
+ * CHILD count alone would mark a centre with many pregnant women as
+ * over-consuming and one with few as pilfering, which is the opposite of what
+ * this file is for.
+ *
+ * So the expected consumption of each item is LEARNED from the district's own
+ * reports as a share per group:
+ *
+ *     used  ~=  a x children  +  b x pregnant women  +  c x others
+ *
+ * a, b and c are fitted by least squares over every report (per day where
+ * there are enough, otherwise over the month), refitted once with the worst
+ * tenth of residuals dropped so the fabricators cannot set the yardstick they
+ * are judged against. Coefficients cannot go negative — an item that never
+ * reaches a group simply fits to zero there, which is how Balamrutham+ ends up
+ * with a coefficient on women and nothing on children, without anyone telling
+ * it so. If the fit does not explain the district's own data, NOTHING is
+ * flagged for that item: no model, no accusation. A Norms sheet overrides the
+ * lot when the real per-head entitlements are to hand.
  *
  * A FINDING IS NOT A FINDING OF GUILT. Every rule emits a plain sentence with
  * the real numbers in it, because these are read out to a government employee
@@ -43,17 +61,28 @@ const VERIFY_W = {
 // A centre needs this many filed days before behaviour means anything; below
 // it, "always exactly ten" is just a short sample.
 const VERIFY_MIN_DAYS = 8;
-// A day needs this many reporting centres before its median is a yardstick.
-const VERIFY_MIN_PEERS = 20;
-// Per-head usage this far from the district median is worth a look.
+// Fitting three coefficients needs samples. Below this a day borrows the
+// month's fit; below it for the month too, the item is not judged at all.
+const VERIFY_MIN_FIT = 30;
+// How well the fit must explain the district's own data before it is allowed
+// to be the yardstick for anyone. Below this: no model, no accusation.
+const VERIFY_MIN_R2 = 0.5;
+// Consumption this far from what the fit expects is worth a look.
 const VERIFY_LOW_RATIO = 0.4, VERIFY_HIGH_RATIO = 2.5;
-// Below this many children the ratios are too noisy to mean anything.
-const VERIFY_MIN_CHILDREN = 5;
+// A report needs this many beneficiaries in total before ratios mean anything.
+const VERIFY_MIN_HEADS = 5;
+// And the gap must be worth something in absolute terms, or a centre expected
+// to use 0.4 kg and using 0.1 kg becomes a finding.
+const VERIFY_MIN_GAP = { eggs: 4, rice: 0.5, pulses: 0.2, bal: 40, balp: 40,
+  milk: 0.5, meals: 4 };
 
 const VERIFY_ITEM_NAME = { eggs: 'eggs', rice: 'rice', pulses: 'pulses',
-  bal: 'Balamrutham', balp: 'Balamrutham+', milk: 'milk' };
+  bal: 'Balamrutham', balp: 'Balamrutham+', milk: 'milk', meals: 'meals' };
 const VERIFY_ITEM_UNIT = { eggs: '', rice: ' kg', pulses: ' kg',
-  bal: ' ml', balp: ' ml', milk: ' L' };
+  bal: ' ml', balp: ' ml', milk: ' L', meals: '' };
+// Meals are fitted exactly like a ration: how many a centre prepares is also a
+// function of who turned up, and this district's own habit decides the shape.
+const VERIFY_METRICS = STOCK_KEYS.concat(['meals']);
 
 function vNum_(x) { const n = Number(x); return isFinite(n) ? n : 0; }
 
@@ -76,6 +105,125 @@ function vQtyVerb_(k, v) {
 }
 function vR1_(v) { return Math.round(v * 10) / 10; }
 function vR2_(v) { return Math.round(v * 100) / 100; }
+
+/**
+ * Least squares for  y = b0*x0 + b1*x1 + b2*x2  with NO intercept: nobody
+ * present should mean nothing consumed, and an intercept would quietly grant
+ * every centre a free ration.
+ *
+ * Solved through the normal equations with a small ridge term, because a
+ * district where (say) "others" is almost always zero makes the matrix nearly
+ * singular and an unregularised solve would return wild coefficients.
+ */
+function solve3_(xs, ys) {
+  const n = 3, RIDGE = 1e-6;
+  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], b = [0, 0, 0];
+  for (let r = 0; r < xs.length; r++) {
+    const x = xs[r], y = ys[r];
+    for (let i = 0; i < n; i++) {
+      b[i] += x[i] * y;
+      for (let j = 0; j < n; j++) A[i][j] += x[i] * x[j];
+    }
+  }
+  for (let i = 0; i < n; i++) A[i][i] += RIDGE * (A[i][i] || 1);
+  // Gaussian elimination with partial pivoting.
+  const M = [[A[0][0], A[0][1], A[0][2], b[0]],
+    [A[1][0], A[1][1], A[1][2], b[1]],
+    [A[2][0], A[2][1], A[2][2], b[2]]];
+  for (let c = 0; c < n; c++) {
+    let piv = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+    if (Math.abs(M[piv][c]) < 1e-12) return null;
+    const t = M[c]; M[c] = M[piv]; M[piv] = t;
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return [M[0][3] / M[0][0], M[1][3] / M[1][1], M[2][3] / M[2][2]];
+}
+
+/**
+ * Fit "how much of this item does a centre use, given who turned up".
+ * samples: [{x: [children, pregnant, others], y: used}]
+ *
+ * Two guards that matter. A coefficient is never allowed to go negative — that
+ * would say a group makes food appear — so a negative term is pinned to zero
+ * and the rest refitted. And the fit is run twice, the second time without the
+ * worst tenth of residuals, so the very centres this file exists to find
+ * cannot drag the yardstick towards themselves.
+ */
+function fitUsage_(samples) {
+  const usable = samples.filter(function (s) {
+    return (s.x[0] + s.x[1] + s.x[2]) > 0 && isFinite(s.y) && s.y >= 0;
+  });
+  if (usable.length < VERIFY_MIN_FIT) return null;
+
+  function run(rows, mask) {
+    const xs = rows.map(function (s) {
+      return [mask[0] ? s.x[0] : 0, mask[1] ? s.x[1] : 0, mask[2] ? s.x[2] : 0];
+    });
+    const beta = solve3_(xs, rows.map(function (s) { return s.y; }));
+    if (!beta) return null;
+    for (let i = 0; i < 3; i++) if (!mask[i] || !isFinite(beta[i])) beta[i] = 0;
+    return beta;
+  }
+
+  function fitWithNonNegative(rows) {
+    let mask = [1, 1, 1];
+    for (let guard = 0; guard < 3; guard++) {
+      const beta = run(rows, mask);
+      if (!beta) return null;
+      let worst = -1;
+      for (let i = 0; i < 3; i++) if (mask[i] && beta[i] < 0 && (worst < 0 || beta[i] < beta[worst])) worst = i;
+      if (worst < 0) return beta;
+      mask[worst] = 0;                       // this group does not receive it
+      if (!mask[0] && !mask[1] && !mask[2]) return null;
+    }
+    return null;
+  }
+
+  let beta = fitWithNonNegative(usable);
+  if (!beta) return null;
+  const pred = function (bt, s) { return bt[0] * s.x[0] + bt[1] * s.x[1] + bt[2] * s.x[2]; };
+
+  // Refit without the worst tenth: the outliers are the subject, not the ruler.
+  const ranked = usable.slice().sort(function (a, b2) {
+    return Math.abs(a.y - pred(beta, a)) - Math.abs(b2.y - pred(beta, b2));
+  });
+  const kept = ranked.slice(0, Math.max(VERIFY_MIN_FIT, Math.floor(ranked.length * 0.9)));
+  const refit = fitWithNonNegative(kept);
+  if (refit) beta = refit;
+
+  // Does the fit actually explain this district's own data? If not, say
+  // nothing: a bad model has no business accusing anyone.
+  let ssRes = 0, ssTot = 0;
+  kept.forEach(function (s) {
+    const e = s.y - pred(beta, s);
+    ssRes += e * e;
+    ssTot += s.y * s.y;
+  });
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  if (!(r2 >= VERIFY_MIN_R2)) return null;
+  if (beta[0] <= 0 && beta[1] <= 0 && beta[2] <= 0) return null;
+  return { b: [vR2_(beta[0]), vR2_(beta[1]), vR2_(beta[2])], n: kept.length, r2: vR2_(r2) };
+}
+
+function fitExpect_(fit, c, p, o) {
+  return fit.b[0] * c + fit.b[1] * p + fit.b[2] * o;
+}
+
+/** "10 children, 2 pregnant women and 1 other" — the mix, in words. */
+function vMix_(c, p, o) {
+  const parts = [];
+  if (c) parts.push(vPl_(c, 'child', 'children'));
+  if (p) parts.push(vPl_(p, 'pregnant woman', 'pregnant women'));
+  if (o) parts.push(vPl_(o, 'other beneficiary', 'other beneficiaries'));
+  if (!parts.length) return 'nobody';
+  if (parts.length === 1) return parts[0];
+  return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+}
 
 function median_(arr) {
   if (!arr.length) return null;
@@ -140,58 +288,97 @@ function buildVerifyFile_(ym, rows) {
     a.days.push({ dd: dd, c: c, m: m, eggs: used.eggs });
   });
 
+  // ---- learn what this district actually gives each group -----------------
+  // Eggs and the cooked meal often follow a weekly cycle, so a day fits its own
+  // coefficients when it has the samples; otherwise it borrows the month's,
+  // which is steadier than a thin day and honest about being an average.
+  const allRows = [];
+  Object.keys(perDay).forEach(function (dd) {
+    perDay[dd].forEach(function (r) { allRows.push(r); });
+  });
+  const sampleOf = function (rows, k) {
+    return rows.map(function (r) {
+      return { x: [r.c, r.p, r.o], y: k === 'meals' ? r.m : r.used[k] };
+    });
+  };
+  const monthFit = {}, dayFit = {};
+  VERIFY_METRICS.forEach(function (k) {
+    // A Norms row states the per-head entitlement outright; it is applied to
+    // every group, which is what a single published figure means.
+    monthFit[k] = norms[k] != null
+      ? { b: [norms[k], norms[k], norms[k]], n: 0, r2: 1, norm: true }
+      : fitUsage_(sampleOf(allRows, k));
+  });
+  Object.keys(perDay).forEach(function (dd) {
+    dayFit[dd] = {};
+    VERIFY_METRICS.forEach(function (k) {
+      dayFit[dd][k] = (norms[k] != null) ? monthFit[k]
+        : (fitUsage_(sampleOf(perDay[dd], k)) || monthFit[k]);
+    });
+  });
+
   // ---- per-report findings ------------------------------------------------
   const findings = [];
   const medians = {};
   Object.keys(perDay).sort().forEach(function (dd) {
     const list = perDay[dd];
-    // The day's yardstick: what the median centre used per child today.
-    const med = {};
-    STOCK_KEYS.forEach(function (k) {
-      const ratios = list.filter(function (r) { return r.c >= VERIFY_MIN_CHILDREN; })
-        .map(function (r) { return r.used[k] / r.c; })
-        .filter(function (v) { return isFinite(v) && v > 0; });
-      med[k] = norms[k] != null ? norms[k]
-        : (ratios.length >= VERIFY_MIN_PEERS ? vR2_(median_(ratios)) : null);
+    const fits = dayFit[dd];
+    // Published so the console can show what the district's own habit is.
+    medians[dd] = {};
+    VERIFY_METRICS.forEach(function (k) {
+      medians[dd][k] = fits[k] ? { b: fits[k].b, n: fits[k].n, r2: fits[k].r2 } : null;
     });
-    medians[dd] = med;
 
     list.forEach(function (r) {
       const reasons = [];
       const heads = r.c + r.p + r.o;
 
-      // 1. Meals against the people said to have been fed. Pure arithmetic —
-      //    no norm, no median, nothing to argue with.
-      if (heads >= VERIFY_MIN_CHILDREN && r.m < heads * 0.6) {
+      // 1. Nobody fed at all, with a room full of people. This one needs no
+      //    model: whatever the ration pattern, zero meals for fifteen present
+      //    is worth asking about.
+      if (heads >= 10 && r.m === 0) {
         reasons.push({ code: 'MEALS_SHORT', w: VERIFY_W.MEALS_SHORT,
-          t: vPl_(r.c, 'child', 'children') + ', ' +
-            vPl_(r.p, 'pregnant woman', 'pregnant women') + ' and ' +
-            vPl_(r.o, 'other', 'others') + ' were reported present, but only ' +
-            vPl_(r.m, 'meal was', 'meals were') + ' prepared.' });
-      } else if (heads > 0 && r.m > heads * 1.5 + 5) {
-        reasons.push({ code: 'MEALS_EXCESS', w: VERIFY_W.MEALS_EXCESS,
-          t: vPl_(r.m, 'meal was', 'meals were') + ' prepared for ' +
-            vPl_(heads, 'person', 'people') + ' reported present.' });
+          t: vMix_(r.c, r.p, r.o) + ' were reported present, but no meals were prepared at all.' });
       }
 
-      // 2. Per-head consumption against what every other centre did today.
-      STOCK_KEYS.forEach(function (k) {
-        if (!med[k] || r.c < VERIFY_MIN_CHILDREN) return;
-        const ratio = r.used[k] / r.c;
-        if (!isFinite(ratio)) return;
-        const expected = vR1_(med[k] * r.c);
-        if (ratio < med[k] * VERIFY_LOW_RATIO) {
-          reasons.push({ code: 'PERHEAD_LOW', w: VERIFY_W.PERHEAD_LOW,
-            t: 'For ' + vPl_(r.c, 'child', 'children') + ', only ' + vQty_(k, r.used[k]) +
-              ' ' + vQtyVerb_(k, r.used[k]) + ' used. Centres across the district used about ' +
-              vQty_(k, expected) + ' for that many children today.' });
-        } else if (ratio > med[k] * VERIFY_HIGH_RATIO) {
-          reasons.push({ code: 'PERHEAD_HIGH', w: VERIFY_W.PERHEAD_HIGH,
-            t: vQty_(k, r.used[k]) + ' ' + vQtyVerb_(k, r.used[k]) + ' used for ' +
-              vPl_(r.c, 'child', 'children') + ', against about ' + vQty_(k, expected) +
-              ' across the district.' });
-        }
-      });
+      // 2. Everything else against what this district actually gives each
+      //    group. The expectation is built from the centre's OWN mix, so a
+      //    centre with many pregnant women and few children is measured
+      //    against that mix rather than against a single per-child figure.
+      if (heads >= VERIFY_MIN_HEADS) {
+        VERIFY_METRICS.forEach(function (k) {
+          const fit = fits[k];
+          if (!fit) return;                       // no trustworthy model: say nothing
+          const actual = k === 'meals' ? r.m : r.used[k];
+          const expected = fitExpect_(fit, r.c, r.p, r.o);
+          if (!(expected > 0)) return;            // this mix is not entitled to it
+          if (Math.abs(actual - expected) < (VERIFY_MIN_GAP[k] || 0)) return;
+          const forMix = ' for ' + vMix_(r.c, r.p, r.o);
+          if (k === 'meals') {
+            if (actual < expected * VERIFY_LOW_RATIO) {
+              reasons.push({ code: 'MEALS_SHORT', w: VERIFY_W.MEALS_SHORT,
+                t: 'Only ' + vPl_(r.m, 'meal was', 'meals were') + ' prepared' + forMix +
+                  '. Centres across the district prepared about ' + Math.round(expected) +
+                  ' for that mix.' });
+            } else if (actual > expected * VERIFY_HIGH_RATIO) {
+              reasons.push({ code: 'MEALS_EXCESS', w: VERIFY_W.MEALS_EXCESS,
+                t: vPl_(r.m, 'meal was', 'meals were') + ' prepared' + forMix +
+                  ', against about ' + Math.round(expected) + ' across the district.' });
+            }
+            return;
+          }
+          if (actual < expected * VERIFY_LOW_RATIO) {
+            reasons.push({ code: 'PERHEAD_LOW', w: VERIFY_W.PERHEAD_LOW,
+              t: 'Only ' + vQty_(k, actual) + ' ' + vQtyVerb_(k, actual) + ' used' + forMix +
+                '. Centres across the district used about ' + vQty_(k, vR1_(expected)) +
+                ' for that mix.' });
+          } else if (actual > expected * VERIFY_HIGH_RATIO) {
+            reasons.push({ code: 'PERHEAD_HIGH', w: VERIFY_W.PERHEAD_HIGH,
+              t: vQty_(k, actual) + ' ' + vQtyVerb_(k, actual) + ' used' + forMix +
+                ', against about ' + vQty_(k, vR1_(expected)) + ' across the district.' });
+          }
+        });
+      }
 
       // 3. The stock register not balancing against itself.
       r.ledger.forEach(function (l) {
@@ -242,7 +429,7 @@ function buildVerifyFile_(ym, rows) {
     // A jump in children that the kitchen did not notice.
     for (let i = 1; i < a.days.length; i++) {
       const prev = a.days[i - 1], cur = a.days[i];
-      if (prev.c < VERIFY_MIN_CHILDREN || cur.c < prev.c * 2) continue;
+      if (prev.c < VERIFY_MIN_HEADS || cur.c < prev.c * 2) continue;
       const mealMove = prev.m ? Math.abs(cur.m - prev.m) / prev.m : 1;
       const eggMove = prev.eggs ? Math.abs(cur.eggs - prev.eggs) / prev.eggs : 1;
       if (mealMove < 0.2 && eggMove < 0.2) {

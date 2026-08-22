@@ -177,10 +177,16 @@ never upload them anywhere, never commit them to GitHub.** The project's
   festival, a late delivery and a typing mistake all look identical. Open the
   photo, decide, and record what you saw; your name and words are stored with
   it and audit-logged. Reviews are append-only, so a verdict is never rewritten.
-  Per-head checks compare a centre against **the district's own median** for
-  that item on that day, not an invented norm; to use the real scheme figures
-  instead, add a `Norms` tab to ATTENDANCE_MASTER with rows of
-  `item, per_head` (`eggs, 1`), and it overrides the median.
+  Expected consumption is **learned per beneficiary group**, not per child. A
+  centre feeds children, pregnant and lactating women, and other beneficiaries,
+  and they do not eat the same things: Balamrutham+ goes to the women,
+  Balamrutham to the children, eggs and the cooked meal to a mix. The system
+  fits `used ≈ a×children + b×women + c×others` from the district's own reports,
+  so a centre with many pregnant women is measured against **its own mix**. If
+  the fit does not explain the district's data, nothing is flagged for that item
+  — no model, no accusation. To use the real scheme entitlements instead, add a
+  `Norms` tab to ATTENDANCE_MASTER with rows of `item, per_head` (`eggs, 1`);
+  it overrides the fitted figures.
   The "Reporting patterns" table below the queue is about a centre over a
   month, not one report, and deliberately carries no verdict buttons.
   Built by the nightly job; run **`buildVerifyMonth`** in the editor to rebuild
