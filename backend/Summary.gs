@@ -432,8 +432,10 @@ function nightlyJob() {
   // The daily-report archive for this month. Wrapped: a report-build failure
   // must never cost the district its attendance summaries.
   try {
-    const rf = buildReportFile_(ym);
+    const rptRows = readMonthReportRows_(ym);
+    const rf = buildReportFile_(ym, rptRows);
     if (rf) files.push(rf);
+    if (rptRows && rptRows.length) files.push(buildVerifyFile_(ym, rptRows));
   } catch (err) { console.error('report archive build failed: ' + err); }
   const firstOfMonth = Utilities.formatDate(now, TZ, 'd') === '1';
   if (firstOfMonth) {

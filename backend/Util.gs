@@ -59,6 +59,9 @@ const LASTFIX_H = ['user_id', 'date', 'at', 'lat', 'lng', 'accuracy_m'];
 // console through an authorised call. Chunked because one cell holds 50,000
 // characters and the district payload is bigger than that.
 const MAPCACHE_H = ['date', 'chunk', 'payload'];
+// Report reviews are APPEND-ONLY: a verdict is a record of what an officer
+// concluded on a date, and rewriting one destroys the audit trail.
+const REVIEW_H = ['ts', 'actor', 'awc_id', 'date', 'verdict', 'note', 'score', 'codes'];
 // New columns are APPENDED only (column order is the contract): the
 // pregnant/others photos and the stock tracker landed after first ship.
 const RPT_H = ['key', 'user_id', 'sector_code', 'awc_id', 'date', 'client_ts', 'server_ts',

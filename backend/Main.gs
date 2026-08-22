@@ -42,6 +42,8 @@ function doPost(e) {
       leaveList: apiLeaveList_,
       leaveRegister: apiLeaveRegister_,
       mapDay: apiMapDay_,
+      reviewFinding: apiReviewFinding_,
+      reviewList: apiReviewList_,
       leaveDecide: apiLeaveDecide_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,

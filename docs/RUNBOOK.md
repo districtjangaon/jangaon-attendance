@@ -168,6 +168,23 @@ never upload them anywhere, never commit them to GitHub.** The project's
   Three tabs appear in ATTENDANCE_MASTER on first run and need no maintenance:
   `Seen` (one row per person per day, pruned to 7 days each night), `LastFix`
   (last located mark per person, rebuilt nightly) and `MapCache`.
+- **Verification**: console → Verification lists daily reports whose own
+  numbers do not agree — children reported without the meals, eggs or rations
+  to match, or a stock register that does not balance. Nobody can check 695
+  photographs a day, and no software can count children in a photograph
+  reliably; what the arithmetic can do is point at the twenty reports worth
+  opening. **A finding is a question, not a finding of guilt** — a short day, a
+  festival, a late delivery and a typing mistake all look identical. Open the
+  photo, decide, and record what you saw; your name and words are stored with
+  it and audit-logged. Reviews are append-only, so a verdict is never rewritten.
+  Per-head checks compare a centre against **the district's own median** for
+  that item on that day, not an invented norm; to use the real scheme figures
+  instead, add a `Norms` tab to ATTENDANCE_MASTER with rows of
+  `item, per_head` (`eggs, 1`), and it overrides the median.
+  The "Reporting patterns" table below the queue is about a centre over a
+  month, not one report, and deliberately carries no verdict buttons.
+  Built by the nightly job; run **`buildVerifyMonth`** in the editor to rebuild
+  a month on demand.
 - **Trigger failure emails** from Google land in the department inbox — read
   them; the capacity doc's "what breaks first" section says what to do.
 

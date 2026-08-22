@@ -150,6 +150,7 @@ const App = (() => {
     fillReportControls();
     fillRegisterControls();
     fillRptControls();
+    fillVerifyControls();
     initNewUserForm();
     fillAnalyticsControls();
     fillAwcPicker();
@@ -1427,6 +1428,185 @@ const App = (() => {
     });
   }
 
+  // ---------------- Verification queue --------------------------------------
+  // 695 centres a day cannot be checked by eye. The arithmetic in Verify.gs
+  // narrows that to the reports that contradict themselves, and this tab is
+  // where a person looks at the photograph and says what they saw. Nothing
+  // here decides anything: a verdict is a record of what an officer concluded.
+  let vfyData = null;
+  let vfyReviews = {};
+  let vfyLoadedYm = null;
+
+  const VFY_VERDICT = {
+    MATCHES: { label: 'Photo matches', cls: 'OK' },
+    MISMATCH: { label: 'Does not match', cls: 'ERR' },
+    EXPLAINED: { label: 'Explained', cls: 'WARN' }
+  };
+
+  function fillVerifyControls() {
+    const now = new Date();
+    const opts = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      opts.push('<option value="' + ym + '">' + monthName(ym) + '</option>');
+    }
+    $('vfy-month').innerHTML = opts.join('');
+    $('vfy-scope').innerHTML = '<option value="ALL">All centres in my scope</option>' +
+      (names.sectors || []).map(sc =>
+        '<option value="' + esc(sc.code) + '">' + esc(sc.name) + ' (' + esc(sc.code) + ')</option>').join('');
+  }
+
+  async function loadVerify() {
+    const ym = $('vfy-month').value;
+    $('vfy-loading').textContent = 'Loading…';
+    const [file, rev] = await Promise.all([
+      Api.fetchJson('summary/verify/' + ym + '.json'),
+      Api.post({ action: 'reviewList', token: token, ym: ym })
+    ]);
+    $('vfy-loading').textContent = '';
+    if (rev && !rev.ok && ['AUTH', 'EXPIRED', 'REVOKED'].indexOf(rev.code) >= 0) { authLost(); return; }
+    vfyData = file;
+    vfyReviews = (rev && rev.ok && rev.reviews) || {};
+    vfyLoadedYm = ym;
+    renderVerify();
+  }
+
+  const vfyIso = dd => vfyLoadedYm + '-' + dd;
+
+  /** Findings in the caller's scope, filtered and ranked. */
+  function vfyRows() {
+    if (!vfyData) return [];
+    const sc = $('vfy-scope').value;
+    const show = $('vfy-filter').value;
+    const q = ($('vfy-search').value || '').trim().toLowerCase();
+    return (vfyData.findings || []).filter(f => {
+      if (!names.awcs[f.a]) return false;            // outside this viewer's scope
+      if (sc !== 'ALL' && names.awcs[f.a].sc !== sc) return false;
+      const r = vfyReviews[f.a + '|' + vfyIso(f.d)];
+      if (show === 'open' && r) return false;
+      if (show === 'mismatch' && (!r || r.v !== 'MISMATCH')) return false;
+      if (q && (awcName(f.a) + ' ' + sectorName(f.s)).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+
+  function renderVerify() {
+    if (!vfyData) {
+      $('vfy-queue').innerHTML = Charts.empty(
+        'No verification run published for this month yet. It is built by the nightly job.');
+      $('vfy-cards').innerHTML = '';
+      $('vfy-behaviour').innerHTML = '';
+      return;
+    }
+    const rows = vfyRows();
+    const all = (vfyData.findings || []).filter(f => names.awcs[f.a]);
+    const reviewed = all.filter(f => vfyReviews[f.a + '|' + vfyIso(f.d)]);
+    const mism = reviewed.filter(f => vfyReviews[f.a + '|' + vfyIso(f.d)].v === 'MISMATCH');
+
+    $('vfy-cards').innerHTML =
+      bigcard('bc-red', 'Reports to check', all.length - reviewed.length, 'not yet reviewed') +
+      bigcard('bc-grey', 'Flagged this month', all.length, 'of every report filed') +
+      bigcard('bc-teal', 'Reviewed', reviewed.length,
+        all.length ? Math.round(100 * reviewed.length / all.length) + '% of the queue' : '') +
+      bigcard('bc-maroon', 'Confirmed mismatches', mism.length, 'photo did not match the entry');
+
+    if (!rows.length) {
+      $('vfy-queue').innerHTML = Charts.empty(all.length
+        ? 'Nothing matches these filters — try "Everything".'
+        : 'No report contradicted itself this month.');
+    } else {
+      const phBtn = (id, label) => id
+        ? '<button class="btn btn-plain btn-inline" data-ph="' + esc(id) + '">' + label + '</button> '
+        : '';
+      $('vfy-queue').innerHTML = rows.slice(0, 200).map((f, i) => {
+        const iso = vfyIso(f.d);
+        const r = vfyReviews[f.a + '|' + iso];
+        const badge = r
+          ? '<span class="tag ' + VFY_VERDICT[r.v].cls + '">' + esc(VFY_VERDICT[r.v].label) +
+            '</span> <span class="reg-sub">' + esc(r.by) + ', ' + esc(String(r.at).slice(0, 10)) +
+            (r.n ? ' — ' + esc(r.n) : '') + '</span>'
+          : '<span class="tag WARN">not reviewed</span>';
+        const items = (vfyData.items || []).map((k, j) =>
+          esc(k) + ' ' + (f.n.u ? f.n.u[j] : 0)).join(' · ');
+        return '<div class="vfy-card">' +
+          '<div class="vfy-head"><b>' + esc(awcName(f.a)) + '</b>' +
+            '<span class="reg-sub">' + esc(sectorName(f.s)) + ' · ' + esc(prettyDay(iso)) + '</span>' +
+            '<span class="vfy-score" title="How far this report is from adding up">' +
+            f.score + '</span></div>' +
+          '<ul class="vfy-why">' + f.r.map(x => '<li>' + esc(x.t) + '</li>').join('') + '</ul>' +
+          '<div class="vfy-entered">Entered: <b>' + f.n.c + '</b> ' +
+            (f.n.c === 1 ? 'child' : 'children') + ' · ' + f.n.p + ' pregnant · ' +
+            f.n.o + (f.n.o === 1 ? ' other' : ' others') + ' · <b>' + f.n.m + '</b> ' +
+            (f.n.m === 1 ? 'meal' : 'meals') +
+            (items ? '<span class="reg-sub"> — ' + items + '</span>' : '') + '</div>' +
+          '<div class="vfy-actions">' +
+            phBtn(f.ph.c, 'children photo') + phBtn(f.ph.m, 'meal photo') +
+            phBtn(f.ph.p, 'pregnant photo') + phBtn(f.ph.o, 'others photo') +
+            '<span class="vfy-verdict">' + badge + '</span>' +
+            '<span class="vfy-btns">' +
+              '<button class="btn btn-plain btn-inline" data-v="MATCHES" data-i="' + i + '">Photo matches</button> ' +
+              '<button class="btn btn-plain btn-inline" data-v="MISMATCH" data-i="' + i + '">Does not match</button> ' +
+              '<button class="btn btn-plain btn-inline" data-v="EXPLAINED" data-i="' + i + '">Explained</button>' +
+            '</span></div></div>';
+      }).join('') +
+      (rows.length > 200 ? '<p class="info">Showing the 200 highest-scoring of ' +
+        rows.length + '. Narrow by sector to see the rest.</p>' : '');
+      bindPhotoButtons($('vfy-queue'));
+      $('vfy-queue').querySelectorAll('button[data-v]').forEach(b => {
+        b.onclick = () => submitVerdict(rows[Number(b.dataset.i)], b.dataset.v, b);
+      });
+    }
+
+    // Behaviour is a question about a centre, not about one report, so it sits
+    // apart from the queue and carries no verdict buttons.
+    const beh = (vfyData.centres || []).filter(c => names.awcs[c.a] &&
+      ($('vfy-scope').value === 'ALL' || names.awcs[c.a].sc === $('vfy-scope').value));
+    $('vfy-behaviour').innerHTML = !beh.length
+      ? Charts.empty('No centre showed an unusual reporting pattern this month.')
+      : '<table><tr><th>Sector</th><th>AWC</th><th>Days filed</th><th>Avg children</th>' +
+        '<th>Score</th><th>What stands out</th></tr>' +
+        beh.slice(0, 100).map(c => '<tr><td>' + esc(sectorName(c.s)) + '</td><td>' +
+          esc(awcName(c.a)) + '</td><td>' + c.days + '</td><td>' + c.mean + '</td><td>' +
+          c.score + '</td><td class="remark">' +
+          c.r.map(x => esc(x.t)).join('<br>') + '</td></tr>').join('') + '</table>';
+  }
+
+  async function submitVerdict(f, verdict, btn) {
+    const iso = vfyIso(f.d);
+    const note = verdict === 'MATCHES' ? ''
+      : (prompt(verdict === 'MISMATCH'
+          ? 'What did the photograph actually show? (recorded against your name)'
+          : 'What explains it? (recorded against your name)', '') || '').trim();
+    if (verdict !== 'MATCHES' && !note) return;   // a verdict against someone needs a reason
+    btn.disabled = true;
+    try {
+      const res = await Api.post({ action: 'reviewFinding', token: token,
+        awcId: f.a, date: iso, verdict: verdict, note: note,
+        score: f.score, codes: f.r.map(x => x.code).join(',') });
+      if (!res.ok) { alert('Could not record it: ' + res.code); return; }
+      vfyReviews[f.a + '|' + iso] = { v: verdict, n: note, by: res.by || me.name, at: res.at || '' };
+      renderVerify();
+    } catch (e) {
+      alert('Could not reach the server.');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function verifyCsv() {
+    if (!vfyData) return;
+    const rows = [['date', 'sector', 'awc_id', 'awc', 'score', 'children', 'pregnant',
+      'others', 'meals', 'reasons', 'verdict', 'reviewed_by', 'note']];
+    vfyRows().forEach(f => {
+      const iso = vfyIso(f.d);
+      const r = vfyReviews[f.a + '|' + iso];
+      rows.push([iso, sectorName(f.s), f.a, awcName(f.a), f.score, f.n.c, f.n.p, f.n.o, f.n.m,
+        f.r.map(x => x.t).join(' | '), r ? r.v : 'NOT_REVIEWED', r ? r.by : '', r ? r.n : '']);
+    });
+    downloadCsv('report-verification-' + vfyLoadedYm + '.csv', rows);
+  }
+
   // ---------------- Map ----------------
   // The payload is pre-computed by the summary trigger and served through an
   // authorised call — it holds precise GPS of identifiable staff and so is
@@ -2464,7 +2644,7 @@ const App = (() => {
   // ---------------- tabs & events ----------------
   function switchTab(name) {
     ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'register',
-      'map', 'admin', 'perf'].forEach(t => {
+      'map', 'verify', 'admin', 'perf'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
@@ -2477,6 +2657,7 @@ const App = (() => {
     // happen after this panel is visible — and every later visit needs a
     // re-measure because the panel was display:none in between.
     if (name === 'map') { if (!mapLoaded) loadMap(); else DistrictMap.invalidate(); }
+    if (name === 'verify' && !vfyLoadedYm) loadVerify();
     if (name === 'perf') renderPerf();
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
   }
@@ -2522,6 +2703,13 @@ const App = (() => {
     $('tab-leaves').onclick = () => switchTab('leaves');
     $('tab-register').onclick = () => switchTab('register');
     $('tab-map').onclick = () => switchTab('map');
+    $('tab-verify').onclick = () => switchTab('verify');
+    $('btn-vfy-load').onclick = loadVerify;
+    $('vfy-month').onchange = loadVerify;
+    $('vfy-scope').onchange = renderVerify;
+    $('vfy-filter').onchange = renderVerify;
+    $('vfy-search').oninput = renderVerify;
+    $('btn-vfy-csv').onclick = verifyCsv;
     $('btn-map-fit').onclick = () => DistrictMap.fitAll();
     $('btn-map-reload').onclick = loadMap;
     $('btn-reg-load').onclick = loadRegister;

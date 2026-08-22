@@ -39,17 +39,31 @@ const rptR1_ = function (v) { return Math.round(v * 10) / 10; };
  * Returns a {path, content} file for ghCommit_, or null when the month has no
  * spreadsheet at all.
  */
-function buildReportFile_(ym) {
+/**
+ * The month's report rows, parsed once. A full district-month is ~18,000 rows
+ * of 46 columns; the archive and the verification checker both need them, and
+ * reading that twice in one nightly run is how a trigger times out.
+ * Returns null when the month has no spreadsheet at all.
+ */
+function readMonthReportRows_(ym) {
   const ss = getMonthSS_(ym, true);
   if (!ss) return null;
   const sh = ss.getSheetByName('Reports');
-  if (!sh || sh.getLastRow() < 2) {
+  if (!sh || sh.getLastRow() < 2) return [];
+  const compact = ym.replace('-', '');
+  return sh.getRange(2, 1, sh.getLastRow() - 1, RPT_H.length).getValues()
+    .map(function (v) { return rowToObj_(RPT_H, v); })
+    .filter(function (o) { return String(o.date).slice(0, 6) === compact; });
+}
+
+function buildReportFile_(ym, rows) {
+  if (rows == null) return null;
+  if (!rows.length) {
     return { path: 'summary/reports/' + ym + '.json',
       content: JSON.stringify({ ym: ym, generatedAt: nowIso_(), days: {}, awcs: {},
         fields: RPT_DAY_FIELDS, items: STOCK_KEYS }) };
   }
 
-  const vals = sh.getRange(2, 1, sh.getLastRow() - 1, RPT_H.length).getValues();
   const compact = ym.replace('-', '');
   const days = {};
   const awcs = {};
@@ -64,11 +78,8 @@ function buildReportFile_(ym) {
   // the first row for a centre-day wins and later ones are ignored.
   const seen = {};
 
-  for (const v of vals) {
-    const o = rowToObj_(RPT_H, v);
-    const dateStr = String(o.date);
-    if (dateStr.slice(0, 6) !== compact) continue;   // late-synced other month
-    const dd = dateStr.slice(6, 8);
+  for (const o of rows) {
+    const dd = String(o.date).slice(6, 8);
     const aid = String(o.awc_id) || String(o.user_id);
     if (!aid) continue;
     const seenKey = aid + '|' + dd;
@@ -124,9 +135,13 @@ function buildReportFile_(ym) {
  */
 function buildReportMonth(ym) {
   const target = ym || Utilities.formatDate(new Date(), TZ, 'yyyy-MM');
-  const f = buildReportFile_(target);
+  const rows = readMonthReportRows_(target);
+  const f = buildReportFile_(target, rows);
   if (!f) return 'No attendance spreadsheet for ' + target + ' — nothing to build.';
-  ghCommit_([f], 'reports ' + target + ' ' + nowIso_());
+  const files = [f];
+  try { files.push(buildVerifyFile_(target, rows)); }
+  catch (err) { console.error('verify build failed for ' + target + ': ' + err); }
+  ghCommit_(files, 'reports ' + target + ' ' + nowIso_());
   const parsed = JSON.parse(f.content);
   return target + ': ' + Object.keys(parsed.awcs).length + ' centres, ' +
     Object.keys(parsed.days).length + ' days, ' + f.content.length + ' bytes.';

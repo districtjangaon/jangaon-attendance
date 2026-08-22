@@ -345,6 +345,27 @@ body.dark {
   font-family: var(--font-mono); font-size: 13px; min-width: 92px; text-align: right;
 }
 .rpts-h { margin: 22px 0 8px; font-size: 15px; }
+
+/* Verification queue: one card per report that does not add up. The reasons
+   are the point, so they get the room; the score is deliberately small. */
+.vfy-card {
+  border: 1px solid var(--line); border-left: 4px solid var(--err);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface);
+}
+.vfy-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.vfy-head b { font-size: 15px; }
+.vfy-score {
+  margin-left: auto; font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  color: var(--err); background: var(--err-soft); border-radius: 999px; padding: 2px 9px;
+}
+.vfy-why { margin: 8px 0 8px 18px; }
+.vfy-why li { margin: 4px 0; font-size: 14px; line-height: 1.45; }
+.vfy-entered { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.vfy-entered b { color: var(--ink); font-family: var(--font-mono); }
+.vfy-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vfy-verdict { margin-left: auto; }
+.vfy-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+body.dark .vfy-card { background: #161a2e; }
 /* Download block: each button says what is actually in the file, so nobody
    has to open four CSVs to find the one they wanted. */
 .dl-grid {

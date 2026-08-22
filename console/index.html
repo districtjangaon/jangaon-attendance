@@ -67,6 +67,7 @@
       <button id="tab-leaves" class="tab">Leaves <span id="leaves-count" class="pill" hidden></span></button>
       <button id="tab-register" class="tab">Leave Register</button>
       <button id="tab-map" class="tab">Map</button>
+      <button id="tab-verify" class="tab">Verification <span id="vfy-count" class="pill" hidden></span></button>
       <button id="tab-admin" class="tab" hidden>Users &amp; Admin</button>
       <button id="tab-perf" class="tab" hidden>Performance</button>
     </nav>
@@ -292,6 +293,35 @@
       <div id="reg-apps" class="tablewrap"></div>
     </section>
 
+    <!-- Verification: reports that do not add up -->
+    <section id="view-verify" class="view" hidden>
+      <p class="info"><b>These are questions, not findings of guilt.</b> Nothing here says a
+        worker did anything wrong. Each entry is a daily report whose own numbers do not agree
+        &mdash; children reported without the meals, eggs or rations to match, or a stock register
+        that does not balance. A short day, a festival, a late delivery and a simple typing
+        mistake all look like this. Open the photograph, decide for yourself, and record what you
+        saw; your name and your words are stored with it.</p>
+      <div class="toolbar">
+        <select id="vfy-month"></select>
+        <select id="vfy-scope"></select>
+        <select id="vfy-filter">
+          <option value="open">Not yet reviewed</option>
+          <option value="all">Everything</option>
+          <option value="mismatch">Confirmed mismatches</option>
+        </select>
+        <input id="vfy-search" type="search" placeholder="Search AWC / sector…">
+        <button id="btn-vfy-load" class="btn btn-plain btn-inline">Reload</button>
+        <button id="btn-vfy-csv" class="btn btn-plain btn-inline">Export CSV</button>
+        <span id="vfy-loading" class="info"></span>
+      </div>
+      <div id="vfy-cards" class="bigcards"></div>
+      <div id="vfy-queue"></div>
+      <h3 class="rpts-h">Reporting patterns &mdash; a question about the centre, not one report</h3>
+      <p class="info">Patterns no single day reveals. These carry no verdict buttons: they are a
+        prompt to visit, not something a photograph can settle.</p>
+      <div id="vfy-behaviour" class="tablewrap"></div>
+    </section>
+
     <!-- Map: where today's marks were actually taken -->
     <section id="view-map" class="view" hidden>
       <p class="info">Where today's attendance was actually marked. A <b>filled circle</b>
@@ -383,7 +413,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.15-20260822-1850</footer>
+  <footer class="build-tag">BUILD: v4.16-20260822-1930</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

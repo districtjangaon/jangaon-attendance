@@ -219,6 +219,8 @@ const Api = (() => {
     return { ym: dYm(), generatedAt: new Date().toISOString(), sector: sc, leaves: leaves, users: users };
   }
 
+  const demoReviews = {};   // verdicts recorded during a demo session
+
   function demoJson(path) {
     if (path === 'summary/meta.json') {
       return { generatedAt: new Date(Date.now() - 7 * 60000).toISOString(),
@@ -241,6 +243,8 @@ const Api = (() => {
         open: [{ key: 'ANOM_U9103_' + dYm(), u: 'U9103', s: 'S01', d: dCompact(), t: 'ANOMALY', at: null, gf: 'STATIC_COORDS', fl: 'REPEAT_COORDS_5D', ph: null }]
       };
     }
+    const vm2 = path.match(/^summary\/verify\/(\d{4}-\d{2})\.json$/);
+    if (vm2) return demoVerifyMonth(vm2[1]);
     const rm = path.match(/^summary\/reports\/(\d{4}-\d{2})\.json$/);
     if (rm) {
       // A real district has no archive from before the system existed, and the
@@ -314,6 +318,13 @@ const Api = (() => {
       }
       case 'mapDay':
         return demoMapDay();
+      case 'reviewList':
+        return { ok: true, ym: body.ym, reviews: demoReviews };
+      case 'reviewFinding': {
+        demoReviews[body.awcId + '|' + body.date] =
+          { v: body.verdict, n: body.note || '', by: 'Demo Admin', at: new Date().toISOString() };
+        return { ok: true, by: 'Demo Admin', at: new Date().toISOString() };
+      }
       case 'leaveList':
         return { ok: true, leaves: demoLeaveApps() };
       case 'leaveRegister': {
@@ -459,6 +470,48 @@ const Api = (() => {
     return { ym: ym, generatedAt: new Date().toISOString(),
       fields: ['children', 'pregnant', 'others', 'meals'].concat(STOCK.map(k => k + '_used')),
       items: STOCK, days: days, awcs: awcs };
+  }
+
+  /** A demo verification run: the reported case plus a couple of others. */
+  function demoVerifyMonth(ym) {
+    if (ym !== dYm()) return null;   // only the current month has a run in demo
+    const ids = Object.keys(D.awcs);
+    const dd = String(new Date().getDate() - 1).padStart(2, '0');
+    const mk = (a, d, score, reasons, n) => ({
+      a: a, s: D.awcs[a].sc, d: d, score: score, r: reasons, n: n,
+      ph: { c: 'demo-photo', m: 'demo-photo', p: 'demo-photo', o: 'demo-photo' }
+    });
+    return {
+      ym: ym, generatedAt: new Date().toISOString(),
+      items: ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'],
+      medians: {},
+      findings: [
+        mk(ids[0], dd, 84, [
+          { code: 'MEALS_SHORT', w: 40,
+            t: '10 children, 2 pregnant women and 1 other were reported present, but only 3 meals were prepared.' },
+          { code: 'PERHEAD_LOW', w: 22,
+            t: 'For 10 children, only 2 eggs were used. Centres across the district used about 10 eggs for that many children today.' },
+          { code: 'PERHEAD_LOW', w: 22,
+            t: 'For 10 children, only 0.2 kg of rice was used. Centres across the district used about 1 kg of rice for that many children today.' }
+        ], { c: 10, p: 2, o: 1, m: 3, u: [2, 0.2, 0.1, 10, 5, 0.3] }),
+        mk(ids[1], dd, 30, [
+          { code: 'LEDGER_OFF', w: 30,
+            t: 'The eggs register does not balance: closing is 40 more than opening plus received minus used.' }
+        ], { c: 21, p: 3, o: 2, m: 26, u: [21, 2.1, 0.6, 105, 15, 3.2] }),
+        mk(ids[2], String(Math.max(1, new Date().getDate() - 3)).padStart(2, '0'), 25, [
+          { code: 'MEALS_EXCESS', w: 25,
+            t: '60 meals were prepared for 22 people reported present.' }
+        ], { c: 18, p: 3, o: 1, m: 60, u: [18, 1.8, 0.5, 90, 15, 2.7] })
+      ],
+      centres: [
+        { a: ids[3], s: D.awcs[ids[3]].sc, days: 14, mean: 10, score: 32, r: [
+          { code: 'FLAT_COUNT', w: 18,
+            t: 'Exactly 10 children were reported on all 14 days filed this month. Real attendance varies.' },
+          { code: 'PEER_OUTLIER', w: 14,
+            t: 'This centre reports about 10 children a day; the middle centre in its sector reports about 22.' }
+        ] }
+      ]
+    };
   }
 
   function demoPhoto() {
