@@ -38,3 +38,8 @@ Deployment/BOQ.pdf
 # E2E evidence runs (screenshots of test data)
 artifacts/
 Training/img/
+
+# The clasp working copy: a generated Code.gs plus whatever one-off owner-run
+# helper is being pushed to the Apps Script project. Those routinely name real
+# mobile numbers. Never commit this directory.
+backend/clasp/
