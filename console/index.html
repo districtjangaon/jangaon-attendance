@@ -187,11 +187,10 @@
       <p id="rpts-today-sum" class="info"></p>
       <div class="toolbar">
         <input id="rpts-today-search" type="search" placeholder="Search AWC / sector / name…">
-        <button id="btn-rpts-todaycsv" class="btn btn-plain btn-inline">Export today's CSV</button>
       </div>
       <div id="rpts-today-table" class="tablewrap"></div>
 
-      <h3 class="rpts-h">History &mdash; range, trends and resources</h3>
+      <h3 class="rpts-h">Daily summary &mdash; pick a day, or a whole range</h3>
       <div class="toolbar">
         <select id="rpts-range">
           <option value="0">Today</option>
@@ -219,15 +218,32 @@
       </div>
       <h3 class="rpts-h">Resource register &mdash; <span id="rpts-rangelabel"></span></h3>
       <div id="rpts-stock" class="tablewrap"></div>
-      <h3 class="rpts-h">Summary by centre</h3>
+      <h3 class="rpts-h">Filing record by centre</h3>
       <div class="toolbar">
         <input id="rpts-search" type="search" placeholder="Search AWC / sector…">
-        <button id="btn-rpts-csv" class="btn btn-plain btn-inline">Summary CSV</button>
-        <button id="btn-rpts-daycsv" class="btn btn-plain btn-inline">Day-wise CSV</button>
-        <button id="btn-rpts-detailcsv" class="btn btn-plain btn-inline">Full detail CSV</button>
-        <button id="btn-rpts-missing-csv" class="btn btn-plain btn-inline">Not-reported CSV</button>
       </div>
       <div id="rpts-table" class="tablewrap"></div>
+
+      <h3 class="rpts-h">Download reports</h3>
+      <p class="info">Every file opens in Excel. The four range files cover
+        <b id="rpts-dl-range">the selected range</b> and the scope chosen above.</p>
+      <div class="dl-grid">
+        <button id="btn-rpts-todaycsv" class="btn btn-plain dl">Today's reports
+          <span>One row per centre that filed today &mdash; who filed, at what time,
+            every count, and the full stock register.</span></button>
+        <button id="btn-rpts-detailcsv" class="btn btn-plain dl">Full detail
+          <span>One row per centre per day for the whole range. This is the
+            six-month record.</span></button>
+        <button id="btn-rpts-daycsv" class="btn btn-plain dl">Day-wise totals
+          <span>One row per day: centres reporting, beneficiaries and every
+            resource consumed.</span></button>
+        <button id="btn-rpts-csv" class="btn btn-plain dl">Summary by centre
+          <span>One row per centre: days filed and missed, totals, averages and
+            resources used.</span></button>
+        <button id="btn-rpts-missing-csv" class="btn btn-plain dl">Not reported
+          <span>Centres that missed one or more days in the range, with how many
+            they missed.</span></button>
+      </div>
     </section>
 
     <!-- Reports -->
@@ -372,7 +388,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.11-20260822-1640</footer>
+  <footer class="build-tag">BUILD: v4.12-20260822-1720</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

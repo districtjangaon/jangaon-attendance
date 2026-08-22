@@ -1008,6 +1008,7 @@ const App = (() => {
       : single ? prettyDay(A.days[0].iso)
         : prettyDay(rptDays[0].iso) + ' – ' + prettyDay(rptDays[rptDays.length - 1].iso);
     $('rpts-rangelabel').textContent = label;
+    $('rpts-dl-range').textContent = rptDays.length ? label : 'no reported days yet';
     $('rpts-daylabel').textContent = rptDays.length
       ? prettyDay(rptDays[Math.min(rptDays.length - 1, Number($('rpts-day').value) || 0)].iso) : '—';
 
@@ -1037,8 +1038,11 @@ const App = (() => {
       bigcard('bc-grey', 'Pregnant women', A.tot.p, when) +
       bigcard('bc-maroon', 'Other beneficiaries', A.tot.o, when) +
       bigcard('bc-olive', 'Meals prepared', A.tot.m, when) +
+      // The unit rides in the label, not the value: "244.2 kg" at 34px wraps
+      // onto two lines and breaks the tile grid.
       RPT_ITEMS.map((it, i) => bigcard(CARD_COLS[i % CARD_COLS.length],
-        it.n + ' used', (A.tot.used[it.k] || 0) + (it.u ? ' ' + it.u : ''), when)).join('');
+        it.n + ' used' + (it.u ? ' (' + it.u + ')' : ''),
+        A.tot.used[it.k] || 0, when)).join('');
 
     // The trend always spans the whole range — a one-day chart is a dot — but
     // 150 daily points in one card is a zigzag nobody can read, so long ranges
