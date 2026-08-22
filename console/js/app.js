@@ -140,10 +140,12 @@ const App = (() => {
     $('btn-logout').hidden = false;
     $('head-user').textContent = me.name + ' (' + me.role + ')';
     $('tab-admin').hidden = false; // server scopes what each role can actually do
-    // Performance tab: district admin's own number only (demo shows it too).
-    const myRow = names.users[me.id];
-    $('tab-perf').hidden = !((myRow && String(myRow.p) === '9625701988') ||
-      window.CONSOLE_CONFIG.DEMO);
+    // Performance tab: ADMIN only. This used to be gated on one hardcoded
+    // mobile number — which console/js/app.js serves to every visitor of the
+    // public Pages site, so the number was readable by anyone who opened the
+    // file. Role is the right gate anyway now that the district has more than
+    // one admin, and the server scopes what the tab can actually read.
+    $('tab-perf').hidden = !(me.role === 'ADMIN' || window.CONSOLE_CONFIG.DEMO);
     fillMonthControls();
     fillReportControls();
     fillRegisterControls();

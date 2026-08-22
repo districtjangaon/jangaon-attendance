@@ -3244,7 +3244,14 @@ function seedTestUsers() {
  * (e.g. an old register row), that user is upgraded in place.
  */
 function seedCollector() {
-  const phone = '9063753622';
+  // The number lives in a Script Property, not in the source: this file is in
+  // a public repo, and a real mobile number does not belong in one. Set
+  // COLLECTOR_PHONE in Project Settings -> Script Properties before running.
+  const phone = String(PROPS.getProperty('COLLECTOR_PHONE') || '').replace(/\D/g, '');
+  if (!/^\d{10}$/.test(phone)) {
+    return 'Set the COLLECTOR_PHONE script property to the 10-digit mobile ' +
+      'number of the Collector, then run this again.';
+  }
   const existing = getUsersByPhone_(phone);
   const res = upsertUser_({
     user_id: existing.length ? String(existing[0].user_id) : 'U2002',
