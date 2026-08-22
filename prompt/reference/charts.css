@@ -1,0 +1,169 @@
+/* Chart system — reference implementation.
+   Pairs with charts.js in this folder and with dashboard-charts-prompt.md.
+   Rename the app-specific tokens (--line, --surface, --font-mono,
+   --font-display, body.dark) to whatever your design system calls them.
+   Everything else is portable as-is. */
+
+/* ============ CHART SYSTEM ============
+   Chart ink, grid and surface live as custom properties so dark mode is a
+   real second palette instead of an inverted first one, and so SVG text can
+   pick them up (an SVG presentation attribute cannot read a var(), a style
+   property can). */
+/* Series colours are TOKENS, not literals. Dark mode is a second validated
+   palette stepped for the dark card (#161a2e) — the light steps measured
+   outside the dark lightness band and one dropped under 3:1 there, which is
+   exactly the "just invert it" mistake. Because they are CSS variables, the
+   theme toggle recolours every chart with no re-render. */
+:root {
+  --ch-ink: #10142b;
+  --ch-muted: #5b6178;
+  --ch-grid: #e8eaf3;
+  --ch-axis: #d3d7e6;
+  --ch-surface: #ffffff;
+  /* categorical, fixed order, validated adjacent-safe on white */
+  --s1: #4f5ce5; --s2: #0ca38a; --s3: #e8a020; --s4: #d13438;
+  --s5: #8b5cf6; --s6: #2aa7d8; --s7: #7c8a12; --s8: #a62b52;
+  /* ordinal: one hue, least -> most */
+  --o1: #a3aaf1; --o2: #8b93ee; --o3: #6f7ae9; --o4: #5462d8; --o5: #3a46c4;
+  /* reserved status — never used as "series 4" */
+  --st-ok: #178a4c; --st-warn: #d97706; --st-bad: #c2262a; --st-idle: #9aa1b8;
+}
+body.dark {
+  --ch-ink: #dfe1ea;
+  --ch-muted: #9aa1b8;
+  --ch-grid: #232941;
+  --ch-axis: #2f3654;
+  --ch-surface: #161a2e;
+  --s1: #6b78ea; --s2: #17a98f; --s3: #bf8718; --s4: #d9484c;
+  --s5: #8f6ff0; --s6: #2f9fce; --s7: #8a9a20; --s8: #b8446a;
+  /* the ramp inverts with the surface: least is darkest on a dark card */
+  --o1: #3a46c4; --o2: #5866e0; --o3: #7b87ec; --o4: #a0a9f3; --o5: #c3c9f9;
+  --st-ok: #2fa163; --st-warn: #e08b1a; --st-bad: #e04b4f; --st-idle: #8b93ab;
+}
+
+/* The grid. auto-fill (not auto-fit) keeps a fixed column width so the last
+   partial row does not stretch its cards to double width — that stretching is
+   what made the old dashboard read as ragged. Cards stretch to a common row
+   height and centre their plot inside it, so every chart in a row sits on the
+   same optical line. */
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+  align-items: stretch;
+}
+.chartbox {
+  border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 16px;
+  background: var(--surface);
+  display: flex; flex-direction: column; min-width: 0;
+}
+.chartbox h3 {
+  margin: 0 0 10px; font-size: 14px; font-weight: 600; line-height: 1.3;
+  min-height: 2.6em;   /* two lines: one- and two-line titles start their plots level */
+}
+/* The plot area. Fixed minimum so a card holding a one-line "no data yet"
+   message is exactly as tall as the chart beside it. */
+.chartbox .plot {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  min-height: 188px; min-width: 0;
+}
+.chartbox .plot > * { width: 100%; }
+.chart-empty {
+  color: var(--muted); font-size: 13px; text-align: center; width: 100%;
+}
+
+/* ---- SVG ink (charts write these as classes, never hardcoded hex) ---- */
+.c-grid { stroke: var(--ch-grid); stroke-width: 1; }
+.c-tick { fill: var(--ch-muted); font-size: 10px; font-family: var(--font-mono); }
+.c-rowtick { fill: var(--ch-muted); font-size: 10px; }
+.c-endlab { fill: var(--ch-ink); font-size: 11px; font-weight: 600; font-family: var(--font-mono); }
+.c-enddot { stroke: var(--ch-surface); stroke-width: 2; }
+.c-line { width: 100%; height: auto; display: block; }
+.c-linewrap { width: 100%; }
+
+/* ---- columns ---- */
+.c-cols {
+  display: flex; align-items: flex-end; justify-content: center;
+  gap: 14px; height: 176px; width: 100%; padding: 0 4px;
+}
+.c-col {
+  flex: 1 1 0; max-width: 88px;   /* the BAND is wide so its label has room */
+  height: 100%; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; min-width: 0;
+}
+.c-colbar {
+  width: 24px; max-width: 100%;   /* cap the MARK, not the band */
+  border-radius: 4px 4px 0 0;     /* rounded data-end, square baseline */
+  min-height: 2px; display: block;
+}
+.c-colv {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: var(--ch-ink); margin-bottom: 4px; white-space: nowrap;
+}
+.c-collab {
+  font-size: 10px; color: var(--ch-muted); margin-top: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: 100%; text-align: center;   /* never wider than its own band */
+}
+
+/* ---- horizontal bars: every row exactly 26px, whatever the row count ---- */
+.c-rows { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.c-row { display: grid; grid-template-columns: 92px 1fr 42px; align-items: center; gap: 8px; height: 22px; }
+.c-rowlab {
+  font-size: 11px; color: var(--ch-muted); text-align: right;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.c-track { background: var(--ch-grid); border-radius: 4px; height: 12px; overflow: hidden; }
+.c-fill { display: block; height: 100%; border-radius: 4px; }
+.c-rowv {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: var(--ch-ink); text-align: right; font-variant-numeric: tabular-nums;
+}
+
+/* ---- meter: the honest form for one ratio against a limit ---- */
+.c-meter { width: 100%; }
+.c-meterhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.c-meterv { font-family: var(--font-mono); font-size: 40px; font-weight: 700; color: var(--ch-ink); line-height: 1; }
+.c-metersub { font-size: 12px; color: var(--ch-muted); }
+.c-metertrack { background: var(--ch-grid); border-radius: 999px; height: 14px; overflow: hidden; }
+.c-meterfill { height: 100%; border-radius: 999px; min-width: 3px; }
+.c-meterfoot { margin-top: 10px; font-size: 12px; color: var(--ch-muted); }
+
+/* ---- stacked share ---- */
+.c-stackwrap { width: 100%; }
+.c-stacktotal {
+  font-family: var(--font-mono); font-size: 34px; font-weight: 700;
+  color: var(--ch-ink); line-height: 1.1; margin-bottom: 10px;
+}
+.c-stacktotal span { display: block; font-family: var(--font-display); font-size: 11px; font-weight: 400; color: var(--ch-muted); letter-spacing: .06em; text-transform: uppercase; }
+.c-stack { display: flex; height: 18px; border-radius: 5px; overflow: hidden; gap: 2px; }
+.c-seg { display: block; min-width: 3px; }
+.c-stacklegend { margin-top: 12px; }
+
+/* ---- donut ---- */
+.c-donutwrap { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.c-donut { width: 132px; height: 132px; flex: 0 0 auto; }
+.c-donutv { fill: var(--ch-ink); font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
+.c-donutk { fill: var(--ch-muted); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+
+/* ---- heatmap scale legend (a semantic ramp is unreadable without one) ---- */
+.c-scale {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: 11px; color: var(--ch-muted); flex-wrap: wrap;
+}
+.c-scale i, .c-scale-x i {
+  display: inline-block; width: 18px; height: 10px; border-radius: 2px;
+}
+.c-scale-x { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+.c-spark { vertical-align: middle; }
+
+.legend { font-size: 12px; color: var(--ch-muted); }
+.legend div { margin: 4px 0; }
+.legend b { color: var(--ch-ink); font-family: var(--font-mono); }
+.legend i {
+  display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+  margin-right: 7px; vertical-align: baseline;
+}
+.legend-row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+.legend-row div { margin: 0; }
