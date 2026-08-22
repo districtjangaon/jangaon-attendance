@@ -895,15 +895,25 @@ const App = (() => {
         A.tot.days + '</b> reported day' + (A.tot.days === 1 ? '' : 's') + ' (' + esc(label) + ')' +
         (missing.length ? ' &middot; no archive yet for ' + esc(missing.join(', ')) : '');
 
+    // Same count row as the Dashboard: every headline number on the daily
+    // report gets its own tile, beneficiaries and resources alike, so the tab
+    // answers "how much of what" without anyone reading a table first.
     const covered = totalAwcs * A.tot.days;
     const filed = Object.keys(A.perAwc).reduce((s, a) => s + A.perAwc[a].days, 0);
+    const when = single ? 'on this day' : 'across the range';
+    const notFiled = Math.max(0, covered - filed);
+    const CARD_COLS = ['bc-blue', 'bc-teal', 'bc-olive', 'bc-grey', 'bc-maroon', 'bc-blue'];
     $('rpts-cards').innerHTML =
       bigcard('bc-teal', 'Centre-days filed', filed,
         covered ? Math.round(100 * filed / covered) + '% of ' + covered + ' expected' : '') +
-      bigcard('bc-blue', 'Children', A.tot.c, single ? 'on this day' : 'total across the range') +
-      bigcard('bc-olive', 'Meals served', A.tot.m, single ? 'on this day' : 'total across the range') +
-      bigcard('bc-grey', 'Pregnant women', A.tot.p, 'reported') +
-      bigcard('bc-maroon', 'Other beneficiaries', A.tot.o, 'reported');
+      bigcard('bc-red', 'Centre-days missed', notFiled,
+        covered ? Math.round(100 * notFiled / covered) + '% of ' + covered + ' expected' : '') +
+      bigcard('bc-blue', 'Children present', A.tot.c, when) +
+      bigcard('bc-grey', 'Pregnant women', A.tot.p, when) +
+      bigcard('bc-maroon', 'Other beneficiaries', A.tot.o, when) +
+      bigcard('bc-olive', 'Meals prepared', A.tot.m, when) +
+      RPT_ITEMS.map((it, i) => bigcard(CARD_COLS[i % CARD_COLS.length],
+        it.n + ' used', (A.tot.used[it.k] || 0) + (it.u ? ' ' + it.u : ''), when)).join('');
 
     // The trend always spans the whole range — a one-day chart is a dot — but
     // 150 daily points in one card is a zigzag nobody can read, so long ranges
