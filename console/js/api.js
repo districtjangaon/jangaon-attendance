@@ -149,7 +149,54 @@ const Api = (() => {
         const meta = D.sectors.find(s => s.code === c) || {};
         return Object.assign({ code: c, project: meta.project || '' }, sectors[c]);
       }),
-      users: rows, exceptions: exceptions
+      users: rows, exceptions: exceptions,
+      rpt: demoRptAgg(), rpts: demoRptRows()
+    };
+  }
+
+  /** Today's filed AWC reports — which centre, who filed, and what. */
+  function demoRptRows() {
+    const filed = [
+      { a: 'A0001', u: 'U9101', at: '11:20', c: 24, p: 4, o: 2, f: '' },
+      { a: 'A0002', u: 'U9103', at: '11:35', c: 19, p: 3, o: 1, f: 'NO_PHOTO_MEAL' },
+      { a: 'A0003', u: 'U9104', at: '12:05', c: 31, p: 5, o: 3, f: '' },
+      { a: 'A0101', u: 'U9106', at: '10:58', c: 22, p: 2, o: 2, f: '' }
+    ];
+    return filed.map(r => {
+      const used = [r.c, Math.round(r.c * 0.12 * 10) / 10, Math.round(r.c * 0.03 * 10) / 10,
+        r.c * 5, r.p * 5, Math.round(r.c * 0.15 * 10) / 10];
+      return {
+        a: r.a, u: r.u, s: (D.awcs[r.a] || {}).sc || 'S01', at: r.at,
+        c: r.c, p: r.p, o: r.o, m: r.c + r.p, f: r.f,
+        eg: used[0], rk: used[1], pk: used[2],
+        st: used.map(v => [100, v, Math.round(v * 1.05 * 10) / 10,
+          Math.round((100 + v * 1.05 - v) * 10) / 10]),
+        ph1: 'demo-photo', ph2: 'demo-photo', ph3: 'demo-photo', ph4: 'demo-photo'
+      };
+    });
+  }
+
+  function demoRptAgg() {
+    const rows = demoRptRows();
+    const stock = {};
+    ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'].forEach((k, i) => {
+      stock[k] = { ob: 0, used: 0, recd: 0, cb: 0 };
+      rows.forEach(r => {
+        stock[k].ob += r.st[i][0]; stock[k].used += r.st[i][1];
+        stock[k].recd += r.st[i][2]; stock[k].cb += r.st[i][3];
+      });
+      ['ob', 'used', 'recd', 'cb'].forEach(f => { stock[k][f] = Math.round(stock[k][f] * 10) / 10; });
+    });
+    return {
+      awcs: rows.length,
+      children: rows.reduce((s, r) => s + r.c, 0),
+      pregnant: rows.reduce((s, r) => s + r.p, 0),
+      others: rows.reduce((s, r) => s + r.o, 0),
+      meals: rows.reduce((s, r) => s + r.m, 0),
+      eggs: rows.reduce((s, r) => s + r.eg, 0),
+      riceKg: Math.round(rows.reduce((s, r) => s + r.rk, 0) * 10) / 10,
+      pulsesKg: Math.round(rows.reduce((s, r) => s + r.pk, 0) * 10) / 10,
+      stock: stock
     };
   }
 
