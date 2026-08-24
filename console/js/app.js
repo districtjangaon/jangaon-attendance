@@ -1787,6 +1787,11 @@ const App = (() => {
     const q = $('reg-search').value.trim().toLowerCase();
     const only = $('reg-only').value;
     const ent = regData.ent || {};
+    // The blurb states the entitlement for the year ACTUALLY on screen, so
+    // looking at 2025 does not describe it with 2026's rule.
+    if (ent.OPTIONAL != null) $('reg-ent-opt').textContent = ent.OPTIONAL;
+    if (ent.CASUAL != null) $('reg-ent-cas').textContent = ent.CASUAL;
+    if (ent.EARNED != null) $('reg-ent-earn').textContent = ent.EARNED;
     const out = [];
     Object.keys(names.users || {}).forEach(uid => {
       const u = names.users[uid];
@@ -1801,7 +1806,12 @@ const App = (() => {
         const pend = st.pend[t] || 0;
         const cap = ent[t];                  // undefined for SICK = uncapped
         const bal = cap == null ? null : Math.max(0, cap - taken - pend);
-        per[t] = { ent: cap == null ? null : cap, taken: taken, pend: pend, bal: bal };
+        // When an entitlement is cut mid-year, days already sanctioned can
+        // exceed it. A balance of 0 would hide that; the overdraw is exactly
+        // what an officer needs to see, so it is carried separately.
+        const over = cap == null ? 0 : Math.max(0, taken + pend - cap);
+        per[t] = { ent: cap == null ? null : cap, taken: taken, pend: pend,
+          bal: bal, over: over };
         totTaken += taken;
         totPend += pend;
         if (bal === 0) exhausted = true;
@@ -1856,8 +1866,13 @@ const App = (() => {
       types.map(t => {
         const c = r.per[t];
         const bal = c.bal == null ? '&infin;' : c.bal;
-        const cls = c.bal === 0 ? ' class="reg-zero"' : '';
-        return '<td' + cls + '>' + c.taken + ' &middot; ' + c.pend + ' &middot; <b>' + bal + '</b></td>';
+        const cls = c.over ? ' class="reg-over"' : c.bal === 0 ? ' class="reg-zero"' : '';
+        const flag = c.over
+          ? ' <span class="reg-overtag" title="Days already sanctioned exceed this year&rsquo;s ' +
+            'entitlement of ' + c.ent + '. Nothing has been withdrawn.">' + c.over + ' over</span>'
+          : '';
+        return '<td' + cls + '>' + c.taken + ' &middot; ' + c.pend + ' &middot; <b>' + bal +
+          '</b>' + flag + '</td>';
       }).join('') +
       '<td>' + r.totTaken + (r.totPend ? ' (+' + r.totPend + ')' : '') + '</td></tr>').join('');
     $('reg-table').innerHTML = head + body + '</table>';
@@ -1904,7 +1919,8 @@ const App = (() => {
     if (!regData) return;
     const types = registerTypes();
     const head = ['user_id', 'name', 'cadre', 'sector_code', 'sector'];
-    types.forEach(t => head.push(t + '_entitled', t + '_taken', t + '_pending', t + '_balance'));
+    types.forEach(t => head.push(t + '_entitled', t + '_taken', t + '_pending', t + '_balance',
+      t + '_over_entitlement'));
     head.push('total_taken', 'total_pending');
     const rows = [head];
     registerRows().forEach(r => {
@@ -1912,7 +1928,7 @@ const App = (() => {
       types.forEach(t => {
         const c = r.per[t];
         line.push(c.ent == null ? 'NO LIMIT' : c.ent, c.taken, c.pend,
-          c.bal == null ? 'NO LIMIT' : c.bal);
+          c.bal == null ? 'NO LIMIT' : c.bal, c.over || 0);
       });
       line.push(r.totTaken, r.totPend);
       rows.push(line);

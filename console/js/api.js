@@ -338,7 +338,7 @@ const Api = (() => {
         });
         return {
           ok: true, year: String(new Date().getFullYear()),
-          ent: { CASUAL: 6, EARNED: 30, OPTIONAL: 5 },
+          ent: { CASUAL: 6, EARNED: 30, OPTIONAL: 3 },   // 2026 rule
           types: ['OPTIONAL', 'CASUAL', 'EARNED', 'SICK'], uncapped: ['SICK'],
           labels: { OPTIONAL: 'Optional Holiday', CASUAL: 'Casual Leave',
             EARNED: 'Earned Leave', SICK: 'Medical Leave' },
@@ -380,7 +380,17 @@ const Api = (() => {
       { id: 'LV-demo3', u: 'U9103', from: dYm() + '-10', to: dYm() + '-10', type: 'OPTIONAL',
         reason: 'Optional holiday', status: 'PENDING', at: new Date().toISOString(),
         mi: '', mc: '', mp: '', by: '', byName: '', byAt: '' }
-    ];
+    ].concat(
+      // Four optional holidays already sanctioned against an entitlement of
+      // three. The 2026 order cut the count mid-year, so this state exists in
+      // the real district and demo mode has to be able to show it.
+      ['01-01', '01-16', '03-10', '08-04'].map((d, i) => ({
+        id: 'LV-demo-opt' + i, u: 'U9101',
+        from: '2026-' + d, to: '2026-' + d, type: 'OPTIONAL',
+        reason: 'Optional holiday', status: 'APPROVED', at: '2026-' + d + 'T09:00:00+05:30',
+        mi: '', mc: '', mp: '', by: 'U9001', byName: 'Demo Admin',
+        byAt: '2026-' + d + 'T10:00:00+05:30'
+      })));
   }
 
   /** Demo map payload: one of every marker state, so the vocabulary can be

@@ -275,5 +275,73 @@ check('every row really carries the decision',
   SHEETS.Leaves.rows.slice(1).every(x => x[6] === 'APPROVED' && x[8] === 'U_ADMIN'));
 check('250 audit rows were written', SHEETS.Audit.rows.length - 1 === 250);
 
+// ================================================ optional-holiday cut
+console.log('\nOptional holidays: 3 for 2026, the standing 5 otherwise');
+check('2026 is cut to three', g('leaveEnt_("2026")').OPTIONAL === 3,
+  JSON.stringify(g('leaveEnt_("2026")')));
+check('a year with no order keeps the standing five',
+  g('leaveEnt_("2025")').OPTIONAL === 5 && g('leaveEnt_("2027")').OPTIONAL === 5,
+  JSON.stringify([g('leaveEnt_("2025")').OPTIONAL, g('leaveEnt_("2027")').OPTIONAL]));
+check('casual and earned are untouched by the cut',
+  g('leaveEnt_("2026")').CASUAL === 6 && g('leaveEnt_("2026")').EARNED === 30,
+  JSON.stringify(g('leaveEnt_("2026")')));
+
+// The dates themselves come from Annexure-II; only the COUNT changed.
+const OPT_DAYS = Object.keys(g('OPTIONAL_HOLIDAYS')).filter(d => d.slice(0, 4) === '2026');
+check('the Annexure-II date list is not touched by the cut', OPT_DAYS.length > 3,
+  OPT_DAYS.length + ' listed dates');
+
+// leaveBalances_ works off the current year, so these only mean anything
+// while the clock says 2026 - which is the year the order applies to.
+const THIS_YEAR = String(new Date().getFullYear());
+if (THIS_YEAR === '2026') {
+  resetSheets();
+  check('a worker who has taken nothing has three optional days',
+    g('leaveBalances_("U1")').optional.left === 3 &&
+    g('leaveBalances_("U1")').optional.ent === 3,
+    JSON.stringify(g('leaveBalances_("U1")').optional));
+
+  // Three already sanctioned: the fourth must be refused.
+  resetSheets();
+  SHEETS.Leaves.rows.push(['LV-a', 'U1', '2026-01-01', '2026-01-01', 'OPTIONAL', 'festival',
+    'APPROVED', '2026-01-01T09:00:00+05:30', 'U_ADMIN', '2026-01-01T10:00:00+05:30', '', '', '']);
+  SHEETS.Leaves.rows.push(['LV-b', 'U1', '2026-01-16', '2026-01-16', 'OPTIONAL', 'festival',
+    'APPROVED', '2026-01-16T09:00:00+05:30', 'U_ADMIN', '2026-01-16T10:00:00+05:30', '', '', '']);
+  SHEETS.Leaves.rows.push(['LV-c', 'U1', '2026-03-10', '2026-03-10', 'OPTIONAL', 'festival',
+    'APPROVED', '2026-03-10T09:00:00+05:30', 'U_ADMIN', '2026-03-10T10:00:00+05:30', '', '', '']);
+  check('three taken leaves none left', g('leaveBalances_("U1")').optional.left === 0,
+    JSON.stringify(g('leaveBalances_("U1")').optional));
+  r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+    { from: '2026-12-24', to: '2026-12-24', type: 'OPTIONAL', reason: 'Christmas Eve' });
+  check('a fourth optional holiday is refused',
+    r.ok === false && r.code === 'NO_BALANCE' && r.type === 'OPTIONAL', JSON.stringify(r));
+
+  // Two taken: the third is still allowed, so the cut does not over-block.
+  resetSheets();
+  SHEETS.Leaves.rows.push(['LV-a', 'U1', '2026-01-01', '2026-01-01', 'OPTIONAL', 'festival',
+    'APPROVED', '2026-01-01T09:00:00+05:30', 'U_ADMIN', '2026-01-01T10:00:00+05:30', '', '', '']);
+  SHEETS.Leaves.rows.push(['LV-b', 'U1', '2026-01-16', '2026-01-16', 'OPTIONAL', 'festival',
+    'APPROVED', '2026-01-16T09:00:00+05:30', 'U_ADMIN', '2026-01-16T10:00:00+05:30', '', '', '']);
+  r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+    { from: '2026-12-24', to: '2026-12-24', type: 'OPTIONAL', reason: 'Christmas Eve' });
+  check('the third optional holiday is still allowed', r.ok === true, JSON.stringify(r));
+
+  // Someone who took five before the order: the balance floors at zero
+  // rather than going negative, and nothing already sanctioned is withdrawn.
+  resetSheets();
+  ['2026-01-01', '2026-01-16', '2026-03-10', '2026-08-04', '2026-08-15'].forEach((d, i) => {
+    SHEETS.Leaves.rows.push(['LV-' + i, 'U2', d, d, 'OPTIONAL', 'festival',
+      'APPROVED', d + 'T09:00:00+05:30', 'U_ADMIN', d + 'T10:00:00+05:30', '', '', '']);
+  });
+  const b5 = g('leaveBalances_("U2")').optional;
+  check('a worker already past the new limit shows zero, never a negative',
+    b5.left === 0 && b5.used === 5 && b5.ent === 3, JSON.stringify(b5));
+  check('and none of her sanctioned days were withdrawn',
+    SHEETS.Leaves.rows.slice(1).every(x => x[6] === 'APPROVED'),
+    JSON.stringify(SHEETS.Leaves.rows.slice(1).map(x => x[6])));
+} else {
+  console.log('  --   balance checks skipped: the order applies to 2026, clock says ' + THIS_YEAR);
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

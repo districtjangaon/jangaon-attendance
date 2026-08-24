@@ -27,7 +27,20 @@
  */
 
 const LEAVE_TYPES = ['OPTIONAL', 'CASUAL', 'EARNED', 'SICK'];
-const LEAVE_ENT = { CASUAL: 6, EARNED: 30, OPTIONAL: 5 }; // per calendar year; SICK uncapped
+// Standing entitlement per calendar year; SICK is uncapped.
+const LEAVE_ENT = { CASUAL: 6, EARNED: 30, OPTIONAL: 5 };
+// Optional holidays are fixed by the annual GO, so the count is a property of
+// the YEAR, not a standing figure. Overriding per year (rather than editing
+// LEAVE_ENT) keeps last year's register truthful about last year's rule.
+// 2026: cut from 5 to 3 by district order of 2026-08-24.
+const LEAVE_ENT_YEAR = {
+  '2026': { CASUAL: 6, EARNED: 30, OPTIONAL: 3 }
+};
+
+/** The entitlement in force for a calendar year. */
+function leaveEnt_(year) {
+  return LEAVE_ENT_YEAR[String(year)] || LEAVE_ENT;
+}
 // Per-application span cap (form sanity, not entitlement). Medical spells run
 // long — a 31-day cap would force a worker to file a 90-day certificate in
 // three pieces — so SICK gets 180.
@@ -122,6 +135,7 @@ function leaveDaysInYear_(l, year) {
 /** Per-type leave days used this calendar year (PENDING + APPROVED). */
 function leaveBalances_(userId) {
   const year = String(new Date().getFullYear());
+  const ent = leaveEnt_(year);
   const used = {};
   getLeavesAll_().forEach(function (l) {
     if (String(l.user_id) !== String(userId)) return;
@@ -133,12 +147,12 @@ function leaveBalances_(userId) {
   });
   return {
     year: year,
-    casual: { ent: LEAVE_ENT.CASUAL, used: used.CASUAL || 0,
-      left: Math.max(0, LEAVE_ENT.CASUAL - (used.CASUAL || 0)) },
-    earned: { ent: LEAVE_ENT.EARNED, used: used.EARNED || 0,
-      left: Math.max(0, LEAVE_ENT.EARNED - (used.EARNED || 0)) },
-    optional: { ent: LEAVE_ENT.OPTIONAL, used: used.OPTIONAL || 0,
-      left: Math.max(0, LEAVE_ENT.OPTIONAL - (used.OPTIONAL || 0)) },
+    casual: { ent: ent.CASUAL, used: used.CASUAL || 0,
+      left: Math.max(0, ent.CASUAL - (used.CASUAL || 0)) },
+    earned: { ent: ent.EARNED, used: used.EARNED || 0,
+      left: Math.max(0, ent.EARNED - (used.EARNED || 0)) },
+    optional: { ent: ent.OPTIONAL, used: used.OPTIONAL || 0,
+      left: Math.max(0, ent.OPTIONAL - (used.OPTIONAL || 0)) },
     medical: { used: used.SICK || 0 }
   };
 }
@@ -368,7 +382,7 @@ function apiLeaveRegister_(auth, req) {
   apps.sort(function (a, b) { return a.from < b.from ? 1 : a.from > b.from ? -1 : 0; });
 
   return {
-    ok: true, year: year, ent: LEAVE_ENT, types: LEAVE_TYPES,
+    ok: true, year: year, ent: leaveEnt_(year), types: LEAVE_TYPES,
     labels: LEAVE_TYPE_LABEL, uncapped: ['SICK'],
     rows: Object.keys(stat).map(function (k) { return stat[k]; }),
     apps: apps

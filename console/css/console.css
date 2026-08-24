@@ -520,3 +520,15 @@ body.dark .head-user { color: #dfe1ea; }
 #lv-sel-count { font-variant-numeric: tabular-nums; }
 td.lv-pick, th.lv-pick { width: 34px; text-align: center; }
 td.lv-pick input { width: 16px; height: 16px; }
+
+
+/* Over-drawn against this year's entitlement. Louder than an exhausted
+   balance because it means days already sanctioned exceed the rule now in
+   force - which is a thing to decide about, not just a zero. */
+td.reg-over { background: var(--err-soft); color: var(--err); font-weight: 600; }
+body.dark td.reg-over { background: #4a1c22; color: #ffb0b8; }
+.reg-overtag {
+  display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  background: var(--err); color: #fff;
+}
