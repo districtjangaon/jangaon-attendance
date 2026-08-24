@@ -45,6 +45,7 @@ function doPost(e) {
       reviewFinding: apiReviewFinding_,
       reviewList: apiReviewList_,
       leaveDecide: apiLeaveDecide_,
+      leaveDecideBulk: apiLeaveDecideBulk_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,

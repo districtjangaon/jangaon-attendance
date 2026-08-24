@@ -345,6 +345,12 @@ const Api = (() => {
           rows: Object.keys(rows).map(k => rows[k]), apps: apps
         };
       }
+      case 'leaveDecideBulk': {
+        // Demo mode has no store to mutate; it reports what a real bulk
+        // decision would have changed so the bar behaves the same.
+        const n = String(body.leaveIds || '').split(',').filter(Boolean).length;
+        return { ok: true, changed: n, skipped: [] };
+      }
       case 'correction':
       case 'pinReset':
       case 'deviceUnbind':

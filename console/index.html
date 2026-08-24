@@ -258,6 +258,12 @@
     <section id="view-leaves" class="view" hidden>
       <p class="info">Leave applications from the field app. Auto-approved by district policy;
         rejecting one returns those days to "not marked".</p>
+      <div id="leaves-bulk" class="toolbar" hidden>
+        <label class="bulk-all"><input type="checkbox" id="lv-chk-all"> Select all pending</label>
+        <span id="lv-sel-count" class="info">Nothing selected</span>
+        <button id="btn-lv-bulk-ok" class="btn btn-primary btn-inline" disabled>Approve selected</button>
+        <button id="btn-lv-bulk-no" class="btn btn-plain btn-inline" disabled>Reject selected</button>
+      </div>
       <div id="leaves-table" class="tablewrap"></div>
     </section>
 
@@ -413,7 +419,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.16-20260822-1930</footer>
+  <footer class="build-tag">BUILD: v4.17-20260824-1120</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

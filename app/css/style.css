@@ -546,3 +546,8 @@ input:focus, select:focus {
 .bal-chip { background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3;
   border-radius: 999px; padding: 5px 12px; font-size: 0.82rem; }
 .bal-chip b { font-size: 0.95rem; }
+
+
+/* A field marked required on the form itself, so a worker is not told about
+   it only after a failed round trip on a weak network. */
+.req-mark { font-size: 12px; font-weight: 600; color: var(--err, #c62828); }

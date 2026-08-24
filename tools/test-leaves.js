@@ -1,0 +1,279 @@
+// tools/test-leaves.js — run with:  node tools/test-leaves.js
+//
+// Runs backend/Util.gs + backend/Leaves.gs in a stubbed Apps Script scope.
+// Two rules are checked here because both touch people directly: an
+// application cannot be filed without a stated reason, and a bulk decision
+// must re-apply every per-leave guard a single decision applies — while
+// writing the sheet in a fixed number of calls, not one per leave.
+const fs = require('fs');
+const vm = require('vm');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+
+// ------------------------------------------------------------- fake Sheets
+// Counts its own API calls: the whole point of the bulk path is that 300
+// decisions cost two Sheets round trips, not six hundred.
+let sheetCalls = { read: 0, write: 0, append: 0 };
+
+function FakeSheet(header) {
+  this.rows = [header.slice()];
+}
+FakeSheet.prototype.getLastRow = function () { return this.rows.length; };
+FakeSheet.prototype.getMaxRows = function () { return this.rows.length + 100; };
+FakeSheet.prototype.appendRow = function (r) { sheetCalls.append++; this.rows.push(r.slice()); };
+FakeSheet.prototype.getRange = function (r, c, nr, nc) {
+  const sh = this;
+  nr = nr == null ? 1 : nr;
+  nc = nc == null ? 1 : nc;
+  return {
+    getValues: function () {
+      sheetCalls.read++;
+      const out = [];
+      for (let i = 0; i < nr; i++) {
+        const row = sh.rows[r - 1 + i] || [];
+        const line = [];
+        for (let j = 0; j < nc; j++) line.push(row[c - 1 + j] == null ? '' : row[c - 1 + j]);
+        out.push(line);
+      }
+      return out;
+    },
+    setValues: function (vals) {
+      sheetCalls.write++;
+      if (vals.length !== nr || vals[0].length !== nc) {
+        throw new Error('setValues shape ' + vals.length + 'x' + vals[0].length +
+          ' does not match range ' + nr + 'x' + nc);
+      }
+      for (let i = 0; i < nr; i++) {
+        while (sh.rows.length < r + i) sh.rows.push([]);
+        const row = sh.rows[r - 1 + i] || (sh.rows[r - 1 + i] = []);
+        for (let j = 0; j < nc; j++) row[c - 1 + j] = vals[i][j];
+      }
+    },
+    getValue: function () { sheetCalls.read++; return (sh.rows[r - 1] || [])[c - 1]; },
+    setValue: function (v) {
+      sheetCalls.write++;
+      const row = sh.rows[r - 1] || (sh.rows[r - 1] = []);
+      row[c - 1] = v;
+    },
+    setNumberFormat: function () { return this; }
+  };
+};
+
+const LEAVE_HEADER = ['leave_id', 'user_id', 'from_date', 'to_date', 'type', 'reason',
+  'status', 'applied_at', 'decided_by', 'decided_at',
+  'med_institution', 'med_cert_no', 'med_photo_id'];
+const AUDIT_HEADER = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
+
+let SHEETS = {};
+function resetSheets() {
+  SHEETS = { Leaves: new FakeSheet(LEAVE_HEADER), Audit: new FakeSheet(AUDIT_HEADER) };
+  sheetCalls = { read: 0, write: 0, append: 0 };
+}
+resetSheets();
+
+// -------------------------------------------------------------- fake users
+const USERS = {
+  U_ADMIN: { user_id: 'U_ADMIN', name: 'Add.Collector Rev', role: 'ADMIN', sector_code: '', can_approve_leave: '' },
+  U_NOPOWER: { user_id: 'U_NOPOWER', name: 'Officer', role: 'ADMIN', sector_code: '', can_approve_leave: '0' },
+  U_SUP: { user_id: 'U_SUP', name: 'Supervisor', role: 'SUPERVISOR', sector_code: 'S01' },
+  U1: { user_id: 'U1', name: 'K. Padma', role: 'FIELD', sector_code: 'S01' },
+  U2: { user_id: 'U2', name: 'B. Swapna', role: 'FIELD', sector_code: 'S01' },
+  U3: { user_id: 'U3', name: 'M. Lalitha', role: 'FIELD', sector_code: 'S01' },
+  U_FAR: { user_id: 'U_FAR', name: 'T. Anitha', role: 'FIELD', sector_code: 'S99' }
+};
+
+let inScopeImpl = () => true;
+
+const ctx = {
+  console, JSON, Math, Date, String, Number, Array, Object, isFinite, RegExp,
+  LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+  Utilities: {
+    getUuid: () => 'abcdefgh-0000-0000-0000-000000000000',
+    // Enough of the pattern language for the two shapes these paths use:
+    // a plain day, and the full timestamp that lands in decided_at.
+    formatDate: (d, tz, pattern) => String(pattern) === 'yyyy-MM-dd'
+      ? new Date(d).toISOString().slice(0, 10)
+      : new Date(d).toISOString().replace('Z', '+05:30')
+  },
+  // Util.gs builds PROPS and CACHE from these itself, so they are stubbed at
+  // the service level rather than replaced afterwards.
+  PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty: () => {} }) },
+  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, remove: () => {} }) },
+  SpreadsheetApp: { openById: () => { throw new Error('no live spreadsheet in this harness'); } },
+  DriveApp: {},
+  Session: { getScriptTimeZone: () => 'Asia/Kolkata' },
+  masterSS_: () => ({ getSheetByName: n => SHEETS[n] || null, insertSheet: n => (SHEETS[n] = new FakeSheet([])) }),
+  getUserById_: id => USERS[String(id)] || null,
+  inScope_: (a, b) => inScopeImpl(a, b),
+  deny_: () => ({ ok: false, code: 'FORBIDDEN' }),   // same shape as Admin.gs
+  isConsoleRole_: u => ['ADMIN', 'CDPO', 'SUPERVISOR'].indexOf(String(u.role)) >= 0,
+  storePhoto_: () => 'photo-id',
+  OPTIONAL_HOLIDAYS: {}
+};
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'backend', 'Util.gs'), 'utf8'), ctx);
+// Util.gs brings the REAL masterSS_ and getUserById_, which would reach for a
+// live spreadsheet. Put the fakes back before Leaves.gs is loaded.
+ctx.masterSS_ = () => ({
+  getSheetByName: n => SHEETS[n] || null,
+  insertSheet: n => (SHEETS[n] = new FakeSheet([]))
+});
+ctx.getUserById_ = id => USERS[String(id)] || null;
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'backend', 'Leaves.gs'), 'utf8'), ctx);
+
+// Top-level `const` in a vm script is a lexical binding, not a property of the
+// context, so constants are read by evaluating their name.
+const g = expr => vm.runInContext(expr, ctx);
+
+// The harness must not drift from the real header.
+if (g('LEAVE_H').join(',') !== LEAVE_HEADER.join(',')) {
+  console.log('DRIFT: LEAVE_H changed in Util.gs — update this harness');
+  console.log('  real: ' + g('LEAVE_H').join(','));
+  process.exit(1);
+}
+
+let pass = 0, fail = 0;
+function check(label, cond, detail) {
+  console.log((cond ? '  ok   ' : '  FAIL ') + label + (cond || !detail ? '' : '\n         ' + detail));
+  cond ? pass++ : fail++;
+}
+
+const today = new Date().toISOString().slice(0, 10);
+const plus = d => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+
+/** Put a leave straight into the sheet, bypassing the application rules. */
+function seed(id, user, status, from, to) {
+  SHEETS.Leaves.rows.push([id, user, from || today, to || today, 'CASUAL', 'seeded',
+    status, '2026-08-01T09:00:00+05:30', '', '', '', '', '']);
+}
+
+// ============================================================ reason gate
+console.log('\nA leave application must say why');
+resetSheets();
+const apply = (reason) => ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+  { from: plus(1), to: plus(1), type: 'CASUAL', reason: reason });
+
+let r = apply('');
+check('a blank reason is refused', r.ok === false && r.code === 'REASON_REQUIRED', JSON.stringify(r));
+check('and the form is told the minimum', r.minChars === g('LEAVE_MIN_REASON'), JSON.stringify(r));
+r = apply('.');
+check('a single full stop is refused', r.code === 'REASON_REQUIRED', JSON.stringify(r));
+r = apply('  x  ');
+check('whitespace around one character is refused', r.code === 'REASON_REQUIRED', JSON.stringify(r));
+
+resetSheets();
+r = apply('flu');
+check('a short but real reason is accepted', r.ok === true, JSON.stringify(r));
+check('and it reaches the sheet verbatim',
+  SHEETS.Leaves.rows[1] && SHEETS.Leaves.rows[1][5] === 'flu',
+  JSON.stringify(SHEETS.Leaves.rows[1]));
+check('the application is PENDING, not auto-approved',
+  SHEETS.Leaves.rows[1] && SHEETS.Leaves.rows[1][6] === 'PENDING');
+
+// A bad date must still surface as a date problem, not as a reason problem.
+resetSheets();
+r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+  { from: 'not-a-date', to: 'not-a-date', type: 'CASUAL', reason: '' });
+check('a broken date is still reported as a date problem', r.code === 'BAD_DATE', JSON.stringify(r));
+
+// ============================================================ bulk decide
+console.log('\nDeciding a whole selection at once');
+const admin = { userId: 'U_ADMIN', user: USERS.U_ADMIN };
+
+resetSheets();
+seed('LV-1', 'U1', 'PENDING');
+seed('LV-2', 'U2', 'PENDING');
+seed('LV-3', 'U3', 'PENDING');
+r = ctx.apiLeaveDecideBulk_({ userId: 'U_SUP', user: USERS.U_SUP },
+  { leaveIds: 'LV-1,LV-2', decision: 'APPROVED' });
+check('a supervisor cannot decide in bulk', r.ok === false && r.code === 'FORBIDDEN', JSON.stringify(r));
+r = ctx.apiLeaveDecideBulk_({ userId: 'U_NOPOWER', user: USERS.U_NOPOWER },
+  { leaveIds: 'LV-1,LV-2', decision: 'APPROVED' });
+check('an ADMIN whose leave sanction was withdrawn cannot either',
+  r.code === 'NOT_LEAVE_APPROVER', JSON.stringify(r));
+check('nothing was written on either refusal', sheetCalls.write === 0, JSON.stringify(sheetCalls));
+
+r = ctx.apiLeaveDecideBulk_(admin, { leaveIds: '', decision: 'APPROVED' });
+check('an empty selection is refused', r.code === 'NOTHING_SELECTED', JSON.stringify(r));
+r = ctx.apiLeaveDecideBulk_(admin, { leaveIds: 'LV-1', decision: 'MAYBE' });
+check('an invented decision is refused', r.code === 'BAD_DECISION', JSON.stringify(r));
+const many = [];
+for (let i = 0; i < g('LEAVE_BULK_MAX') + 1; i++) many.push('LV-' + i);
+r = ctx.apiLeaveDecideBulk_(admin, { leaveIds: many, decision: 'APPROVED' });
+check('more than the cap is refused, and says the cap',
+  r.code === 'TOO_MANY' && r.max === g('LEAVE_BULK_MAX'), JSON.stringify(r));
+
+console.log('\nThe selection is approved and the trail is complete');
+resetSheets();
+seed('LV-1', 'U1', 'PENDING');
+seed('LV-2', 'U2', 'PENDING');
+seed('LV-3', 'U3', 'REJECTED');
+seed('LV-4', 'U1', 'APPROVED');
+r = ctx.apiLeaveDecideBulk_(admin,
+  { leaveIds: ['LV-1', 'LV-2', 'LV-3', 'LV-4'], decision: 'APPROVED', reason: 'sanctioned in review' });
+check('the three that could change did', r.ok === true && r.changed === 3,
+  JSON.stringify({ ok: r.ok, changed: r.changed }));
+check('the one already approved was skipped, not re-decided',
+  (r.skipped || []).some(x => x.id === 'LV-4' && x.why === 'ALREADY'), JSON.stringify(r.skipped));
+const row = id => SHEETS.Leaves.rows.find(x => x[0] === id);
+check('a rejected application can be approved in bulk', row('LV-3')[6] === 'APPROVED');
+check('the decider is recorded on every changed row',
+  ['LV-1', 'LV-2', 'LV-3'].every(id => row(id)[8] === 'U_ADMIN'),
+  ['LV-1', 'LV-2', 'LV-3'].map(id => id + '=' + row(id)[8]).join(' '));
+check('and the decision time is recorded',
+  ['LV-1', 'LV-2', 'LV-3'].every(id => /^\d{4}-\d{2}-\d{2}T/.test(String(row(id)[9]))),
+  row('LV-1')[9]);
+check('the untouched row keeps its original decided_by', row('LV-4')[8] === '');
+check('applied_at is not clobbered by the column rewrite',
+  SHEETS.Leaves.rows.slice(1).every(x => x[7] === '2026-08-01T09:00:00+05:30'),
+  JSON.stringify(SHEETS.Leaves.rows.slice(1).map(x => x[7])));
+check('the reason column is left alone',
+  SHEETS.Leaves.rows.slice(1).every(x => x[5] === 'seeded'));
+
+const audit = SHEETS.Audit.rows.slice(1);
+check('one audit row per changed leave', audit.length === 3, JSON.stringify(audit));
+check('each audit row names the leave it decided',
+  ['LV-1', 'LV-2', 'LV-3'].every(id => audit.some(a => a[3] === id)),
+  JSON.stringify(audit.map(a => a[3])));
+check('each audit row records the status it held before',
+  audit.find(a => a[3] === 'LV-3')[4] === 'REJECTED',
+  JSON.stringify(audit.find(a => a[3] === 'LV-3')));
+check('the actor is the officer who clicked',
+  audit.every(a => a[1] === 'U_ADMIN'));
+check('the stated reason rides along', audit.every(a => a[5] === 'sanctioned in review'));
+
+console.log('\nScope is re-checked for every leave in the list');
+resetSheets();
+inScopeImpl = (actor, target) => String(target.sector_code) !== 'S99';
+seed('LV-1', 'U1', 'PENDING');
+seed('LV-2', 'U_FAR', 'PENDING');
+r = ctx.apiLeaveDecideBulk_(admin, { leaveIds: 'LV-1,LV-2,LV-NOPE', decision: 'APPROVED' });
+check('an out-of-scope leave in the list is not decided',
+  row('LV-2')[6] === 'PENDING' && r.changed === 1, JSON.stringify(r));
+check('and it is reported back, not silently dropped',
+  (r.skipped || []).some(x => x.id === 'LV-2' && x.why === 'OUT_OF_SCOPE'), JSON.stringify(r.skipped));
+check('an id that does not exist is reported too',
+  (r.skipped || []).some(x => x.id === 'LV-NOPE' && x.why === 'NOT_FOUND'), JSON.stringify(r.skipped));
+check('the out-of-scope leave left no audit row',
+  !SHEETS.Audit.rows.slice(1).some(a => a[3] === 'LV-2'));
+inScopeImpl = () => true;
+
+console.log('\nCost does not grow with the size of the selection');
+resetSheets();
+for (let i = 0; i < 250; i++) seed('LV-' + i, 'U1', 'PENDING');
+const ids = [];
+for (let i = 0; i < 250; i++) ids.push('LV-' + i);
+r = ctx.apiLeaveDecideBulk_(admin, { leaveIds: ids, decision: 'APPROVED' });
+check('250 leaves are all decided', r.changed === 250, JSON.stringify({ changed: r.changed }));
+check('in a single range write, not one per leave',
+  sheetCalls.write === 2, JSON.stringify(sheetCalls) +
+  ' (1 for the status block, 1 for the audit rows)');
+check('and a single append is never used for the audit',
+  sheetCalls.append === 0, JSON.stringify(sheetCalls));
+check('every row really carries the decision',
+  SHEETS.Leaves.rows.slice(1).every(x => x[6] === 'APPROVED' && x[8] === 'U_ADMIN'));
+check('250 audit rows were written', SHEETS.Audit.rows.length - 1 === 250);
+
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
+process.exit(fail ? 1 : 0);

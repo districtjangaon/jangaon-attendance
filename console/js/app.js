@@ -1376,11 +1376,16 @@ const App = (() => {
       ' <button class="btn btn-plain btn-inline" data-ph="' + esc(l.mp) + '">View</button>';
   }
 
+  // The rows currently drawn in the leave tab. The bulk bar decides on the
+  // same objects the table drew, so a stale selection cannot outlive a reload.
+  let lvRows = [];
+
   async function renderLeaves() {
     const res = await Api.post({ action: 'leaveList', token: token });
     if (!res.ok) {
       if (['AUTH', 'EXPIRED', 'REVOKED'].indexOf(res.code) >= 0) { authLost(); return; }
       $('leaves-table').innerHTML = '<p class="info">Could not load leaves (' + esc(res.code) + ').</p>';
+      $('leaves-bulk').hidden = true;
       return;
     }
     const rows = (res.leaves || []).slice()
@@ -1391,6 +1396,7 @@ const App = (() => {
     $('leaves-count').textContent = pending;
     if (!rows.length) {
       $('leaves-table').innerHTML = '<p class="info">No leave applications yet. Workers apply from the app menu.</p>';
+      $('leaves-bulk').hidden = true;
       return;
     }
     // Only Collector / District Admin decide, and only while they still hold
@@ -1406,17 +1412,29 @@ const App = (() => {
       return btn('APPROVED', 'Approve');
     };
     const dayCount = l => Math.round((new Date(l.to) - new Date(l.from)) / 86400000) + 1;
-    $('leaves-table').innerHTML = '<table><tr><th>Name</th><th>From</th><th>To</th><th>Days</th>' +
+    // Only PENDING rows are tickable. Re-deciding something already decided is
+    // a deliberate, one-at-a-time act, not something to sweep up in a select-all.
+    lvRows = rows;
+    const pickCell = (l, i) => !canDecide ? ''
+      : (l.status === 'PENDING'
+          ? '<td class="lv-pick"><input type="checkbox" class="lv-pick-box" data-i="' + i + '"></td>'
+          : '<td class="lv-pick"></td>');
+    $('leaves-table').innerHTML = '<table><tr>' + (canDecide ? '<th class="lv-pick"></th>' : '') +
+      '<th>Name</th><th>From</th><th>To</th><th>Days</th>' +
       '<th>Type</th><th>Reason</th><th>Govt. certificate</th><th>Status</th><th>Applied</th>' +
       '<th>Decided by</th><th>Action</th></tr>' +
       rows.map((l, i) =>
-        '<tr><td>' + esc(userName(l.u)) + '</td><td>' + esc(l.from) + '</td><td>' + esc(l.to) +
+        '<tr>' + pickCell(l, i) + '<td>' + esc(userName(l.u)) + '</td><td>' + esc(l.from) + '</td><td>' + esc(l.to) +
         '</td><td>' + dayCount(l) + '</td><td>' + esc(LEAVE_LABEL[l.type] || l.type) +
         '</td><td>' + esc(l.reason || '') + '</td><td>' + certCell(l) +
         '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK' : l.status === 'REJECTED' ? 'ERR' : 'WARN') +
         '">' + esc(l.status) + '</span></td><td>' + esc(String(l.at).slice(0, 10)) + '</td><td>' +
         decidedBy(l) + '</td><td>' + actionsFor(l, i) + '</td></tr>').join('') + '</table>';
     bindPhotoButtons($('leaves-table'));
+    $('leaves-bulk').hidden = !(canDecide && pending);
+    $('lv-chk-all').checked = false;
+    $('leaves-table').querySelectorAll('.lv-pick-box').forEach(c => { c.onchange = lvSyncBar; });
+    lvSyncBar();
     $('leaves-table').querySelectorAll('button[data-dec]').forEach(b => {
       b.onclick = async () => {
         const l = rows[Number(b.dataset.i)];
@@ -1426,6 +1444,78 @@ const App = (() => {
         if (r.ok) renderLeaves(); else alert('Failed: ' + r.code);
       };
     });
+  }
+
+  /** The leaves ticked right now, in the order the table drew them. */
+  function lvPicked() {
+    return Array.from($('leaves-table').querySelectorAll('.lv-pick-box'))
+      .filter(c => c.checked)
+      .map(c => lvRows[Number(c.dataset.i)])
+      .filter(Boolean);
+  }
+
+  /** Keep the count and the buttons honest about what is actually ticked. */
+  function lvSyncBar() {
+    const boxes = $('leaves-table').querySelectorAll('.lv-pick-box');
+    const n = lvPicked().length;
+    $('lv-sel-count').textContent = n
+      ? n + ' of ' + boxes.length + ' pending selected'
+      : 'Nothing selected';
+    $('btn-lv-bulk-ok').disabled = !n;
+    $('btn-lv-bulk-no').disabled = !n;
+    $('lv-chk-all').checked = !!boxes.length && n === boxes.length;
+  }
+
+  function lvToggleAll() {
+    const on = $('lv-chk-all').checked;
+    $('leaves-table').querySelectorAll('.lv-pick-box').forEach(c => { c.checked = on; });
+    lvSyncBar();
+  }
+
+  /**
+   * Decide a whole selection in one call. The server re-checks scope and the
+   * approval right for every leave in the list, so this is a convenience for
+   * the officer, not a shortcut around authorisation.
+   */
+  async function lvBulkDecide(decision) {
+    const picked = lvPicked();
+    if (!picked.length) return;
+    const verb = decision === 'APPROVED' ? 'Approve' : 'Reject';
+    const names = picked.slice(0, 5).map(l => userName(l.u)).join(', ') +
+      (picked.length > 5 ? ' and ' + (picked.length - 5) + ' more' : '');
+    if (!confirm(verb + ' ' + picked.length + ' leave application' +
+      (picked.length === 1 ? '' : 's') + '?\n\n' + names +
+      '\n\nYour name is recorded against every one of them.')) return;
+    // A bulk rejection is a decision against people, so it carries a reason.
+    let note = '';
+    if (decision === 'REJECTED') {
+      note = (prompt('Why are these being rejected? (recorded against your name)', '') || '').trim();
+      if (!note) return;
+    }
+    const ok = $('btn-lv-bulk-ok'), no = $('btn-lv-bulk-no');
+    ok.disabled = no.disabled = true;
+    $('lv-sel-count').textContent =
+      (decision === 'APPROVED' ? 'Approving ' : 'Rejecting ') + picked.length + '\u2026';
+    try {
+      const r = await Api.post({ action: 'leaveDecideBulk', token: token,
+        leaveIds: picked.map(l => l.id).join(','), decision: decision, reason: note });
+      if (!r.ok) {
+        if (['AUTH', 'EXPIRED', 'REVOKED'].indexOf(r.code) >= 0) { authLost(); return; }
+        alert('Failed: ' + r.code);
+        return;
+      }
+      const missed = (r.skipped || []).length;
+      if (missed) {
+        alert(r.changed + ' decided. ' + missed + ' were left alone \u2014 already in that ' +
+          'state, or outside your sector.');
+      }
+      await renderLeaves();
+    } catch (e) {
+      alert('Could not reach the server \u2014 nothing was decided.');
+    } finally {
+      ok.disabled = no.disabled = false;
+      lvSyncBar();
+    }
   }
 
   // ---------------- Verification queue --------------------------------------
@@ -2704,6 +2794,9 @@ const App = (() => {
     $('tab-register').onclick = () => switchTab('register');
     $('tab-map').onclick = () => switchTab('map');
     $('tab-verify').onclick = () => switchTab('verify');
+    $('lv-chk-all').onchange = lvToggleAll;
+    $('btn-lv-bulk-ok').onclick = () => lvBulkDecide('APPROVED');
+    $('btn-lv-bulk-no').onclick = () => lvBulkDecide('REJECTED');
     $('btn-vfy-load').onclick = loadVerify;
     $('vfy-month').onchange = loadVerify;
     $('vfy-scope').onchange = renderVerify;

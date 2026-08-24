@@ -372,6 +372,25 @@ function distM_(lat1, lng1, lat2, lng2) {
 }
 
 // ---- audit ----
+/**
+ * Many audit rows in one append. A bulk decision must still leave one row per
+ * application - the trail is per-application by rule - but 300 appendRow calls
+ * is 300 Sheets round trips, so they go down together.
+ */
+function auditMany_(events) {
+  if (!events || !events.length) return;
+  const ts = nowIso_();
+  const cell = function (v) {
+    return v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+  };
+  const sh = masterSS_().getSheetByName('Audit');
+  sh.getRange(sh.getLastRow() + 1, 1, events.length, AUD_H.length).setValues(
+    events.map(function (e) {
+      return [ts, String(e.actor), String(e.action), String(e.target),
+        cell(e.oldValue), cell(e.newValue)];
+    }));
+}
+
 function audit_(actor, action, target, oldValue, newValue) {
   masterSS_().getSheetByName('Audit').appendRow([
     nowIso_(), String(actor), String(action), String(target),

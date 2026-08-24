@@ -37,6 +37,15 @@ const LEAVE_MAX_SPAN_DEFAULT = 31;
 // issued/collected weeks after the illness, so SICK reaches back further.
 const LEAVE_BACKDATE_DAYS = { SICK: 90 };
 const LEAVE_BACKDATE_DEFAULT = 31;
+// An application with no stated reason cannot be judged, so it is refused at
+// entry rather than reaching the Collector blank. Three characters is enough
+// for "flu" and short enough to keep no legitimate reason out; it only stops
+// a full stop or a single keystroke.
+const LEAVE_MIN_REASON = 3;
+// How many applications one bulk decision may carry. The whole selection is
+// written in a single range write, so the cost is the read of the sheet, not
+// the count; the cap exists so a runaway click cannot decide a whole year.
+const LEAVE_BULK_MAX = 300;
 const LEAVE_TYPE_LABEL = { OPTIONAL: 'Optional Holiday', CASUAL: 'Casual Leave',
   EARNED: 'Earned Leave', SICK: 'Medical Leave' };
 
@@ -191,6 +200,11 @@ function apiLeaveApply_(auth, req) {
   if (from > to) return { ok: false, code: 'FROM_AFTER_TO' };
   // Type is validated BEFORE the span/backdate caps because both are per-type.
   if (LEAVE_TYPES.indexOf(type) < 0) return { ok: false, code: 'BAD_TYPE', types: LEAVE_TYPES };
+  // The reason is what the Collector actually decides on. Refusing here is
+  // correct: it is a required field on the application, not a data-quality flag.
+  if (reason.length < LEAVE_MIN_REASON) {
+    return { ok: false, code: 'REASON_REQUIRED', minChars: LEAVE_MIN_REASON };
+  }
   const spanDays = (new Date(to).getTime() - new Date(from).getTime()) / 86400000 + 1;
   const maxSpan = LEAVE_MAX_SPAN[type] || LEAVE_MAX_SPAN_DEFAULT;
   if (spanDays > maxSpan) return { ok: false, code: 'TOO_LONG', maxDays: maxSpan };
@@ -381,4 +395,75 @@ function apiLeaveDecide_(auth, req) {
   audit_(auth.userId, 'LEAVE_' + decision, String(leave.leave_id),
     String(leave.status), String(req.reason || ''));
   return { ok: true, by: String(auth.userId), byName: String(auth.user.name) };
+}
+
+// action: "leaveDecideBulk"
+// req: { token, leaveIds: [..] or "id,id,id", decision: APPROVED|REJECTED, reason? }
+//
+// One decision over a whole selection. Every guard from apiLeaveDecide_ is
+// re-applied PER LEAVE - a list is not a way to reach outside your scope - and
+// each leave still gets its own audit row with its own prior value.
+function apiLeaveDecideBulk_(auth, req) {
+  if (String(auth.user.role) !== 'ADMIN') return deny_();
+  if (!canApproveLeave_(auth.user)) return { ok: false, code: 'NOT_LEAVE_APPROVER' };
+  const decision = String(req.decision || '').toUpperCase();
+  if (decision !== 'APPROVED' && decision !== 'REJECTED') return { ok: false, code: 'BAD_DECISION' };
+  const ids = (Array.isArray(req.leaveIds) ? req.leaveIds : String(req.leaveIds || '').split(','))
+    .map(function (x) { return String(x).trim(); }).filter(Boolean);
+  if (!ids.length) return { ok: false, code: 'NOTHING_SELECTED' };
+  if (ids.length > LEAVE_BULK_MAX) return { ok: false, code: 'TOO_MANY', max: LEAVE_BULK_MAX };
+
+  const byId = {};
+  getLeavesAll_().forEach(function (l) { byId[String(l.leave_id)] = l; });
+
+  const targets = [], skipped = [];
+  ids.forEach(function (id) {
+    const l = byId[id];
+    if (!l) { skipped.push({ id: id, why: 'NOT_FOUND' }); return; }
+    const t = getUserById_(String(l.user_id));
+    if (!t || !inScope_(auth.user, t)) { skipped.push({ id: id, why: 'OUT_OF_SCOPE' }); return; }
+    if (String(l.status) === decision) { skipped.push({ id: id, why: 'ALREADY' }); return; }
+    targets.push(l);
+  });
+  if (!targets.length) return { ok: true, changed: 0, skipped: skipped };
+
+  const ts = nowIso_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  let changed = 0;
+  try {
+    const sh = leavesSheet_();
+    const last = sh.getLastRow();
+    if (last < 2) return { ok: false, code: 'NOT_FOUND' };
+    // One read and one write for the entire selection. 300 individual
+    // setValue calls would hold the script lock for ~15 s and stall every
+    // phone syncing behind it; this holds it for two Sheets round trips.
+    const rng = sh.getRange(2, 7, last - 1, 4);      // status, applied_at, decided_by, decided_at
+    const block = rng.getValues();
+    targets.forEach(function (l) {
+      const i = l._row - 2;
+      if (i < 0 || i >= block.length) {              // cache older than the sheet
+        skipped.push({ id: String(l.leave_id), why: 'MOVED' });
+        return;
+      }
+      block[i][0] = decision;
+      block[i][2] = String(auth.userId);
+      block[i][3] = ts;
+      changed++;
+    });
+    rng.setValues(block);
+  } finally {
+    lock.releaseLock();
+  }
+  CACHE.remove('leaves');
+
+  // One audit row per leave, written in one append: the trail must name each
+  // application and the status it held before, exactly as a single decision does.
+  auditMany_(targets.map(function (l) {
+    return { actor: auth.userId, action: 'LEAVE_' + decision, target: String(l.leave_id),
+      oldValue: String(l.status), newValue: String(req.reason || 'bulk decision') };
+  }));
+
+  return { ok: true, changed: changed, skipped: skipped,
+    by: String(auth.userId), byName: String(auth.user.name), at: ts };
 }

@@ -510,3 +510,13 @@ body.dark .head-user { color: #dfe1ea; }
 
 /* v3.2: analytics chart grid — wide charts span two tracks on desktop */
 @media (min-width: 720px) { .charts .span2 { grid-column: span 2; } }
+
+
+/* Bulk leave decisions. The selection count is stated in words next to the
+   buttons because "Approve selected" with nothing selected is the mistake
+   this bar has to make impossible. */
+.bulk-all { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.bulk-all input { width: 16px; height: 16px; }
+#lv-sel-count { font-variant-numeric: tabular-nums; }
+td.lv-pick, th.lv-pick { width: 34px; text-align: center; }
+td.lv-pick input { width: 16px; height: 16px; }

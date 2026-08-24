@@ -202,8 +202,9 @@
       <input id="lv-med-cert" type="text" maxlength="60" placeholder="e.g. MC/2026/4417">
       <button id="btn-lv-cert-photo" class="btn btn-plain photo-btn">&#128247; Photograph the medical certificate</button>
     </div>
-    <label for="lv-reason">Reason</label>
-    <input id="lv-reason" type="text" maxlength="200" placeholder="Short reason">
+    <label for="lv-reason">Reason <span class="req-mark">* required</span></label>
+    <input id="lv-reason" type="text" maxlength="200" required
+           placeholder="Why you need the leave - e.g. fever, family function">
     <button id="btn-leave-submit" class="btn btn-primary">SUBMIT LEAVE</button>
     <p id="leave-msg" class="msg"></p>
     <h2>My leaves</h2>
@@ -273,7 +274,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v5.16-20260822-1330</footer>
+  <footer class="build-tag">BUILD: v5.17-20260824-1120</footer>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button id="nav-home"><span>&#127968;</span>Home</button>

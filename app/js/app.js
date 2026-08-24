@@ -449,11 +449,20 @@ const App = (() => {
       to = $('lv-to').value || $('lv-from').value;
       if (!from) { msg.textContent = 'Pick the from-date.'; return; }
     }
+    // The reason is compulsory. Checked here as well as on the server so a
+    // worker on a weak network is not made to wait for a round trip to be
+    // told about an empty box.
+    const reason = $('lv-reason').value.trim();
+    if (reason.length < 3) {
+      msg.textContent = 'Write the reason for the leave - it cannot be left blank.';
+      $('lv-reason').focus();
+      return;
+    }
     // Medical leave: the government certificate is part of the application,
     // so all three pieces are checked here before a round trip is spent.
     const payload = {
       action: 'leaveApply', token: active().token,
-      from: from, to: to, type: type, reason: $('lv-reason').value.trim()
+      from: from, to: to, type: type, reason: reason
     };
     if (type === 'SICK') {
       const inst = $('lv-med-inst').value.trim();
@@ -492,6 +501,7 @@ const App = (() => {
             OPT_SINGLE_DAY: 'Optional holiday is one single day.',
             BAD_OPT_DATE: 'That date is not on the optional-holiday list.',
             BAD_TYPE: 'Choose one of the four leave types.',
+            REASON_REQUIRED: 'Write the reason for the leave - it cannot be left blank.',
             MED_INSTITUTION_REQUIRED: 'Enter the Government institution that issued the certificate.',
             MED_CERT_NO_REQUIRED: 'Enter the certificate number.',
             MED_PHOTO_REQUIRED: 'Photograph the medical certificate before submitting.',
