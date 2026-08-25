@@ -423,7 +423,7 @@ const App = (() => {
       '<span class="bal-chip">Earned <b>' + b.earned.left + '</b> of ' + b.earned.ent + ' left</span>' +
       (b.optional ? '<span class="bal-chip">Optional <b>' + b.optional.left + '</b> of ' +
         b.optional.ent + ' left</span>' : '') +
-      '<span class="bal-chip">Medical <b>' + b.medical.used + '</b> used (no limit)</span>';
+      '<span class="bal-chip">Medical <b>' + b.medical.used + '</b> used (no yearly limit)</span>';
   }
 
   /** Optional-holiday picker: only listed dates, recent past ≤31 d + future. */
@@ -456,6 +456,15 @@ const App = (() => {
     if (reason.length < 3) {
       msg.textContent = 'Write the reason for the leave - it cannot be left blank.';
       $('lv-reason').focus();
+      return;
+    }
+    // Medical leave has no yearly ceiling but is capped at 15 days in one
+    // application. Checked here as well as on the server so a long spell is
+    // not typed out and sent before the worker is told to split it.
+    const spanDays = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+    if (type === 'SICK' && spanDays > 15) {
+      msg.textContent = 'Medical leave cannot be more than 15 days in one application. ' +
+        'Apply again for the remaining days.';
       return;
     }
     // Medical leave: the government certificate is part of the application,
@@ -494,7 +503,10 @@ const App = (() => {
             ' balance — only ' + res.left + ' day(s) left this year.'
           : {
             FROM_AFTER_TO: 'From-date is after to-date.',
-            TOO_LONG: 'Maximum ' + (res.maxDays || 31) + ' days in one application.',
+            TOO_LONG: res.type === 'SICK'
+              ? 'Medical leave cannot be more than ' + (res.maxDays || 15) +
+                ' days in one application. Apply again for the remaining days.'
+              : 'Maximum ' + (res.maxDays || 31) + ' days in one application.',
             TOO_OLD: 'That period is too far in the past (limit ' +
               (res.maxBackDays || 31) + ' days).',
             OVERLAPS_EXISTING: 'You already have a leave covering those dates.',
@@ -811,14 +823,18 @@ const App = (() => {
       try {
         const res = await Api.post({ action: 'myIssues', token: acc.token });
         if (res.ok) {
-          data = { at: Date.now(), issues: res.issues };
+          data = { at: Date.now(), issues: res.issues || [] };
           await DB.kvSet('myIssues_' + acc.user.id, data);
         }
       } catch (e) { /* offline: show cached */ }
     }
     if (activeUid !== acc.user.id) return; // user switched while fetching
-    const open = data.issues.filter(i => i.status === 'OPEN');
-    const resolved = data.issues.filter(i => i.status === 'RESOLVED');
+    // A response (or a cached entry) without the array must not take the whole
+    // home screen down with it - the issue card is the least important thing
+    // on it.
+    const all = (data && data.issues) || [];
+    const open = all.filter(i => i.status === 'OPEN');
+    const resolved = all.filter(i => i.status === 'RESOLVED');
     if (!open.length && !resolved.length) { card.hidden = true; return; }
     card.hidden = false;
     card.innerHTML = '<div class="dash-h">⚠ Issues raised by your supervisor</div>' +

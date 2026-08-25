@@ -343,5 +343,60 @@ if (THIS_YEAR === '2026') {
   console.log('  --   balance checks skipped: the order applies to 2026, clock says ' + THIS_YEAR);
 }
 
+// ============================================ medical: 15 days per application
+console.log('\nMedical leave: no yearly ceiling, but 15 days at a time');
+check('the medical span cap is fifteen days', g('LEAVE_MAX_SPAN').SICK === 15,
+  JSON.stringify(g('LEAVE_MAX_SPAN')));
+check('the other three keep the 31-day form limit',
+  g('LEAVE_MAX_SPAN').CASUAL === undefined && g('LEAVE_MAX_SPAN_DEFAULT') === 31,
+  JSON.stringify([g('LEAVE_MAX_SPAN'), g('LEAVE_MAX_SPAN_DEFAULT')]));
+check('medical is still uncapped over the year',
+  g('leaveEnt_("2026")').SICK === undefined, JSON.stringify(g('leaveEnt_("2026")')));
+
+// A sixteen-day spell is refused, and the refusal names the type so the app
+// can say "apply again for the rest" instead of the generic form message.
+resetSheets();
+r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 }, {
+  from: plus(-16), to: plus(-1), type: 'SICK', reason: 'typhoid',
+  medInstitution: 'Area Hospital, Jangaon', medCertNo: 'MC/2026/4417', medPhotoB64: 'x'
+});
+check('sixteen days in one application is refused',
+  r.ok === false && r.code === 'TOO_LONG', JSON.stringify(r));
+check('and the refusal carries the cap and the type',
+  r.maxDays === 15 && r.type === 'SICK', JSON.stringify(r));
+check('nothing was written for a refused application', sheetCalls.write === 0 &&
+  sheetCalls.append === 0, JSON.stringify(sheetCalls));
+
+// Fifteen days must pass the span gate. The certificate photo would need Drive,
+// which this harness has no fake for, so the application is sent WITHOUT the
+// photo: reaching MED_PHOTO_REQUIRED proves the span gate let it through.
+resetSheets();
+r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 }, {
+  from: plus(-15), to: plus(-1), type: 'SICK', reason: 'typhoid',
+  medInstitution: 'Area Hospital, Jangaon', medCertNo: 'MC/2026/4417'
+});
+check('fifteen days passes the span gate',
+  r.code === 'MED_PHOTO_REQUIRED', JSON.stringify(r));
+
+// The cap is per application, not per year: a second spell after the first
+// is a fresh application and must be judged on its own.
+resetSheets();
+SHEETS.Leaves.rows.push(['LV-m1', 'U1', plus(-30), plus(-16), 'SICK', 'typhoid',
+  'APPROVED', plus(-30) + 'T09:00:00+05:30', 'U_ADMIN', plus(-30) + 'T10:00:00+05:30',
+  'Area Hospital, Jangaon', 'MC/2026/4417', '']);
+r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 }, {
+  from: plus(-15), to: plus(-1), type: 'SICK', reason: 'typhoid, continuing',
+  medInstitution: 'Area Hospital, Jangaon', medCertNo: 'MC/2026/4418'
+});
+check('a second fifteen-day spell is not blocked by the first',
+  r.code === 'MED_PHOTO_REQUIRED', JSON.stringify(r));
+
+// Casual is unaffected by the medical cap.
+resetSheets();
+r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+  { from: plus(1), to: plus(4), type: 'CASUAL', reason: 'family function' });
+check('a four-day casual leave is untouched by the medical cap',
+  r.ok === true, JSON.stringify(r));
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

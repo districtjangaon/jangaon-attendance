@@ -1597,8 +1597,11 @@ function upsertUser_(f, actor) {
  * issuing institution + certificate number + a photograph of the certificate
  * (stored in the same Drive tree as attendance photos, so the existing
  * token-checked photo proxy serves it and no Drive link is ever public).
- * Per-application span caps are form sanity limits, not entitlement:
- * 31 days for CASUAL/EARNED/OPTIONAL, 180 for SICK.
+ * Per-application span caps: 31 days for CASUAL/EARNED/OPTIONAL is form
+ * sanity. For SICK it is the rule itself - medical leave carries no yearly
+ * limit, but no single application may run beyond 15 days (district order
+ * 2026-08-25); a longer spell is filed as consecutive applications, each
+ * with its own certificate and its own decision.
  *
  * Approved leave days show as ON_LEAVE on the dashboard (instead of "not
  * marked"), grey-blue in the monthly grid, and fill leaveId/leaveType in the
@@ -1620,10 +1623,11 @@ const LEAVE_ENT_YEAR = {
 function leaveEnt_(year) {
   return LEAVE_ENT_YEAR[String(year)] || LEAVE_ENT;
 }
-// Per-application span cap (form sanity, not entitlement). Medical spells run
-// long — a 31-day cap would force a worker to file a 90-day certificate in
-// three pieces — so SICK gets 180.
-const LEAVE_MAX_SPAN = { SICK: 180 };
+// Per-application span cap. For CASUAL/EARNED/OPTIONAL this is form sanity.
+// For SICK it is the rule: medical leave has no yearly ceiling, but one
+// application may not run beyond 15 days (district order 2026-08-25), so a
+// long spell arrives in parts and each part is judged on its own certificate.
+const LEAVE_MAX_SPAN = { SICK: 15 };
 const LEAVE_MAX_SPAN_DEFAULT = 31;
 // How far back an application may reach. A government certificate is often
 // issued/collected weeks after the illness, so SICK reaches back further.
@@ -1800,7 +1804,9 @@ function apiLeaveApply_(auth, req) {
   }
   const spanDays = (new Date(to).getTime() - new Date(from).getTime()) / 86400000 + 1;
   const maxSpan = LEAVE_MAX_SPAN[type] || LEAVE_MAX_SPAN_DEFAULT;
-  if (spanDays > maxSpan) return { ok: false, code: 'TOO_LONG', maxDays: maxSpan };
+  if (spanDays > maxSpan) {
+    return { ok: false, code: 'TOO_LONG', maxDays: maxSpan, type: type };
+  }
   const backDays = LEAVE_BACKDATE_DAYS[type] || LEAVE_BACKDATE_DEFAULT;
   if (to < fmtDay_(Date.now() - backDays * 86400000)) {
     return { ok: false, code: 'TOO_OLD', maxBackDays: backDays };
