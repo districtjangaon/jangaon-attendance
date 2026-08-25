@@ -70,6 +70,8 @@ This system holds face photos, precise GPS, and phone numbers of identifiable go
 
 ## Verify before reporting done
 
+- `node tools/test-build.js` passes — an app change that does not rename the
+  service-worker cache never reaches a phone that already has the old shell
 - `/app` and `/console` both load with no console errors on a cold cache
 - Service worker registers and the offline queue survives a hard refresh
 - A mark made in airplane mode syncs exactly once when connectivity returns
