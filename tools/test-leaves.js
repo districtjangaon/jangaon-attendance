@@ -62,7 +62,7 @@ FakeSheet.prototype.getRange = function (r, c, nr, nc) {
 
 const LEAVE_HEADER = ['leave_id', 'user_id', 'from_date', 'to_date', 'type', 'reason',
   'status', 'applied_at', 'decided_by', 'decided_at',
-  'med_institution', 'med_cert_no', 'med_photo_id'];
+  'med_institution', 'med_cert_no', 'med_photo_id', 'client_key'];
 const AUDIT_HEADER = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 
 let SHEETS = {};
@@ -92,9 +92,14 @@ const ctx = {
     getUuid: () => 'abcdefgh-0000-0000-0000-000000000000',
     // Enough of the pattern language for the two shapes these paths use:
     // a plain day, and the full timestamp that lands in decided_at.
-    formatDate: (d, tz, pattern) => String(pattern) === 'yyyy-MM-dd'
-      ? new Date(d).toISOString().slice(0, 10)
-      : new Date(d).toISOString().replace('Z', '+05:30')
+    // Asia/Kolkata is the only zone this codebase uses, and it has no DST,
+    // so a fixed +05:30 shift is the whole of it.
+    formatDate: (d, tz, pattern) => {
+      const t = new Date(new Date(d).getTime() + 5.5 * 3600000);
+      return String(pattern) === 'yyyy-MM-dd'
+        ? t.toISOString().slice(0, 10)
+        : t.toISOString().replace('Z', '+05:30');
+    }
   },
   // Util.gs builds PROPS and CACHE from these itself, so they are stubbed at
   // the service level rather than replaced afterwards.
@@ -108,6 +113,9 @@ const ctx = {
   inScope_: (a, b) => inScopeImpl(a, b),
   deny_: () => ({ ok: false, code: 'FORBIDDEN' }),   // same shape as Admin.gs
   isConsoleRole_: u => ['ADMIN', 'CDPO', 'SUPERVISOR'].indexOf(String(u.role)) >= 0,
+  // District ADMIN sees everything; anyone else is pinned to their sector.
+  sectorScope_: u => (String(u.role) === 'ADMIN' ? null : [String(u.sector_code)]),
+  getUsersAll_: () => Object.keys(USERS).map(k => USERS[k]),
   storePhoto_: () => 'photo-id',
   OPTIONAL_HOLIDAYS: {}
 };
@@ -120,6 +128,8 @@ ctx.masterSS_ = () => ({
   insertSheet: n => (SHEETS[n] = new FakeSheet([]))
 });
 ctx.getUserById_ = id => USERS[String(id)] || null;
+// getUsersAll_ is real in Util.gs too, and it reads the live Users sheet.
+ctx.getUsersAll_ = () => Object.keys(USERS).map(k => USERS[k]);
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'backend', 'Leaves.gs'), 'utf8'), ctx);
 
 // Top-level `const` in a vm script is a lexical binding, not a property of the
@@ -397,6 +407,136 @@ r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
   { from: plus(1), to: plus(4), type: 'CASUAL', reason: 'family function' });
 check('a four-day casual leave is untouched by the medical cap',
   r.ok === true, JSON.stringify(r));
+
+// ================================================= duplicate applications
+console.log('\nOne application per leave, however many times SUBMIT is tapped');
+
+// The dates the sheet actually held: Date values, which reach the guards as
+// ISO timestamps in UTC once they have been through the cache.
+check('a Date cell is read back as its IST day',
+  g('leaveDay_(new Date("2026-08-24T18:30:00.000Z"))') === '2026-08-25',
+  g('leaveDay_(new Date("2026-08-24T18:30:00.000Z"))'));
+check('and so is the ISO string the cache leaves behind',
+  g('leaveDay_("2026-08-24T18:30:00.000Z")') === '2026-08-25',
+  g('leaveDay_("2026-08-24T18:30:00.000Z")'));
+check('a plain day string is passed through untouched',
+  g('leaveDay_("2026-08-25")') === '2026-08-25', g('leaveDay_("2026-08-25")'));
+check('and an empty cell stays empty', g('leaveDay_("")') === '', '[' + g('leaveDay_("")') + ']');
+
+// The regression this whole change is about: the second identical
+// application must be refused, not appended.
+resetSheets();
+const twice = () => ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+  { from: plus(2), to: plus(2), type: 'CASUAL', reason: 'Hospital' });
+r = twice();
+check('the first application is accepted', r.ok === true, JSON.stringify(r));
+r = twice();
+check('the second identical application is refused',
+  r.ok === false && r.code === 'OVERLAPS_EXISTING', JSON.stringify(r));
+check('and only one row was ever written',
+  SHEETS.Leaves.rows.length === 2, (SHEETS.Leaves.rows.length - 1) + ' rows');
+
+// A row whose date cell holds a Date - exactly what the live sheet has - must
+// block a repeat just the same. This is what silently failed before.
+resetSheets();
+const day = new Date(plus(3) + 'T00:00:00+05:30');
+SHEETS.Leaves.rows.push(['LV-date', 'U1', day, day, 'CASUAL', 'Hospital',
+  'PENDING', '2026-08-25T09:00:00+05:30', '', '', '', '', '', '']);
+r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+  { from: plus(3), to: plus(3), type: 'CASUAL', reason: 'Hospital' });
+check('a repeat is refused even when the sheet holds a Date, not a string',
+  r.ok === false && r.code === 'OVERLAPS_EXISTING', JSON.stringify(r));
+
+// Idempotency key: a retry after a lost response returns the FIRST
+// application instead of failing, so the worker is not told "you already
+// have a leave" for the leave she is submitting right now.
+resetSheets();
+const withKey = () => ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+  { from: plus(4), to: plus(4), type: 'CASUAL', reason: 'Hospital', clientKey: 'K-123' });
+r = withKey();
+const firstId = r.leaveId;
+check('an application carrying a key is accepted', r.ok === true, JSON.stringify(r));
+check('and the key is stored on the row',
+  SHEETS.Leaves.rows[1][13] === 'K-123', JSON.stringify(SHEETS.Leaves.rows[1]));
+r = withKey();
+check('the retry succeeds instead of erroring',
+  r.ok === true && r.duplicate === true, JSON.stringify(r));
+check('and it returns the original application',
+  r.leaveId === firstId, r.leaveId + ' vs ' + firstId);
+check('with still only one row on the sheet',
+  SHEETS.Leaves.rows.length === 2, (SHEETS.Leaves.rows.length - 1) + ' rows');
+
+// A different key for genuinely different dates is not a duplicate.
+r = ctx.apiLeaveApply_({ userId: 'U1', user: USERS.U1 },
+  { from: plus(6), to: plus(6), type: 'CASUAL', reason: 'Hospital', clientKey: 'K-456' });
+check('a different day is still a new application', r.ok === true && !r.duplicate,
+  JSON.stringify(r));
+
+// ---------------------------------------------------- collapsing what is there
+console.log('\nCollapsing duplicates already in the sheet');
+function seedDupes() {
+  resetSheets();
+  // Three identical applications, as Kalakola Sumalatha's row set looked.
+  ['09:00', '09:01', '09:02'].forEach((t, i) => {
+    SHEETS.Leaves.rows.push(['LV-d' + i, 'U1', plus(5), plus(5), 'CASUAL', 'Hospital',
+      'PENDING', '2026-08-25T' + t + ':00+05:30', '', '', '', '', '', '']);
+  });
+  // One genuine single application from someone else must be left alone.
+  SHEETS.Leaves.rows.push(['LV-solo', 'U2', plus(5), plus(5), 'CASUAL', 'Fever',
+    'PENDING', '2026-08-25T09:00:00+05:30', '', '', '', '', '', '']);
+}
+
+seedDupes();
+r = ctx.apiLeaveDedupe_({ userId: 'U_ADMIN', user: USERS.U_ADMIN }, {});
+check('the preview counts the extra copies, not the whole group',
+  r.ok === true && r.duplicates === 2, JSON.stringify(r));
+check('and counts the workers affected', r.workers === 1, JSON.stringify(r));
+check('a preview writes nothing', sheetCalls.write === 0 && sheetCalls.append === 0,
+  JSON.stringify(sheetCalls));
+
+seedDupes();
+r = ctx.apiLeaveDedupe_({ userId: 'U_ADMIN', user: USERS.U_ADMIN }, { commit: true });
+check('the commit supersedes exactly the extra copies', r.committed === 2, JSON.stringify(r));
+check('the earliest application is left untouched',
+  SHEETS.Leaves.rows[1][6] === 'PENDING', JSON.stringify(SHEETS.Leaves.rows[1]));
+check('the later copies are SUPERSEDED, not rejected',
+  SHEETS.Leaves.rows[2][6] === 'SUPERSEDED' && SHEETS.Leaves.rows[3][6] === 'SUPERSEDED',
+  JSON.stringify([SHEETS.Leaves.rows[2][6], SHEETS.Leaves.rows[3][6]]));
+check('a worker with a single application is not touched',
+  SHEETS.Leaves.rows[4][6] === 'PENDING', JSON.stringify(SHEETS.Leaves.rows[4]));
+// Two writes for the whole sweep whatever its size: the status block, and
+// the audit rows in a single setValues.
+check('the sweep is two range writes, not one per row',
+  sheetCalls.write === 2 && sheetCalls.append === 0, JSON.stringify(sheetCalls));
+check('every superseded row is audited with its prior status',
+  SHEETS.Audit.rows.length === 3 &&
+  SHEETS.Audit.rows.slice(1).every(a => a[2] === 'LEAVE_SUPERSEDED' && a[4] === 'PENDING'),
+  JSON.stringify(SHEETS.Audit.rows.slice(1)));
+
+// The point of the sweep: the days come back.
+const THIS = String(new Date().getFullYear());
+if (THIS === '2026') {
+  seedDupes();
+  check('three duplicates had eaten three casual days',
+    g('leaveBalances_("U1")').casual.used === 3,
+    JSON.stringify(g('leaveBalances_("U1")').casual));
+  ctx.apiLeaveDedupe_({ userId: 'U_ADMIN', user: USERS.U_ADMIN }, { commit: true });
+  check('and after the sweep only the one real day is held',
+    g('leaveBalances_("U1")').casual.used === 1 && g('leaveBalances_("U1")').casual.left === 5,
+    JSON.stringify(g('leaveBalances_("U1")').casual));
+}
+
+// Authorisation: the sweep changes leave rows, so it needs leave power.
+seedDupes();
+r = ctx.apiLeaveDedupe_({ userId: 'U_SUP', user: USERS.U_SUP }, { commit: true });
+check('a supervisor cannot sweep', r.ok === false, JSON.stringify(r));
+check('and nothing was written', sheetCalls.write === 0, JSON.stringify(sheetCalls));
+seedDupes();
+r = ctx.apiLeaveDedupe_({ userId: 'U_NOPOWER', user: USERS.U_NOPOWER }, { commit: true });
+check('nor can an admin whose leave power was withdrawn',
+  r.ok === false && r.code === 'NOT_LEAVE_APPROVER', JSON.stringify(r));
+check('and nothing was written for them either', sheetCalls.write === 0,
+  JSON.stringify(sheetCalls));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

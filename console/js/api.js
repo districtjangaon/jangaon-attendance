@@ -351,6 +351,22 @@ const Api = (() => {
         const n = String(body.leaveIds || '').split(',').filter(Boolean).length;
         return { ok: true, changed: n, skipped: [] };
       }
+      case 'leaveDedupe': {
+        const extras = demoDupes();
+        const who = {};
+        extras.forEach(l => { who[l.u] = 1; });
+        const out = {
+          ok: true, duplicates: extras.length, workers: Object.keys(who).length,
+          sample: extras.slice(0, 6).map(l => ({
+            name: (D.users[l.u] || {}).n || l.u, from: l.from, type: l.type
+          }))
+        };
+        if (body.commit === true || String(body.commit) === 'true') {
+          extras.forEach(l => { demoSuperseded[l.id] = 1; });
+          out.committed = extras.length;
+        }
+        return out;
+      }
       case 'correction':
       case 'pinReset':
       case 'deviceUnbind':
@@ -390,7 +406,36 @@ const Api = (() => {
         reason: 'Optional holiday', status: 'APPROVED', at: '2026-' + d + 'T09:00:00+05:30',
         mi: '', mc: '', mp: '', by: 'U9001', byName: 'Demo Admin',
         byAt: '2026-' + d + 'T10:00:00+05:30'
-      })));
+      }))).concat(
+      // The same application recorded three times - one worker tapping SUBMIT
+      // again on a slow network. The server guard that should have stopped it
+      // was blind until 2026-08-25, so this state exists in the real district
+      // and the console has to be able to show it and clear it.
+      ['09:00', '09:01', '09:02'].map((t, i) => ({
+        id: 'LV-demo-dup' + i, u: 'U9107',
+        from: dYm() + '-20', to: dYm() + '-20', type: 'CASUAL',
+        reason: 'Hospital', status: 'PENDING', at: dYm() + '-20T' + t + ':00+05:30',
+        mi: '', mc: '', mp: '', by: '', byName: '', byAt: ''
+      }))).map(l => demoSuperseded[l.id]
+        ? Object.assign({}, l, { status: 'SUPERSEDED', by: 'U9001', byName: 'Demo Admin' })
+        : l);
+  }
+
+  // Which demo applications the duplicate sweep has collapsed. Demo mode has
+  // no store, so the one piece of state the sweep produces is kept here.
+  const demoSuperseded = {};
+
+  /** Extra copies of an identical application - all but the earliest. */
+  function demoDupes() {
+    const seen = {}, extras = [];
+    demoLeaveApps().slice()
+      .sort((a, b) => String(a.at) < String(b.at) ? -1 : 1)
+      .forEach(l => {
+        if (l.status === 'REJECTED' || l.status === 'SUPERSEDED') return;
+        const k = [l.u, l.from, l.to, l.type].join('|');
+        if (seen[k]) extras.push(l); else seen[k] = true;
+      });
+    return extras;
   }
 
   /** Demo map payload: one of every marker state, so the vocabulary can be

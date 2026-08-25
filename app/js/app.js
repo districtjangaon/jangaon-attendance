@@ -405,7 +405,7 @@ const App = (() => {
           l.from + (l.to !== l.from ? ' → ' + l.to : '') +
           (l.mp ? ' 📄' : '') + '</span>' +
           '<span class="' + (l.status === 'APPROVED' ? 'sync' : l.status === 'REJECTED' ? 'pend' : '') + '">' +
-          l.status + by + '</span>';
+          (l.status === 'SUPERSEDED' ? 'DUPLICATE — IGNORED' : l.status) + by + '</span>';
         list.appendChild(li);
       });
     } catch (e) {
@@ -435,6 +435,12 @@ const App = (() => {
       opts.map(o => '<option value="' + o.d + '">' +
         o.d.slice(8, 10) + '-' + o.d.slice(5, 7) + ' · ' + o.n + '</option>').join('');
   }
+
+  // Idempotency key for the application being filled in. It survives a failed
+  // send, so a retry after a lost response is recognised as the SAME
+  // application instead of becoming a second one; it is dropped as soon as the
+  // server has answered, because the next application is a different one.
+  let lvKey = '';
 
   async function submitLeave() {
     const msg = $('leave-msg');
@@ -469,9 +475,13 @@ const App = (() => {
     }
     // Medical leave: the government certificate is part of the application,
     // so all three pieces are checked here before a round trip is spent.
+    if (!lvKey) {
+      lvKey = (crypto.randomUUID && crypto.randomUUID()) ||
+        'lv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+    }
     const payload = {
       action: 'leaveApply', token: active().token,
-      from: from, to: to, type: type, reason: reason
+      from: from, to: to, type: type, reason: reason, clientKey: lvKey
     };
     if (type === 'SICK') {
       const inst = $('lv-med-inst').value.trim();
@@ -486,10 +496,15 @@ const App = (() => {
     $('btn-leave-submit').disabled = true;
     try {
       const res = await Api.post(payload);
+      // Answered either way, so the next application starts a new key. Only a
+      // send that never got an answer keeps the old one.
+      lvKey = '';
       if (res.ok) {
-        msg.textContent = res.status === 'APPROVED'
-          ? 'Leave recorded and approved.'
-          : 'Sent to the Collector for approval — you will see the decision here.';
+        msg.textContent = res.duplicate
+          ? 'This leave was already sent — it has not been submitted twice.'
+          : res.status === 'APPROVED'
+            ? 'Leave recorded and approved.'
+            : 'Sent to the Collector for approval — you will see the decision here.';
         $('lv-from').value = ''; $('lv-to').value = ''; $('lv-reason').value = '';
         $('lv-med-inst').value = ''; $('lv-med-cert').value = '';
         lvCertBlob = null;

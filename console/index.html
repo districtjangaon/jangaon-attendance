@@ -258,6 +258,10 @@
     <section id="view-leaves" class="view" hidden>
       <p class="info">Leave applications from the field app. Auto-approved by district policy;
         rejecting one returns those days to "not marked".</p>
+      <div id="leaves-dupes" class="toolbar dupe-bar" hidden>
+        <span id="lv-dupe-text" class="info"></span>
+        <button id="btn-lv-dedupe" class="btn btn-plain btn-inline">Collapse duplicates</button>
+      </div>
       <div id="leaves-bulk" class="toolbar" hidden>
         <label class="bulk-all"><input type="checkbox" id="lv-chk-all"> Select all pending</label>
         <span id="lv-sel-count" class="info">Nothing selected</span>
@@ -421,7 +425,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.19-20260825-0900</footer>
+  <footer class="build-tag">BUILD: v4.20-20260825-1030</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

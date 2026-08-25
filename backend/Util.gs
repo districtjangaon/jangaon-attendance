@@ -41,7 +41,7 @@ const HOL_H = ['date', 'name'];
 // certificate ride along on the same row.
 const LEAVE_H = ['leave_id', 'user_id', 'from_date', 'to_date', 'type', 'reason',
   'status', 'applied_at', 'decided_by', 'decided_at',
-  'med_institution', 'med_cert_no', 'med_photo_id'];
+  'med_institution', 'med_cert_no', 'med_photo_id', 'client_key'];
 const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', 'revoked'];
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',

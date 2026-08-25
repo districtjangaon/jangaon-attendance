@@ -1376,6 +1376,59 @@ const App = (() => {
       ' <button class="btn btn-plain btn-inline" data-ph="' + esc(l.mp) + '">View</button>';
   }
 
+  /**
+   * The same application recorded more than once. Until 2026-08-25 the sheet
+   * held the dates as Dates, so the server's overlap guard never matched and
+   * a second tap on SUBMIT added a second row - each copy holding days
+   * against the worker's balance. The cause is fixed; this surfaces whatever
+   * is already there so the Collector can clear it in one action.
+   */
+  function lvDupeGroups(rows) {
+    const seen = {}, dupes = [];
+    rows.forEach(l => {
+      if (l.status === 'REJECTED' || l.status === 'SUPERSEDED') return;
+      const k = [l.u, l.from, l.to, l.type].join('|');
+      if (seen[k]) dupes.push(l); else seen[k] = true;
+    });
+    return dupes;
+  }
+
+  function lvShowDupes(rows, canDecide) {
+    const dupes = lvDupeGroups(rows);
+    const bar = $('leaves-dupes');
+    bar.hidden = !(canDecide && dupes.length);
+    if (bar.hidden) return;
+    const workers = Object.keys(dupes.reduce((m, l) => { m[l.u] = 1; return m; }, {})).length;
+    $('lv-dupe-text').textContent = dupes.length + ' duplicate application' +
+      (dupes.length === 1 ? '' : 's') + ' from ' + workers + ' worker' +
+      (workers === 1 ? '' : 's') + ' — the same leave recorded more than once.';
+  }
+
+  async function lvDedupe() {
+    const btn = $('btn-lv-dedupe');
+    btn.disabled = true;
+    try {
+      // The count in the confirmation is the SERVER's, not the table's: it is
+      // the number that will actually be changed.
+      const pre = await Api.post({ action: 'leaveDedupe', token: token });
+      if (!pre.ok) { alert('Failed: ' + pre.code); return; }
+      if (!pre.duplicates) { alert('No duplicate applications found.'); renderLeaves(); return; }
+      const names = pre.sample.map(s => s.name + ' (' + s.from + ')').join('\n');
+      if (!confirm('Collapse ' + pre.duplicates + ' duplicate application(s) from ' +
+        pre.workers + ' worker(s)?\n\n' + names +
+        (pre.duplicates > pre.sample.length ? '\n…and ' + (pre.duplicates - pre.sample.length) + ' more' : '') +
+        '\n\nThe earliest application of each is kept and stays pending. ' +
+        'The extra copies are marked DUPLICATE and their days are returned to the balance. ' +
+        'Nothing is deleted and every change is audit-logged.')) return;
+      const r = await Api.post({ action: 'leaveDedupe', token: token, commit: true });
+      if (!r.ok) { alert('Failed: ' + r.code); return; }
+      alert(r.committed + ' duplicate application(s) collapsed.');
+      renderLeaves();
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // The rows currently drawn in the leave tab. The bulk bar decides on the
   // same objects the table drew, so a stale selection cannot outlive a reload.
   let lvRows = [];
@@ -1397,6 +1450,7 @@ const App = (() => {
     if (!rows.length) {
       $('leaves-table').innerHTML = '<p class="info">No leave applications yet. Workers apply from the app menu.</p>';
       $('leaves-bulk').hidden = true;
+      $('leaves-dupes').hidden = true;
       return;
     }
     // Only Collector / District Admin decide, and only while they still hold
@@ -1427,10 +1481,13 @@ const App = (() => {
         '<tr>' + pickCell(l, i) + '<td>' + esc(userName(l.u)) + '</td><td>' + esc(l.from) + '</td><td>' + esc(l.to) +
         '</td><td>' + dayCount(l) + '</td><td>' + esc(LEAVE_LABEL[l.type] || l.type) +
         '</td><td>' + esc(l.reason || '') + '</td><td>' + certCell(l) +
-        '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK' : l.status === 'REJECTED' ? 'ERR' : 'WARN') +
-        '">' + esc(l.status) + '</span></td><td>' + esc(String(l.at).slice(0, 10)) + '</td><td>' +
+        '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK'
+          : l.status === 'REJECTED' ? 'ERR' : l.status === 'SUPERSEDED' ? '' : 'WARN') +
+        '">' + esc(l.status === 'SUPERSEDED' ? 'DUPLICATE' : l.status) +
+        '</span></td><td>' + esc(String(l.at).slice(0, 10)) + '</td><td>' +
         decidedBy(l) + '</td><td>' + actionsFor(l, i) + '</td></tr>').join('') + '</table>';
     bindPhotoButtons($('leaves-table'));
+    lvShowDupes(rows, canDecide);
     $('leaves-bulk').hidden = !(canDecide && pending);
     $('lv-chk-all').checked = false;
     $('leaves-table').querySelectorAll('.lv-pick-box').forEach(c => { c.onchange = lvSyncBar; });
@@ -2811,6 +2868,7 @@ const App = (() => {
     $('tab-map').onclick = () => switchTab('map');
     $('tab-verify').onclick = () => switchTab('verify');
     $('lv-chk-all').onchange = lvToggleAll;
+    $('btn-lv-dedupe').onclick = lvDedupe;
     $('btn-lv-bulk-ok').onclick = () => lvBulkDecide('APPROVED');
     $('btn-lv-bulk-no').onclick = () => lvBulkDecide('REJECTED');
     $('btn-vfy-load').onclick = loadVerify;

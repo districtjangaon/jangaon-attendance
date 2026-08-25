@@ -532,3 +532,14 @@ body.dark td.reg-over { background: #4a1c22; color: #ffb0b8; }
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   background: var(--err); color: #fff;
 }
+
+
+/* Duplicate applications waiting to be collapsed. Amber, not red: nothing is
+   broken, there is just tidying to do. */
+.dupe-bar {
+  background: var(--warn-soft); border: 1px solid var(--warn);
+  border-radius: 8px; padding: 8px 12px;
+}
+.dupe-bar .info { color: var(--warn); font-weight: 600; }
+body.dark .dupe-bar { background: #4a3a12; }
+body.dark .dupe-bar .info { color: #ffd98a; }
