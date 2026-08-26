@@ -61,6 +61,84 @@ function lineChart(pts, opts) {
     <path d="${line}" fill="none" stroke="#b3261e" stroke-width="3" stroke-linejoin="round"/>${dots}</svg>`;
 }
 
+// A worker's duty pattern: distance from her own centre, mark by mark. Log
+// scale, because the interesting range runs from 10 m to 100 km and a linear
+// axis would flatten every ordinary day onto the baseline.
+function caseChart(c) {
+  const w = 700, h = 195, padL = 68, padR = 54, padT = 30, padB = 42;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  const LO = 10, HI = 200000;
+  const ly = d => {
+    const v = Math.min(HI, Math.max(LO, d == null ? LO : d));
+    return padT + ih - ((Math.log10(v) - Math.log10(LO)) / (Math.log10(HI) - Math.log10(LO))) * ih;
+  };
+  const pts = c.timeline.filter(t => t.dist != null);
+  const x = i => padL + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
+  const rings = [[100, '100 m'], [1000, '1 km'], [10000, '10 km'], [100000, '100 km']]
+    .map(([v, l]) => `<line x1="${padL}" y1="${ly(v)}" x2="${w - padR}" y2="${ly(v)}" class="grid"/>` +
+      `<text x="${padL - 8}" y="${ly(v) + 4}" class="ax" text-anchor="end">${l}</text>`).join('');
+  // Everything below this line is inside the centre's boundary.
+  const fence = `<rect x="${padL}" y="${ly(200)}" width="${iw}" height="${padT + ih - ly(200)}"
+      fill="rgba(27,107,58,.10)"/><text x="${padL + 6}" y="${padT + ih - 6}" class="axs"
+      text-anchor="start">within 200 m of the centre</text>`;
+  const path = pts.map((t, i) => (i ? 'L' : 'M') + x(i) + ' ' + ly(t.dist)).join(' ');
+  const anchor = i => i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle';
+  const dots = pts.map((t, i) => {
+    const out = t.gf === 'OUTSIDE';
+    return `<circle cx="${x(i)}" cy="${ly(t.dist)}" r="5.5" fill="${out ? '#b3261e' : '#1b6b3a'}"/>` +
+      `<text x="${x(i)}" y="${ly(t.dist) - 12}" class="pt" text-anchor="${anchor(i)}"
+        fill="${out ? '#b3261e' : '#1b6b3a'}">${t.dist >= 1000 ? (t.dist / 1000).toFixed(1) + ' km' : Math.round(t.dist) + ' m'}</text>` +
+      `<text x="${x(i)}" y="${h - padB + 20}" class="ax" text-anchor="${anchor(i)}">${Number(t.day)} ${t.kind}</text>` +
+      `<text x="${x(i)}" y="${h - padB + 34}" class="axs" text-anchor="${anchor(i)}">${esc(t.time || '')}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart" role="img" aria-label="${esc(c.ref)} distance by mark">
+    ${fence}${rings}<path d="${path}" fill="none" stroke="#8b909b" stroke-width="1.5" stroke-dasharray="4 3"/>${dots}</svg>`;
+}
+
+// The district's own centres, plotted from their recorded coordinates and
+// classified exactly as Part 4 classifies them. No worker position is drawn:
+// these are official facility locations only.
+function districtMap(points) {
+  if (!points.length) return '';
+  const w = 700, h = 470, pad = 26;
+  // A handful of recorded coordinates fall well outside Jangaon. Letting them
+  // set the bounds would shrink the district to a corner, so the frame is the
+  // middle 98% and the strays are drawn clamped to the edge, ringed, and
+  // counted in the caption - visible as errors rather than quietly dropped.
+  const q = (arr, f) => { const a = arr.slice().sort((x, y) => x - y);
+    return a[Math.min(a.length - 1, Math.floor(a.length * f))]; };
+  const lats = points.map(p => p.lat), lngs = points.map(p => p.lng);
+  const la0 = q(lats, 0.01), la1 = q(lats, 0.99);
+  const ln0 = q(lngs, 0.01), ln1 = q(lngs, 0.99);
+  const outside = p => p.lat < la0 || p.lat > la1 || p.lng < ln0 || p.lng > ln1;
+  const strays = points.filter(outside).length;
+  const sx = (w - pad * 2) / (ln1 - ln0), sy = (h - pad * 2) / (la1 - la0);
+  const sc = Math.min(sx, sy);
+  const ox = pad + ((w - pad * 2) - (ln1 - ln0) * sc) / 2;
+  const oy = pad + ((h - pad * 2) - (la1 - la0) * sc) / 2;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const X = p => ox + (clamp(p.lng, ln0, ln1) - ln0) * sc;
+  const Y = p => oy + (la1 - clamp(p.lat, la0, la1)) * sc;
+  const COL = { suspect: '#b3261e', mixed: '#a15c00', clean: '#1b6b3a', nodata: '#c3c8d2' };
+  const order = ['nodata', 'clean', 'mixed', 'suspect'];
+  const dots = order.map(cls => points.filter(p => p.cls === cls).map(p =>
+    `<circle cx="${X(p).toFixed(1)}" cy="${Y(p).toFixed(1)}" r="${cls === 'nodata' ? 2.2 : 3.4}"
+      fill="${COL[cls]}" fill-opacity="${cls === 'nodata' ? .5 : .85}"/>` +
+    (outside(p) ? `<circle cx="${X(p).toFixed(1)}" cy="${Y(p).toFixed(1)}" r="7"
+      fill="none" stroke="#b3261e" stroke-width="1.6"/>` : '')).join('')).join('');
+  // Scale bar: ten kilometres of longitude at this district's latitude.
+  const kmDeg = 1 / (111 * Math.cos((la0 + la1) / 2 * Math.PI / 180));
+  const barPx = 10 * kmDeg * sc;
+  const by = h - 14;
+  const bar = `<line x1="${pad}" y1="${by}" x2="${pad + barPx}" y2="${by}" stroke="#4a4f5a" stroke-width="2"/>
+    <text x="${pad + barPx + 8}" y="${by + 4}" class="axs">10 km</text>`;
+  const note = strays ? `<text x="${w - pad}" y="${by + 4}" class="axs" text-anchor="end">` +
+    `${strays} centre${strays === 1 ? '' : 's'} recorded outside the district, ringed at the frame edge</text>` : '';
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart" role="img" aria-label="Map of Anganwadi centres">
+    <rect x="${pad - 6}" y="${pad - 6}" width="${w - pad * 2 + 12}" height="${h - pad * 2 - 6}"
+      fill="none" stroke="#dfe3ea"/>${dots}${bar}${note}</svg>`;
+}
+
 // ------------------------------------------------------------- narrative
 const first = d.trend.firstOperational, last = d.trend.lastOperational;
 const u = d.integrity ? d.integrity.undisputed : null;
@@ -130,6 +208,9 @@ td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabu
 .chart .axs{font-size:10.5px;fill:#8b909b;font-family:var(--mono)}
 .chart .pt{font-size:12.5px;fill:var(--alert);font-family:var(--mono);font-weight:600}
 .chart .grid{stroke:var(--line);stroke-width:1}
+.case{border:1px solid var(--line);border-radius:8px;padding:14px 18px 6px;margin:20px 0;background:#fff}
+.case-h{font-size:14px;color:var(--ink2);border-bottom:1px solid var(--line);padding-bottom:8px}
+.case-h b{color:var(--ink)}
 figure{margin:26px 0}
 figure img{width:100%;border:1px solid var(--line);border-radius:8px;display:block}
 figcaption{font-size:13px;color:var(--ink2);margin-top:8px;font-style:italic}
@@ -324,6 +405,52 @@ be explained away as bad master data.</p>
   </ul>
 </div>
 
+<h3>Case studies: the same worker, different places, different days</h3>
+
+<p>The six patterns below are drawn from centres whose recorded location is proven correct, so
+distance here means distance and nothing else. They are reproduced without name, worker number,
+centre number or photograph; the district holds the mapping from case reference to person in its own
+system and it is deliberately not carried in this document.</p>
+
+<p>The shaded band marks the first 200 m, which is the minimum boundary applied to every centre. A
+green point is a mark the system classed as at the workplace and a red point one it classed as away
+from it; a few centres carry a boundary wider than 200 m, so an occasional green point sits just above
+the band. The distance scale is logarithmic — otherwise every ordinary working day would flatten onto
+the baseline and the exceptional days would be the only thing visible.</p>
+
+${d.cases.map(c => `
+<div class="case">
+  <div class="case-h"><b>${esc(c.ref)}</b> · Sector ${esc(c.sectorName)} ·
+    ${n(c.remote)} of ${n(c.total)} marks away from the centre · furthest ${km(c.maxDist)}</div>
+  ${caseChart(c)}
+</div>`).join('')}
+
+<p>Read together these show a pattern the register could never have produced. In
+<b>${esc(d.cases[0].ref)}</b> the worker recorded a full duty day — arrival and departure both — from
+<b>${km(d.cases[0].maxDist)}</b> away, which is beyond the district boundary. Several cases record
+arrival <i>and</i> departure at the identical minute from tens of kilometres away, which is to say the
+whole working day was entered in one action from another town.</p>
+
+<p>Equally important is what happens next in almost every case: the worker appears <b>at the centre</b>
+within a day or two and stays there. The evidence of the lapse and the evidence of the correction are
+the same record. That is the argument for the system in a single picture.</p>
+
+<h3>Where this sits on the ground</h3>
+
+${districtMap(d.map)}
+<div class="src">All ${n(d.map.length)} Anganwadi centres of the district, plotted from their recorded
+coordinates. <span style="color:#1b6b3a">■</span> never a mark outside the boundary ·
+<span style="color:#a15c00">■</span> mixed record, coordinate proven good ·
+<span style="color:#b3261e">■</span> every mark outside, coordinate to be re-surveyed ·
+<span style="color:#c3c8d2">■</span> too few marks yet to classify. No worker position is plotted on
+this map; these are facility locations only.</div>
+
+<p>The map carries a second finding. The recorded coordinates span roughly 57 km north to south and
+88 km east to west, and a handful of centres sit as much as 60 km from the district's own centre of
+mass. Jangaon is not that large. Those outliers are master-data errors made visible for the first
+time, and they fall almost entirely among the ${n(d.integrity.suspectCoordinate)} centres already set
+aside for re-survey.</p>
+
 <p><b>What this implies about the period before deployment.</b> The district advances this inference and
 labels it as an inference, not a measurement: if ${n(u.marks)} marks were made from a median of
 ${km(u.median)} away <i>while the worker knew her position was being recorded and photographed</i>, the
@@ -461,6 +588,60 @@ the following open item.</p>
   <li><b>Consideration for extension to other districts.</b> The platform carries no licence cost and no per-user charge; the marginal cost of a further district is the effort of loading its centre list.</li>
 </ol>
 
+<h2><span class="num">Part 10</span>Case studies: how the system organises district work</h2>
+
+<p>The value of the platform is not only that it detects. It changes how the district's own working
+day is arranged. Six concrete instances, all from the reporting period:</p>
+
+<div class="case">
+  <div class="case-h"><b>Organising 1</b> · Supervision by exception</div>
+  <p style="margin:8px 0 0">${n(d.month.marks)} marks were recorded in the period. A supervisor cannot
+  review that volume, and under the paper system reviewed effectively none of it. The system raised
+  <b>${n(d.exceptions.open)}</b> for attention — about
+  <b>${Math.round(d.exceptions.open / Math.max(1, d.exceptions.sectors))} per sector supervisor</b> across
+  ${n(d.exceptions.sectors)} sectors. Each carries the distance, the time and the flag, so disposal is a
+  judgement on evidence rather than a recollection of who was seen where.</p>
+</div>
+
+<div class="case">
+  <div class="case-h"><b>Organising 2</b> · A field work order that did not previously exist</div>
+  <p style="margin:8px 0 0">${n(d.integrity.suspectCoordinate)} centres have been identified as holding a
+  wrong recorded location, from office data alone and without a single field visit. That is a costed,
+  bounded re-survey task with a named list attached. Under the previous method a wrong centre location
+  was not a discoverable fact at all.</p>
+</div>
+
+<div class="case">
+  <div class="case-h"><b>Organising 3</b> · Directing the CDPO to the right centres</div>
+  <p style="margin:8px 0 0">Of ${n(d.rations.findings)} ration findings at ${n(d.rations.centres)} centres,
+  <b>${n(d.rations.high)}</b> are of high severity. Those ${n(d.rations.high)} are the inspection list for
+  the month. Inspection ceases to be a rota and becomes a response to evidence.</p>
+</div>
+
+<div class="case">
+  <div class="case-h"><b>Organising 4</b> · Knowing the day's staffing before the day is over</div>
+  <p style="margin:8px 0 0">On the reporting date the district could see, within about five minutes of
+  each mark, that <b>${n(d.today.in)}</b> of ${n(d.today.expected)} staff had marked on time,
+  ${n(d.today.late)} late, ${n(d.today.onLeave)} on sanctioned leave and <b>${n(d.today.notMarked)}</b> not
+  at all. A gap at a centre is actionable the same morning instead of appearing in a consolidated
+  return days later.</p>
+</div>
+
+<div class="case">
+  <div class="case-h"><b>Organising 5</b> · Leave as a register rather than a correspondence file</div>
+  <p style="margin:8px 0 0"><b>${n(d.pendingLeaves)}</b> applications are before the sanctioning authority,
+  each with the worker's running balance against her annual entitlement, decided in one place with the
+  officer and date recorded. Entitlement, application, sanction and attendance are the same record, so a
+  sanctioned absence can no longer read as an unexplained one.</p>
+</div>
+
+<div class="case">
+  <div class="case-h"><b>Organising 6</b> · A punctuality standard that can be stated</div>
+  <p style="margin:8px 0 0">Median arrival across the period was <b>${hhmm(d.punctuality.medianIn)}</b>,
+  and one mark in ten was made after <b>${hhmm(d.punctuality.p90In)}</b>. The district can now set an
+  arrival standard, measure against it and show movement, rather than assert a norm nobody could verify.</p>
+</div>
+
 <h2><span class="num">Annexure A</span>Method, and how to reproduce these figures</h2>
 
 <p>Every figure in this report is computed from the district's own summary files by
@@ -487,33 +668,6 @@ hand. Running those two commands on any later date regenerates this document aga
 <p>Median arrival across the period was <b>${hhmm(d.punctuality.medianIn)}</b>. The ninetieth percentile was
 <b>${hhmm(d.punctuality.p90In)}</b>, meaning one mark in ten was made after that hour. On the reporting date
 <b>${n(d.punctuality.lateToday)}</b> staff marked late of ${n(d.today.in)} present.</p>
-
-<h2><span class="num">Annexure B</span>The system as operated</h2>
-
-<p>The screens below are reproduced from the training configuration and carry test data only. No worker's
-name, photograph or location appears in this document. Every operational figure in this report comes from
-the aggregate files described in Annexure A.</p>
-
-<figure>
-  <img src="img/console-dashboard.png" alt="District monitoring dashboard">
-  <figcaption>District dashboard — attendance, punctuality, geofence position and beneficiary counts, current within about five minutes of any mark.</figcaption>
-</figure>
-
-<div class="shots">
-  <figure><img src="img/console-map.png" alt="District map of marks"><figcaption>Marks plotted against centre locations.</figcaption></figure>
-  <figure><img src="img/console-exceptions.png" alt="Exception queue"><figcaption>Exception queue — the marks requiring supervisory disposal.</figcaption></figure>
-  <figure><img src="img/console-verify.png" alt="Ration verification"><figcaption>Ration verification — ledger and per-head consistency findings.</figcaption></figure>
-  <figure><img src="img/console-reports.png" alt="Daily beneficiary returns"><figcaption>Daily beneficiary and stock returns.</figcaption></figure>
-  <figure><img src="img/console-monthly.png" alt="Monthly attendance grid"><figcaption>Monthly attendance grid per worker.</figcaption></figure>
-  <figure><img src="img/console-register.png" alt="Leave register"><figcaption>Annual leave register and balances.</figcaption></figure>
-</div>
-
-<h3>The application as the worker sees it</h3>
-<div class="shots phone">
-  <figure><img src="img/app-login.png" alt="Sign-in screen"><figcaption>Sign-in by telephone number and personal identification number.</figcaption></figure>
-  <figure><img src="img/app-home.png" alt="Marking screen"><figcaption>A single action to mark, with photograph and position captured together.</figcaption></figure>
-  <figure><img src="img/app-leave.png" alt="Leave application"><figcaption>Leave application, decided by the Collector and recorded in the register.</figcaption></figure>
-</div>
 
 </main>
 

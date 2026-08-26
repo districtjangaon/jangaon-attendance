@@ -230,6 +230,62 @@ const benDays = Object.keys(reports.days).sort().map(d => {
   return { day: d, awcs: x.awcs, children: x.c, pregnant: x.p, others: x.o, meals: x.m };
 });
 
+// ------------------------------------------------------- location cases
+// Individual duty patterns, drawn only from centres whose coordinate is
+// proven good. Cases are pseudonymous: no name, no worker number, no centre
+// number and no photograph. The district holds the mapping from case
+// reference to person in its own system; it is deliberately not reproduced.
+let cases = [];
+let mapPoints = [];
+if (haveAwcMap) {
+  const byAwcAll = {};
+  marks.forEach(m => {
+    if (!m.awc || (m.gf !== 'INSIDE' && m.gf !== 'OUTSIDE')) return;
+    const a = byAwcAll[m.awc] || (byAwcAll[m.awc] = { n: 0, out: 0, sector: m.sector });
+    a.n++; if (m.gf === 'OUTSIDE') a.out++;
+  });
+  const proven = {};
+  Object.keys(byAwcAll).forEach(k => {
+    const a = byAwcAll[k];
+    if (a.n >= 4 && a.out > 0 && a.out / a.n < 0.9) proven[k] = 1;
+  });
+
+  const byUser = {};
+  marks.forEach(m => { if (proven[m.awc]) (byUser[m.user] = byUser[m.user] || []).push(m); });
+
+  cases = Object.keys(byUser).map(u => {
+    const rows = byUser[u].slice().sort((a, b) => a.day === b.day
+      ? (a.kind === 'IN' ? -1 : 1) : (a.day < b.day ? -1 : 1));
+    const outs = rows.filter(r => r.gf === 'OUTSIDE');
+    return {
+      user: u, sector: rows[0].sector,
+      sectorName: (sectorOf[rows[0].sector] || {}).name || rows[0].sector,
+      days: new Set(rows.map(r => r.day)).size,
+      remote: outs.length, total: rows.length,
+      maxDist: outs.length ? Math.max.apply(null, outs.map(r => r.dist || 0)) : 0,
+      everInside: rows.some(r => r.gf === 'INSIDE'),
+      timeline: rows.map(r => ({ day: r.day, kind: r.kind, time: r.time, gf: r.gf, dist: r.dist }))
+    };
+  }).filter(c => c.remote >= 2 && c.days >= 3)
+    .sort((a, b) => b.maxDist - a.maxDist)
+    .slice(0, 6)
+    .map((c, i) => Object.assign({ ref: 'Case ' + String.fromCharCode(65 + i) }, c));
+
+  // District map: real centre coordinates, classified the same way Part 4
+  // classifies them. No worker position appears here - only official
+  // facility locations, which is what makes the map publishable at all.
+  try {
+    const places = S('places.json').awcs;
+    mapPoints = Object.keys(places).filter(k => places[k].lat != null).map(k => {
+      const a = byAwcAll[k];
+      let cls = 'nodata';
+      if (a && a.n >= 4) cls = a.out === 0 ? 'clean' : (a.out / a.n >= 0.9 ? 'suspect' : 'mixed');
+      return { lat: places[k].lat, lng: places[k].lng, cls: cls,
+        outsidePct: a && a.n ? pct(a.out, a.n) : null };
+    });
+  } catch (e) { /* places unavailable */ }
+}
+
 const inTimes = marks.filter(m => m.kind === 'IN' && /^\d{2}:\d{2}$/.test(m.time))
   .map(m => Number(m.time.slice(0, 2)) * 60 + Number(m.time.slice(3, 5)));
 
@@ -279,6 +335,8 @@ const out = {
     coordDrift: coordDrift
   },
   integrity: integrity,
+  cases: cases,
+  map: mapPoints,
   sectors: sectors,
   flags: Object.keys(flagCount).sort((a, b) => flagCount[b] - flagCount[a])
     .map(f => ({ flag: f, n: flagCount[f], meaning: FLAG_MEANING[f] || '' })),
@@ -344,6 +402,17 @@ if (process.argv.indexOf('--json') >= 0) {
     console.log('     median ' + km(u.median) + ', p90 ' + km(u.p90) + ', furthest ' + km(u.max));
     console.log('     beyond 1 km ' + u.beyond1km + ' | beyond 5 km ' + u.beyond5km +
       ' | beyond 20 km ' + u.beyond20km + ' | staff with 3+ ' + u.staffRepeat3);
+  }
+
+  if (cases.length) {
+    console.log('\nLOCATION CASE STUDIES (proven-good centres only)');
+    cases.forEach(c => {
+      console.log('  ' + c.ref + '  sector ' + c.sectorName + '  - ' + c.remote +
+        ' of ' + c.total + ' marks away from the centre, furthest ' + km(c.maxDist));
+      c.timeline.forEach(t => console.log('      ' + t.day + ' ' + t.kind.padEnd(3) + ' ' +
+        String(t.time || '').padEnd(6) + ' ' + t.gf.padEnd(10) +
+        (t.dist == null ? '' : km(t.dist))));
+    });
   }
 
   console.log('\nFLAGS');
