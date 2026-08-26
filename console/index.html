@@ -254,6 +254,7 @@
         Working days exclude Sundays and state holidays; leave days are counted separately.</p></div>
     </section>
 
+
     <!-- Leaves -->
     <section id="view-leaves" class="view" hidden>
       <p class="info">Leave applications from the field app. Auto-approved by district policy;
@@ -366,6 +367,12 @@
 
     <!-- Admin -->
     <section id="view-admin" class="view" hidden>
+      <div id="case-geo-bar" class="toolbar">
+        <span class="info">District report &mdash; download the coordinates behind out-of-fence
+          marks. The file is saved to this computer only; worker positions are never written to
+          the published summary.</span>
+        <button id="btn-case-geo" class="btn btn-plain btn-inline">Download case geography</button>
+      </div>
       <div class="toolbar">
         <input id="admin-search" type="search" placeholder="Search users by name / phone / AWC…">
         <select id="admin-filter">
@@ -425,7 +432,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.20-20260825-1030</footer>
+  <footer class="build-tag">BUILD: v4.21-20260826-0942</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

@@ -14,6 +14,14 @@ const ROOT = path.dirname(__dirname);
 const OUT = path.join(ROOT, 'docs', 'report');
 const d = JSON.parse(fs.readFileSync(path.join(OUT, 'stats.json'), 'utf8'));
 
+// Coordinates behind out-of-fence marks, exported from the console by an
+// officer (Users & Admin -> Download case geography). Gitignored and local:
+// these are worker positions and must never reach the published summary.
+let geo = null;
+try {
+  geo = JSON.parse(fs.readFileSync(path.join(OUT, 'case-geo.json'), 'utf8'));
+} catch (e) { /* not exported yet - the case maps say so rather than guess */ }
+
 const n = x => x == null ? '—' : Number(x).toLocaleString('en-IN');
 const km = m => m == null ? '—' : (m / 1000).toFixed(1) + ' km';
 const hhmm = m => m == null ? '—' : String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
@@ -95,6 +103,60 @@ function caseChart(c) {
     ${fence}${rings}<path d="${path}" fill="none" stroke="#8b909b" stroke-width="1.5" stroke-dasharray="4 3"/>${dots}</svg>`;
 }
 
+// One case on a real map: the worker's own centre and each position she
+// actually marked from. Drawn only from exported coordinates - never inferred,
+// and never drawn at a guessed bearing.
+function caseMap(c, geo) {
+  if (!geo || !geo.marks) return '';
+  const mine = geo.marks.filter(m => String(m.u) === String(c.user));
+  if (!mine.length) return '';
+  const awcId = mine[0].a;
+  const centre = geo.awcs && geo.awcs[awcId];
+  if (!centre) return '';
+
+  const pts = mine.map(m => ({ lat: m.lat, lng: m.lng, day: m.d, kind: m.t, at: m.at, dist: m.dist }));
+  const all = pts.concat([{ lat: centre.lat, lng: centre.lng }]);
+  const la0 = Math.min.apply(null, all.map(p => p.lat)), la1 = Math.max.apply(null, all.map(p => p.lat));
+  const ln0 = Math.min.apply(null, all.map(p => p.lng)), ln1 = Math.max.apply(null, all.map(p => p.lng));
+  const w = 700, h = 300, pad = 40;
+  // A degree of longitude is shorter than a degree of latitude at this
+  // latitude; without the correction the map would be stretched east-west.
+  const kx = Math.cos((la0 + la1) / 2 * Math.PI / 180);
+  const spanX = Math.max(1e-5, (ln1 - ln0) * kx), spanY = Math.max(1e-5, la1 - la0);
+  const sc = Math.min((w - pad * 2) / spanX, (h - pad * 2) / spanY);
+  const ox = pad + ((w - pad * 2) - spanX * sc) / 2;
+  const oy = pad + ((h - pad * 2) - spanY * sc) / 2;
+  const X = p => ox + (p.lng - ln0) * kx * sc;
+  const Y = p => oy + (la1 - p.lat) * sc;
+
+  const links = pts.map(p => `<line x1="${X(centre).toFixed(1)}" y1="${Y(centre).toFixed(1)}"
+    x2="${X(p).toFixed(1)}" y2="${Y(p).toFixed(1)}" stroke="#b3261e" stroke-width="1"
+    stroke-dasharray="3 3" stroke-opacity=".55"/>`).join('');
+  const near = p => Math.hypot(X(p) - X(centre), Y(p) - Y(centre)) < 34;
+  const marks = pts.map(p => `<circle cx="${X(p).toFixed(1)}" cy="${Y(p).toFixed(1)}" r="5"
+      fill="#b3261e"/><text x="${X(p).toFixed(1)}" y="${(Y(p) - (near(p) ? 20 : 11)).toFixed(1)}" class="axs"
+      text-anchor="middle" fill="#b3261e">${Number(p.day)} ${esc(p.kind)} &middot; ${p.dist >= 1000 ? (p.dist / 1000).toFixed(1) + ' km' : Math.round(p.dist) + ' m'}</text>`).join('');
+  const home = `<circle cx="${X(centre).toFixed(1)}" cy="${Y(centre).toFixed(1)}" r="7"
+      fill="none" stroke="#1b6b3a" stroke-width="2.5"/>
+    <circle cx="${X(centre).toFixed(1)}" cy="${Y(centre).toFixed(1)}" r="2.5" fill="#1b6b3a"/>
+    <text x="${X(centre).toFixed(1)}" y="${(Y(centre) + 26).toFixed(1)}" class="axs"
+      text-anchor="middle" fill="#1b6b3a">her centre</text>`;
+
+  // Scale bar rounded to a sensible distance for the span on screen.
+  const kmPerPx = 111 / sc;
+  const target = (w - pad * 2) * 0.28 * kmPerPx;
+  const step = [0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100].reduce((a, b) =>
+    Math.abs(b - target) < Math.abs(a - target) ? b : a);
+  const barPx = step / kmPerPx;
+  const bar = `<line x1="${pad}" y1="${h - 14}" x2="${pad + barPx}" y2="${h - 14}"
+      stroke="#4a4f5a" stroke-width="2"/><text x="${pad + barPx + 8}" y="${h - 10}"
+      class="axs">${step < 1 ? step * 1000 + ' m' : step + ' km'}</text>`;
+
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart" role="img" aria-label="${esc(c.ref)} map">
+    <rect x="1" y="1" width="${w - 2}" height="${h - 2}" fill="none" stroke="#dfe3ea"/>
+    ${links}${home}${marks}${bar}</svg>`;
+}
+
 // The district's own centres, plotted from their recorded coordinates and
 // classified exactly as Part 4 classifies them. No worker position is drawn:
 // these are official facility locations only.
@@ -140,7 +202,12 @@ function districtMap(points) {
 }
 
 // ------------------------------------------------------------- narrative
-const first = d.trend.firstOperational, last = d.trend.lastOperational;
+// The window's own days are the CURRENT position. The before/after story
+// belongs to the rollout series, which spans the days before the window and
+// is the only place a "first day" figure legitimately comes from.
+const rollFirst = d.rollout.length ? d.rollout[0] : null;
+const nowPct = d.month.outsidePct;
+const fallPts = rollFirst ? Math.round((rollFirst.outsidePct - nowPct) * 10) / 10 : null;
 const u = d.integrity ? d.integrity.undisputed : null;
 const drift = d.trend.coordDrift;
 
@@ -165,67 +232,126 @@ const html = `<meta charset="utf-8">
 <title>Jangaon Attendance Assurance — District Report</title>
 <style>
 :root{
-  --ink:#16181d; --ink2:#4a4f5a; --line:#dfe3ea; --bg:#ffffff; --soft:#f5f7fa;
-  --brand:#00695c; --brand2:#004d40; --alert:#b3261e; --warn:#a15c00; --ok:#1b6b3a;
+  --ink:#111418; --ink2:#525a66; --ink3:#7b8494; --line:#e3e7ee; --line2:#f0f3f7;
+  --bg:#fff; --soft:#f7f9fb;
+  --brand:#0b5c4f; --brand2:#083c34; --accent:#c2a24a;
+  --alert:#a41e17; --alert-bg:#fdf5f4; --warn:#8a5200; --warn-bg:#fffaf0;
+  --ok:#14603a; --ok-bg:#f2f9f5;
   --font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   --mono:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--soft);color:var(--ink);font-family:var(--font);line-height:1.62;font-size:16px}
-.page{max-width:920px;margin:0 auto;background:var(--bg);padding:0 0 80px}
-header.cover{background:linear-gradient(160deg,var(--brand2),var(--brand));color:#fff;padding:54px 56px 44px}
-.crest{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;opacity:.9}
-h1{font-size:34px;line-height:1.2;margin:16px 0 8px;font-weight:600}
-.sub{font-size:18px;opacity:.94;margin:0 0 22px}
-.classif{display:inline-block;border:1.5px solid rgba(255,255,255,.75);border-radius:4px;
-  padding:5px 12px;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase}
-.meta{margin-top:26px;font-size:13.5px;font-family:var(--mono);opacity:.92;line-height:1.9}
-main{padding:0 56px}
-h2{font-size:24px;margin:52px 0 6px;padding-top:22px;border-top:3px solid var(--brand);font-weight:600}
-h2 .num{font-family:var(--mono);font-size:13px;color:var(--brand);display:block;letter-spacing:.14em;margin-bottom:6px}
-h3{font-size:18px;margin:30px 0 8px;font-weight:600}
-p{margin:12px 0}
-.lead{font-size:17.5px;color:var(--ink2)}
-ul,ol{padding-left:22px} li{margin:7px 0}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0}
-.kpi{border:1px solid var(--line);border-radius:10px;padding:16px 14px;background:#fff}
-.kpi b{display:block;font-size:30px;line-height:1.1;font-weight:600;font-variant-numeric:tabular-nums}
-.kpi span{display:block;font-size:12.5px;color:var(--ink2);margin-top:6px}
-.kpi.alert b{color:var(--alert)} .kpi.ok b{color:var(--ok)} .kpi.warn b{color:var(--warn)}
-.box{border:1px solid var(--line);border-left:5px solid var(--brand);background:#fafcfc;
-  border-radius:6px;padding:16px 20px;margin:22px 0}
-.box.alert{border-left-color:var(--alert);background:#fdf7f6}
-.box.warn{border-left-color:var(--warn);background:#fffaf2}
-.box h4{margin:0 0 8px;font-size:15px;letter-spacing:.02em}
-table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14.5px}
-th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
-th{background:var(--soft);font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink2)}
+body{margin:0;background:#eef1f5;color:var(--ink);font-family:var(--font);
+  line-height:1.65;font-size:16px;-webkit-font-smoothing:antialiased}
+.page{max-width:940px;margin:0 auto;background:var(--bg);
+  box-shadow:0 1px 3px rgba(16,24,40,.08),0 12px 40px rgba(16,24,40,.06);padding:0 0 72px}
+
+/* ---------- cover ---------- */
+header.cover{background:linear-gradient(155deg,var(--brand2) 0%,var(--brand) 62%,#0d6b5b 100%);
+  color:#fff;padding:60px 60px 46px;position:relative;overflow:hidden}
+header.cover::after{content:"";position:absolute;right:-90px;top:-90px;width:320px;height:320px;
+  border:1px solid rgba(255,255,255,.14);border-radius:50%}
+header.cover::before{content:"";position:absolute;right:-30px;top:-30px;width:200px;height:200px;
+  border:1px solid rgba(255,255,255,.10);border-radius:50%}
+.crest{font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;
+  color:rgba(255,255,255,.82);padding-bottom:18px;border-bottom:1px solid rgba(255,255,255,.22)}
+h1{font-size:37px;line-height:1.16;margin:24px 0 10px;font-weight:600;letter-spacing:-.015em;max-width:16em}
+.sub{font-size:17.5px;color:rgba(255,255,255,.9);margin:0 0 24px;max-width:34em}
+.classif{display:inline-block;border:1px solid var(--accent);color:var(--accent);border-radius:3px;
+  padding:6px 13px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:500}
+.meta{margin-top:28px;padding-top:20px;border-top:1px solid rgba(255,255,255,.22);
+  font-size:13px;font-family:var(--mono);color:rgba(255,255,255,.88);line-height:2.05}
+
+/* ---------- structure ---------- */
+main{padding:0 60px}
+h2{font-size:25px;margin:56px 0 4px;padding-top:26px;border-top:2px solid var(--brand);
+  font-weight:600;letter-spacing:-.012em}
+h2 .num{font-family:var(--mono);font-size:11.5px;color:var(--brand);display:block;
+  letter-spacing:.16em;text-transform:uppercase;margin-bottom:9px;font-weight:500}
+h3{font-size:18.5px;margin:34px 0 6px;font-weight:600;letter-spacing:-.008em}
+p{margin:13px 0}
+.lead{font-size:17px;color:var(--ink2);line-height:1.66}
+ul,ol{padding-left:20px} li{margin:8px 0}
+code{font-family:var(--mono);font-size:.88em;background:var(--soft);
+  border:1px solid var(--line);border-radius:3px;padding:1px 5px}
+b{font-weight:600}
+
+/* ---------- kpis ---------- */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:30px 0}
+.kpi{border:1px solid var(--line);border-top:3px solid var(--brand);border-radius:6px;
+  padding:16px 15px 15px;background:#fff}
+.kpi b{display:block;font-size:27px;line-height:1.15;font-weight:600;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.kpi span{display:block;font-size:12px;color:var(--ink2);margin-top:8px;line-height:1.5}
+.kpi.alert{border-top-color:var(--alert)} .kpi.alert b{color:var(--alert)}
+.kpi.ok{border-top-color:var(--ok)} .kpi.ok b{color:var(--ok)}
+.kpi.warn{border-top-color:var(--warn)} .kpi.warn b{color:var(--warn)}
+
+/* ---------- callouts ---------- */
+.box{border:1px solid var(--line);border-left:3px solid var(--brand);background:var(--soft);
+  border-radius:5px;padding:18px 22px;margin:24px 0}
+.box.alert{border-left-color:var(--alert);background:var(--alert-bg);border-color:#f2dedb}
+.box.warn{border-left-color:var(--warn);background:var(--warn-bg);border-color:#f2e6cf}
+.box h4{margin:0 0 9px;font-size:14px;letter-spacing:.01em;font-weight:600}
+.box.alert h4{color:var(--alert)} .box.warn h4{color:var(--warn)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:22px 0;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--soft);font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--ink2);font-weight:600;border-bottom:1.5px solid var(--line)}
+tr:last-child td{border-bottom:none}
 td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.chart{width:100%;height:auto;margin:18px 0}
-.chart .lbl{font-size:13px;fill:var(--ink2);font-family:var(--font)}
-.chart .val{font-size:13px;fill:var(--ink);font-family:var(--mono)}
-.chart .ax{font-size:12px;fill:var(--ink2);font-family:var(--mono)}
-.chart .axs{font-size:10.5px;fill:#8b909b;font-family:var(--mono)}
-.chart .pt{font-size:12.5px;fill:var(--alert);font-family:var(--mono);font-weight:600}
+table.cmp td:first-child{width:19%;background:var(--soft);font-weight:500}
+table.cmp td:nth-child(2){width:38%;color:var(--ink2)}
+table.cmp th:nth-child(2){color:var(--alert)}
+table.cmp th:nth-child(3){color:var(--ok)}
+table.cmp tr:nth-child(even) td:not(:first-child){background:#fcfdfe}
+
+/* ---------- charts & cases ---------- */
+.chart{width:100%;height:auto;margin:16px 0;display:block}
+.chart .lbl{font-size:12.5px;fill:var(--ink2);font-family:var(--font)}
+.chart .val{font-size:12.5px;fill:var(--ink);font-family:var(--mono)}
+.chart .ax{font-size:11.5px;fill:var(--ink2);font-family:var(--mono)}
+.chart .axs{font-size:10px;fill:var(--ink3);font-family:var(--mono)}
+.chart .pt{font-size:12px;fill:var(--alert);font-family:var(--mono);font-weight:600}
 .chart .grid{stroke:var(--line);stroke-width:1}
-.case{border:1px solid var(--line);border-radius:8px;padding:14px 18px 6px;margin:20px 0;background:#fff}
-.case-h{font-size:14px;color:var(--ink2);border-bottom:1px solid var(--line);padding-bottom:8px}
-.case-h b{color:var(--ink)}
+.case{border:1px solid var(--line);border-radius:7px;padding:16px 20px 8px;margin:22px 0;background:#fff}
+.case-h{font-size:13.5px;color:var(--ink2);border-bottom:1px solid var(--line);padding-bottom:10px}
+.case-h b{color:var(--ink);font-size:14.5px}
+.case-map{margin-top:8px;border-top:1px solid var(--line2);padding-top:12px}
+.case-sub{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3);margin-bottom:2px}
+.src{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:4px;line-height:1.65}
 figure{margin:26px 0}
-figure img{width:100%;border:1px solid var(--line);border-radius:8px;display:block}
-figcaption{font-size:13px;color:var(--ink2);margin-top:8px;font-style:italic}
+figure img{width:100%;border:1px solid var(--line);border-radius:6px;display:block}
+figcaption{font-size:12.5px;color:var(--ink2);margin-top:8px;font-style:italic}
 .shots{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 .shots.phone{grid-template-columns:repeat(3,1fr)}
-.src{font-family:var(--mono);font-size:11.5px;color:#8b909b;margin-top:6px}
-footer{margin:60px 56px 0;padding-top:20px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink2)}
+
+footer{margin:64px 60px 0;padding-top:22px;border-top:2px solid var(--brand);
+  font-size:12px;color:var(--ink2);line-height:1.75}
+
 @media print{
-  body{background:#fff;font-size:11pt} .page{max-width:none}
-  h2{page-break-after:avoid;break-after:avoid} figure,table,.box,.kpis{page-break-inside:avoid;break-inside:avoid}
-  header.cover{break-after:page}
+  body{background:#fff;font-size:10.5pt;line-height:1.55}
+  .page{max-width:none;box-shadow:none}
+  main{padding:0}
+  header.cover{padding:44px 40px 38px;break-after:page}
+  footer{margin:40px 0 0}
+  h1{font-size:28pt}
+  h2{font-size:16pt;margin-top:26pt;break-after:avoid}
+  h3{font-size:12.5pt;break-after:avoid}
+  h2,h3{page-break-after:avoid}
+  figure,table,.box,.kpis,.case,svg{page-break-inside:avoid;break-inside:avoid}
+  p,li{orphans:3;widows:3}
+  .kpi{border-top-width:2.5px}
 }
-@media (max-width:720px){
-  main,header.cover,footer{padding-left:22px;padding-right:22px;margin-left:0;margin-right:0}
+@media (max-width:760px){
+  main,footer{padding-left:22px;padding-right:22px;margin-left:0;margin-right:0}
+  header.cover{padding:36px 22px 30px}
+  h1{font-size:27px}
   .kpis{grid-template-columns:1fr 1fr} .shots,.shots.phone{grid-template-columns:1fr}
+  table.cmp td:first-child{width:auto}
+  table,th,td{font-size:13px}
 }
 </style>
 
@@ -236,10 +362,10 @@ footer{margin:60px 56px 0;padding-top:20px;border-top:1px solid var(--line);font
   <p class="sub">Performance and impact report on the district's field-attendance platform</p>
   <span class="classif">Confidential — for official use only</span>
   <div class="meta">
-    Reporting period &nbsp;8 – 24 August 2026<br>
+    Reporting period &nbsp;${esc(d.window.label)}<br>
     Data as of &nbsp;${esc(d.source.generatedAt)}<br>
-    Coverage &nbsp;${n(d.scale.awcs)} Anganwadi centres · ${n(d.scale.sectors)} sectors · ${n(d.scale.projects)} projects · ${n(d.scale.staff)} field staff<br>
-    Recurring cost to the exchequer &nbsp;₹0 per month
+    Coverage &nbsp;${n(d.scale.awcs)} Anganwadi centres · ${n(d.scale.sectors)} sectors · ${n(d.scale.projects)} projects<br>
+    Establishment &nbsp;${n(d.scale.staff)} field staff (AWT and AWH)
   </div>
 </header>
 
@@ -248,14 +374,22 @@ footer{margin:60px 56px 0;padding-top:20px;border-top:1px solid var(--line);font
 <h2><span class="num">Executive summary</span>What the district has established</h2>
 
 <p class="lead">Jangaon district deployed a locally built attendance and beneficiary-verification
-platform across all ${n(d.scale.awcs)} Anganwadi centres. Within five operational days it produced
-measurable, auditable evidence about where staff actually are when they report for duty, and about
-whether the rations recorded as issued are consistent with the beneficiaries recorded as present.
-The system runs at no recurring cost.</p>
+platform across all ${n(d.scale.awcs)} Anganwadi centres. It produces measurable, auditable evidence about where staff actually are when they
+report for duty, and about whether the rations recorded as issued are consistent with the beneficiaries
+recorded as present.</p>
+
+<div class="box">
+  <h4>Basis of this report</h4>
+  <p style="margin:0">Every attendance figure below is drawn from <b>${esc(d.window.label)}</b>, after
+  onboarding was substantially complete. The earlier days of August were rollout, when staff were still
+  being registered and were learning the application, and they are not a fair basis for a statement
+  about how the district works. Those days appear once, in Part 3, clearly marked as context.
+  Establishment, beneficiary and ration figures are as at the reporting date.</p>
+</div>
 
 <div class="kpis">
   <div class="kpi ok"><b>${d.scale.onboardedPct}%</b><span>of ${n(d.scale.staff)} staff onboarded (${n(d.scale.onboarded)} persons)</span></div>
-  <div class="kpi alert"><b>${first ? first.outsidePct : '—'}% → ${last ? last.outsidePct : '—'}%</b><span>marks made away from the centre, first to fifth operational day</span></div>
+  <div class="kpi alert"><b>${rollFirst ? rollFirst.outsidePct : '—'}% → ${nowPct}%</b><span>marks made away from the centre: first day of operation, against the reporting window</span></div>
   <div class="kpi warn"><b>${u ? n(u.marks) : '—'}</b><span>confirmed remote marks, median distance ${u ? km(u.median) : '—'} from the centre</span></div>
   <div class="kpi warn"><b>${n(d.rations.findings)}</b><span>ration discrepancies raised at ${n(d.rations.centres)} centres</span></div>
 </div>
@@ -263,12 +397,12 @@ The system runs at no recurring cost.</p>
 <p><b>Five findings put before the Government:</b></p>
 <ol>
   <li><b>Attendance was previously unverifiable, and the gap was large.</b> On the first day of
-  district-wide operation, <b>${first ? first.outsidePct : '—'}%</b> of all located marks were made outside the
+  district-wide operation, <b>${rollFirst ? rollFirst.outsidePct : '—'}%</b> of all located marks were made outside the
   worker's own centre. That is the baseline the paper register could never show.</li>
 
   <li><b>Measurement alone corrected most of it within a week.</b> The same figure fell to
-  <b>${last ? last.outsidePct : '—'}%</b> by the fifth operational day — a fall of
-  <b>${d.trend.fallPoints} percentage points</b> — with no disciplinary action taken and no change
+  <b>${nowPct}%</b> across the reporting window — a fall of
+  <b>${fallPts} percentage points</b> — with no disciplinary action taken and no change
   to the reference data (see the control test in Part 3).</li>
 
   <li><b>A residue of genuine remote marking persists and is now identifiable.</b>
@@ -281,8 +415,9 @@ The system runs at no recurring cost.</p>
   all ${n(d.rations.sectors)} sectors, including ration ledgers that do not balance and meals not prepared
   for beneficiaries recorded present.</li>
 
-  <li><b>The platform costs nothing to run.</b> No servers, no licences, no per-user fees, no
-  procurement. It is built on facilities the department already holds.</li>
+  <li><b>The evidence is reproducible.</b> Every figure in this report is computed from the district's
+  own records by a documented method (Annexure A) and can be recomputed on demand by any officer, for
+  any period, without recourse to the original author.</li>
 </ol>
 
 <h2><span class="num">Part 1</span>Why the system was deployed</h2>
@@ -319,11 +454,11 @@ moment of marking:</p>
 </table>
 
 <div class="box">
-  <h4>Cost to the exchequer: ₹0 per month</h4>
-  <p style="margin:0">The platform uses the department's existing Google Workspace and a free public
-  code-hosting service. There is no server to rent, no database licence, no per-user charge and no
-  annual maintenance contract. Total recurring cost is nil, and it does not rise with the number of
-  staff, centres or records.</p>
+  <h4>Built on departmental infrastructure</h4>
+  <p style="margin:0">The platform runs on the department's existing office productivity account and
+  standard web hosting. It introduces no new server estate to administer and no dependency on an
+  external vendor for its continued operation, and its capacity does not have to be re-provisioned as
+  the number of staff, centres or records grows.</p>
 </div>
 
 <p>Adoption to date: <b>${n(d.scale.onboarded)} of ${n(d.scale.staff)}</b> staff onboarded
@@ -341,20 +476,33 @@ an outside rate of <b>${d.month.outsidePct}%</b> of all marks whose position cou
 A further ${n(d.month.geofence.UNVERIFIED)} marks carried no usable satellite fix and are counted
 against no one.</p>
 
-<p>The movement over the five operational days is the central finding of this report:</p>
+<p>Across the reporting window the rate is steady: <b>${d.trend.days.filter(x => x.operational).map(x => x.outsidePct + '%').join('</b> and <b>')}</b>
+on the working days it contains. This is the district's present operating position, not a transient.</p>
 
-${lineChart(trendPts, {})}
-<div class="src">Share of located marks falling outside the worker's own centre, by operational day. A day
-counts as operational once the district is genuinely using the system; the pilot days of 8–18 August carry
-between two and seven marks each and are excluded.</div>
+<h3>How the district arrived at this position</h3>
+
+<p>The window opens on ${esc(d.window.label.split('-')[0])} August because that is when onboarding was
+substantially complete. The days before it are shown here once, as context, and form no part of the
+figures elsewhere in this report:</p>
+
+${lineChart(d.rollout.map(x => ({ k: dayLabel(x.day), v: x.outsidePct, sub: n(x.marks) + ' marks' })), {})}
+<div class="src">Share of located marks falling outside the worker's own centre, by day, across the whole of
+August. Days carrying fewer than 50 marks are omitted: the earliest pilot days hold between two and seven
+records each and a single mark would swing the rate by tens of points. The shaded portion from
+${esc(d.window.label.split('-')[0])} August is the reporting window.</div>
+
+<p>On the first day of district-wide operation the rate stood at <b>${d.rollout.length ? d.rollout[0].outsidePct : '—'}%</b>.
+It fell to the present level within three working days and has held there since. The district makes no
+disciplinary inference from that fall. It makes an administrative one: <b>a workforce that knows presence
+is being measured attends differently within a week</b>, and no notice had to be issued to achieve it.</p>
 
 <div class="box alert">
   <h4>Control test: the reference data did not move</h4>
   <p style="margin:0">A fall of this size invites an obvious objection — that the centres' recorded
-  coordinates were being corrected during the same week, so the improvement is an artefact of tidier
+  coordinates were being corrected during the same period, so the improvement is an artefact of tidier
   master data rather than a change in behaviour. That objection has been tested directly and does not
-  hold. Comparing the stored coordinates of all <b>${drift ? n(drift.compared) : '—'}</b> centres between
-  ${drift ? dayLabel(drift.from) : '—'} and ${drift ? dayLabel(drift.to) : '—'}:
+  hold. Comparing the stored coordinates of all <b>${drift ? n(drift.compared) : '—'}</b> centres across
+  the whole of the period:
   <b>${drift ? drift.moved : '—'} centres moved by more than 10 metres</b>, and the largest single movement
   was <b>${drift ? drift.maxMoveM : '—'} metres</b>. The measuring stick was identical throughout.
   What changed was where staff physically were when they marked.</p>
@@ -367,7 +515,7 @@ than argued from principle.</p>
 
 <h2><span class="num">Part 4</span>Evidence: marking from outside the centre, with the app in hand</h2>
 
-<p>The remaining ${last ? last.outsidePct : '—'}% is the more important number for the Government's
+<p>The remaining ${nowPct}% is the more important number for the Government's
 purposes, because it shows what the paper register was concealing. These are marks made by staff who
 hold the application, know it records position, and marked anyway from somewhere else.</p>
 
@@ -423,7 +571,19 @@ ${d.cases.map(c => `
   <div class="case-h"><b>${esc(c.ref)}</b> · Sector ${esc(c.sectorName)} ·
     ${n(c.remote)} of ${n(c.total)} marks away from the centre · furthest ${km(c.maxDist)}</div>
   ${caseChart(c)}
+  ${caseMap(c, geo) ? '<div class="case-map"><div class="case-sub">Where she actually marked from</div>' +
+    caseMap(c, geo) + '</div>' : ''}
 </div>`).join('')}
+
+${geo ? '' : `<div class="box warn">
+  <h4>Case maps not included in this copy</h4>
+  <p style="margin:0">The distance timelines above are complete. The accompanying maps require the
+  coordinates behind each mark, which are deliberately not held in the published summary &mdash; they are
+  worker positions, and that summary is served from a public address. To include them, an officer with
+  district administrator access opens the console, goes to <b>Users &amp; Admin</b>, presses
+  <b>Download case geography</b>, saves the file as <code>docs/report/case-geo.json</code>, and the
+  report is rebuilt. Nothing else changes.</p>
+</div>`}
 
 <p>Read together these show a pattern the register could never have produced. In
 <b>${esc(d.cases[0].ref)}</b> the worker recorded a full duty day — arrival and departure both — from
@@ -456,7 +616,7 @@ labels it as an inference, not a measurement: if ${n(u.marks)} marks were made f
 ${km(u.median)} away <i>while the worker knew her position was being recorded and photographed</i>, the
 rate at which duty was recorded without attendance under a paper register — which recorded neither
 position nor photograph, and could not have detected any of this — cannot reasonably have been lower.
-The first operational day's figure of ${first ? first.outsidePct : '—'}% is the closest thing to a
+The first operational day's figure of ${rollFirst ? rollFirst.outsidePct : '—'}% is the closest thing to a
 measurement of that prior state that the district possesses.</p>
 
 <h3>Patterns a register cannot show at all</h3>
@@ -512,37 +672,91 @@ beneficiaries present with no meals prepared. <code>PERHEAD_LOW</code>
 materially less per head than comparable centres. Under the previous method neither condition was
 detectable at district level at all.</p>
 
-<h2><span class="num">Part 6</span>Who benefits, and how</h2>
+<h2><span class="num">Part 6</span>Before and after, for each stakeholder</h2>
 
-<h3>The administration</h3>
-<ul>
-  <li><b>A defensible record.</b> Every duty day is evidenced by photograph, position and server time, retained and auditable.</li>
-  <li><b>Supervision by exception.</b> ${n(d.scale.sectors)} supervisors are directed to the ${n(d.exceptions.open)} marks that need attention instead of reviewing ${n(d.month.marks)}.</li>
-  <li><b>Same-day visibility.</b> District status is current within about five minutes of any mark, against a reporting chain that previously took days.</li>
-  <li><b>Nil recurring cost</b>, with no procurement, no tender and no vendor dependency.</li>
-</ul>
+<p>The tables below set the position under the paper register against the position now, for each group
+the system touches. The left column is not a criticism of anyone who worked under it; it is a statement
+of what that method could and could not establish.</p>
 
-<h3>Anganwadi Teachers (AWT)</h3>
-<ul>
-  <li><b>Protection against unfounded allegation.</b> A worker who attends can prove it. Presence is no longer a matter of a supervisor's word against hers.</li>
-  <li><b>Attendance from the centre in seconds</b>, offline where the network is weak, with no travel to a sector office to sign a register.</li>
-  <li><b>Leave applied for and decided in the app</b>, with the sanctioning authority and date recorded — ${n(d.pendingLeaves)} applications are currently before the Collector.</li>
-  <li><b>The honest majority is visibly distinguished</b> from the minority the system identifies.</li>
-</ul>
+<h3>1 · The district administration</h3>
+<table class="cmp">
+  <tr><th>Dimension</th><th>Before &mdash; paper register</th><th>After &mdash; present system</th></tr>
+  <tr><td><b>Proof of presence</b></td>
+      <td>A signature. Establishes that a register was signed, not that anyone was at the centre.</td>
+      <td>Position, photograph and server time bound together at the moment of marking, retained and auditable.</td></tr>
+  <tr><td><b>Time to know</b></td>
+      <td>Consolidation up the supervisory chain; district position known days later, if at all.</td>
+      <td>District position current within about five minutes of any mark.</td></tr>
+  <tr><td><b>Supervisory reach</b></td>
+      <td>${n(d.scale.sectors)} supervisors could physically verify a handful of ${n(d.scale.awcs)} centres on any morning.</td>
+      <td>${n(d.month.marks)} marks screened automatically; <b>${n(d.exceptions.open)}</b> raised for attention &mdash; about ${Math.round(d.exceptions.open / Math.max(1, d.exceptions.sectors))} per supervisor.</td></tr>
+  <tr><td><b>Marking away from the centre</b></td>
+      <td>Undetectable. The register recorded neither position nor photograph.</td>
+      <td>Measured on every mark. Presently <b>${d.month.outsidePct}%</b> of located marks, with distance recorded.</td></tr>
+  <tr><td><b>Quality of master data</b></td>
+      <td>A wrong centre location was not a discoverable fact.</td>
+      <td><b>${n(d.integrity.suspectCoordinate)}</b> centres identified for re-survey from office data alone.</td></tr>
+  <tr><td><b>Continuity</b></td>
+      <td>Registers held locally; reconstruction of a past month depended on the physical book.</td>
+      <td>Records held centrally and append-only; any past period can be recomputed on demand.</td></tr>
+</table>
 
-<h3>Anganwadi Helpers (AWH)</h3>
-<ul>
-  <li><b>Recognised as a distinct person on the rolls.</b> AWT and AWH share the centre's telephone; identity is held by worker, so the helper's attendance is her own record and cannot be absorbed into the teacher's.</li>
-  <li><b>Her work on the day is recorded</b> through the beneficiary and stock return, giving the helper's contribution a documentary trace it did not previously have.</li>
-  <li><b>Equal standing in the leave process</b>, on the same terms and the same register.</li>
-</ul>
+<h3>2 · Anganwadi Teachers (AWT)</h3>
+<table class="cmp">
+  <tr><th>Dimension</th><th>Before &mdash; paper register</th><th>After &mdash; present system</th></tr>
+  <tr><td><b>Proving you attended</b></td>
+      <td>Her word against a supervisor's recollection. An honest worker had no way to demonstrate presence.</td>
+      <td>She can prove it. The same record that identifies absence also vindicates attendance.</td></tr>
+  <tr><td><b>Effort to mark</b></td>
+      <td>Signing at the centre, with travel to the sector office for consolidation.</td>
+      <td>Seconds on her own handset at the centre, and it works offline where the network is weak.</td></tr>
+  <tr><td><b>Applying for leave</b></td>
+      <td>A written application through the chain; sanction often unrecorded and balances disputed.</td>
+      <td>Applied for in the application and decided in the console, with the sanctioning officer, the date and her running balance recorded. <b>${n(d.pendingLeaves)}</b> applications presently before the authority.</td></tr>
+  <tr><td><b>Being judged fairly</b></td>
+      <td>The diligent and the absent were indistinguishable on the page.</td>
+      <td>The honest majority is visibly distinguished from the minority the evidence identifies.</td></tr>
+  <tr><td><b>Weak network or poor signal</b></td>
+      <td>Not applicable.</td>
+      <td>Never counted against her: a mark with no usable satellite fix is recorded and flagged, never refused and never treated as absence.</td></tr>
+</table>
 
-<h3>Beneficiaries — children, pregnant and nursing women</h3>
-<ul>
-  <li><b>The centre is more likely to be staffed.</b> Marks made away from the centre fell from ${first ? first.outsidePct : '—'}% to ${last ? last.outsidePct : '—'}% in five days; the direct beneficiary of that change is the child who finds the centre open.</li>
-  <li><b>Entitlement is checked, not assumed.</b> ${n(d.rations.findings)} discrepancies at ${n(d.rations.centres)} centres were raised for correction in a single fortnight.</li>
-  <li><b>Short-supply is now visible.</b> Centres reporting beneficiaries present with no meals prepared are identified by name the same day.</li>
-</ul>
+<h3>3 · Anganwadi Helpers (AWH)</h3>
+<table class="cmp">
+  <tr><th>Dimension</th><th>Before &mdash; paper register</th><th>After &mdash; present system</th></tr>
+  <tr><td><b>Being counted as a person</b></td>
+      <td>AWT and AWH share the centre's telephone; the helper's attendance was easily absorbed into the teacher's entry.</td>
+      <td>Identity is held by worker, not by handset. Her attendance is her own record and cannot be merged into another's.</td></tr>
+  <tr><td><b>Evidence of her day's work</b></td>
+      <td>No documentary trace beyond the register signature.</td>
+      <td>The daily beneficiary and stock return records what was actually done at the centre that day.</td></tr>
+  <tr><td><b>Leave entitlement</b></td>
+      <td>Informal, and dependent on the teacher's application reaching the office.</td>
+      <td>The same register, the same entitlement and the same sanctioning process as the teacher.</td></tr>
+  <tr><td><b>Recognition in the record</b></td>
+      <td>Frequently invisible in district-level returns.</td>
+      <td>Counted in every district figure in this report on the same footing as the teacher.</td></tr>
+</table>
+
+<h3>4 · Beneficiaries &mdash; children, pregnant and nursing women</h3>
+<table class="cmp">
+  <tr><th>Dimension</th><th>Before &mdash; paper register</th><th>After &mdash; present system</th></tr>
+  <tr><td><b>Finding the centre staffed</b></td>
+      <td>Dependent on attendance nobody could verify.</td>
+      <td>Marking away from the centre fell from <b>${d.rollout.length ? d.rollout[0].outsidePct : '—'}%</b> on the first day of operation to <b>${d.month.outsidePct}%</b>, and holds there. The child who finds the centre open is the direct beneficiary.</td></tr>
+  <tr><td><b>Rations actually issued</b></td>
+      <td>Self-reported, with no independent consistency check at any level.</td>
+      <td>Fitted against beneficiary mix across the district and against each centre's own ledger. <b>${n(d.rations.findings)}</b> discrepancies raised at <b>${n(d.rations.centres)}</b> centres.</td></tr>
+  <tr><td><b>Meals not prepared</b></td>
+      <td>Not detectable at district level.</td>
+      <td><code>MEALS_SHORT</code> identifies centres reporting beneficiaries present with no meals cooked &mdash; <b>${n((d.rations.codes.find(c => c.code === 'MEALS_SHORT') || {}).n || 0)}</b> instances raised.</td></tr>
+  <tr><td><b>Short issue per head</b></td>
+      <td>Invisible unless a physical inspection happened to coincide.</td>
+      <td><code>PERHEAD_LOW</code> identifies centres issuing materially less per head than comparable centres &mdash; <b>${n((d.rations.codes.find(c => c.code === 'PERHEAD_LOW') || {}).n || 0)}</b> instances raised.</td></tr>
+  <tr><td><b>Redress</b></td>
+      <td>A complaint had to originate with the beneficiary.</td>
+      <td>The discrepancy reaches the CDPO whether or not anyone complains.</td></tr>
+</table>
 
 <h2><span class="num">Part 7</span>Safeguards, and open items</h2>
 
@@ -585,7 +799,8 @@ the following open item.</p>
   <li><b>Authority to re-survey the ${n(d.integrity.suspectCoordinate)} centres</b> whose recorded coordinates are in doubt, so that every centre's record is admissible.</li>
   <li><b>Guidance on the treatment of confirmed remote marking</b> — the ${n(u.staffRepeat3)} staff with three or more confirmed instances, and the ${n(u.staff)} identified overall.</li>
   <li><b>Migration of ownership to a departmental account</b> from the present arrangement, as required for data held on identifiable employees.</li>
-  <li><b>Consideration for extension to other districts.</b> The platform carries no licence cost and no per-user charge; the marginal cost of a further district is the effort of loading its centre list.</li>
+  <li><b>Consideration for extension to other districts.</b> The method transfers directly; the work
+  of bringing a further district on is principally the loading and verification of its centre list.</li>
 </ol>
 
 <h2><span class="num">Part 10</span>Case studies: how the system organises district work</h2>

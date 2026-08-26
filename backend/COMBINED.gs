@@ -4025,6 +4025,61 @@ function ghCommit_(files, msg) {
   gh('/git/refs/heads/' + branch, 'patch', { sha: commit.sha });
 }
 
+
+// action: "caseGeo"
+// req: { token, fromDay }   fromDay = day of month, default 22
+//
+// The coordinates behind out-of-fence marks, for the district report's case
+// studies. Returned to the console so it can be saved to the officer's own
+// machine: these are worker positions and must never be written into the
+// published summary, which is served from a public address.
+//
+// ADMIN only, and only for the current month. Each mark carries the position
+// recorded with it and the coordinate of the worker's own centre, which is
+// all a map of the case needs.
+function apiCaseGeo_(auth, req) {
+  if (String(auth.user.role) !== 'ADMIN') return deny_();
+  const fromDay = Math.max(1, Math.min(31, Number(req.fromDay) || 22));
+  const ym = Utilities.formatDate(new Date(), TZ, 'yyyy-MM');
+  const ss = getMonthSS_(ym, false);
+  if (!ss) return { ok: false, code: 'NO_MONTH' };
+  const sh = ss.getSheetByName('Marks');
+  const last = sh.getLastRow();
+  if (last < 2) return { ok: true, ym: ym, fromDay: fromDay, marks: [], awcs: {} };
+
+  const awcs = {};
+  masterSheetRows_('AWCs', AWC_H).forEach(function (r) {
+    const a = awcFromRow_(r);
+    if (a.lat != null && a.lng != null) {
+      awcs[String(a.awc_id)] = { lat: Number(a.lat), lng: Number(a.lng) };
+    }
+  });
+
+  const out = [];
+  sh.getRange(2, 1, last - 1, MARKS_H.length).getValues().forEach(function (v) {
+    const o = rowToObj_(MARKS_H, v);
+    const p = String(o.key).split('_');
+    if (p.length !== 3) return;
+    if (Number(p[1].slice(6, 8)) < fromDay) return;
+    if (o.lat === '' || o.lng === '') return;
+    // Only marks the classifier placed outside the fence: an at-the-centre
+    // position adds nothing to a case map and is the bulk of the volume.
+    if (String(o.geofence) !== 'OUTSIDE') return;
+    out.push({
+      u: String(o.user_id), s: String(o.sector_code), d: p[1].slice(6, 8), t: p[2],
+      at: String(o.client_ts).slice(11, 16),
+      lat: Number(o.lat), lng: Number(o.lng),
+      acc: o.accuracy_m === '' ? null : Number(o.accuracy_m),
+      a: String(o.awc_id), dist: o.distance_m === '' ? null : Number(o.distance_m)
+    });
+  });
+  // Only the centres actually referenced, so the payload stays small.
+  const used = {};
+  out.forEach(function (m) { if (awcs[m.a]) used[m.a] = awcs[m.a]; });
+  return { ok: true, ym: ym, fromDay: fromDay, generatedAt: nowIso_(),
+    marks: out, awcs: used };
+}
+
 ///////////////////////////////////////////////////////////////////////////
 //  Maintenance.gs
 ///////////////////////////////////////////////////////////////////////////
@@ -4754,6 +4809,7 @@ function doPost(e) {
       leaveDecide: apiLeaveDecide_,
       leaveDecideBulk: apiLeaveDecideBulk_,
       leaveDedupe: apiLeaveDedupe_,
+      caseGeo: apiCaseGeo_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,

@@ -47,6 +47,7 @@ function doPost(e) {
       leaveDecide: apiLeaveDecide_,
       leaveDecideBulk: apiLeaveDecideBulk_,
       leaveDedupe: apiLeaveDedupe_,
+      caseGeo: apiCaseGeo_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
       setAwcCoords: apiSetAwcCoords_,

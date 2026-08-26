@@ -1429,6 +1429,31 @@ const App = (() => {
     }
   }
 
+  /**
+   * Download the coordinates behind out-of-fence marks, for the district
+   * report's case maps. It is written to the officer's own machine and never
+   * to the published summary, which anyone can read.
+   */
+  async function downloadCaseGeo() {
+    const btn = $('btn-case-geo');
+    btn.disabled = true;
+    try {
+      const r = await Api.post({ action: 'caseGeo', token: token, fromDay: 22 });
+      if (!r.ok) { alert('Failed: ' + r.code); return; }
+      const blob = new Blob([JSON.stringify(r)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'case-geo.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      alert(r.marks.length + ' marks exported to case-geo.json.');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // The rows currently drawn in the leave tab. The bulk bar decides on the
   // same objects the table drew, so a stale selection cannot outlive a reload.
   let lvRows = [];
@@ -2869,6 +2894,7 @@ const App = (() => {
     $('tab-verify').onclick = () => switchTab('verify');
     $('lv-chk-all').onchange = lvToggleAll;
     $('btn-lv-dedupe').onclick = lvDedupe;
+    $('btn-case-geo').onclick = downloadCaseGeo;
     $('btn-lv-bulk-ok').onclick = () => lvBulkDecide('APPROVED');
     $('btn-lv-bulk-no').onclick = () => lvBulkDecide('REJECTED');
     $('btn-vfy-load').onclick = loadVerify;

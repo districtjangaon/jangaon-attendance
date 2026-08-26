@@ -28,6 +28,15 @@ const reports = S(path.join('reports', meta.month + '.json'));
 // let a handful of records swamp a day of 1,000.
 const OPERATIONAL_MIN_MARKS = 50;
 
+// Reporting window. Everything the report states about attendance is drawn
+// from this day onwards; 8-21 August was rollout, when staff were still being
+// onboarded and were learning the application, and it is not a fair basis for
+// a statement about how the district works. Override with --from 19.
+//   node tools/report-stats.js --from 19
+const fromArg = process.argv.indexOf('--from');
+const FROM_DAY = fromArg > 0 && process.argv[fromArg + 1]
+  ? Number(String(process.argv[fromArg + 1]).slice(-2)) : 22;
+
 // ---------------------------------------------------------------- helpers
 const pct = (n, d) => d ? Math.round((n / d) * 1000) / 10 : 0;
 const sorted = a => a.slice().sort((x, y) => x - y);
@@ -55,7 +64,12 @@ try {
 const haveAwcMap = Object.keys(userAwc).length > 0;
 
 // ------------------------------------------------- every mark of the month
-const marks = [];
+// allMarks is every mark of the month. `marks` is the reporting window.
+// A centre's coordinate is classified on allMarks - whether the recorded
+// point is usable is a property of the centre, not of the fortnight being
+// reported, and more evidence classifies it better. Everything else counts
+// only what happened inside the window.
+const allMarks = [];
 const sectorOf = {};
 org.sectors.forEach(s => { sectorOf[s.code] = s; });
 
@@ -68,7 +82,7 @@ fs.readdirSync(path.join(ROOT, 'summary', 'month'))
         ['IN', 'OUT'].forEach(kind => {
           const e = m.users[uid][day][kind];
           if (!e) return;
-          marks.push({
+          allMarks.push({
             sector: String(m.sector || ''), user: uid, awc: userAwc[uid] || '',
             day: day, kind: kind, time: String(e.t || ''), gf: String(e.gf || ''),
             dist: typeof e.d === 'number' ? e.d : null,
@@ -79,6 +93,9 @@ fs.readdirSync(path.join(ROOT, 'summary', 'month'))
       });
     });
   });
+
+const marks = allMarks.filter(m => Number(m.day) >= FROM_DAY);
+const windowDays = Array.from(new Set(marks.map(m => m.day))).sort();
 
 // ------------------------------------------------------------- geofencing
 // UNVERIFIED means no usable fix, or an AWC with no stored coordinate. A
@@ -151,7 +168,7 @@ try {
 let integrity = null;
 if (haveAwcMap) {
   const byAwc = {};
-  marks.forEach(m => {
+  allMarks.forEach(m => {
     if (!m.awc || (m.gf !== 'INSIDE' && m.gf !== 'OUTSIDE')) return;
     const a = byAwc[m.awc] || (byAwc[m.awc] = { n: 0, out: 0 });
     a.n++; if (m.gf === 'OUTSIDE') a.out++;
@@ -239,7 +256,7 @@ let cases = [];
 let mapPoints = [];
 if (haveAwcMap) {
   const byAwcAll = {};
-  marks.forEach(m => {
+  allMarks.forEach(m => {
     if (!m.awc || (m.gf !== 'INSIDE' && m.gf !== 'OUTSIDE')) return;
     const a = byAwcAll[m.awc] || (byAwcAll[m.awc] = { n: 0, out: 0, sector: m.sector });
     a.n++; if (m.gf === 'OUTSIDE') a.out++;
@@ -266,7 +283,7 @@ if (haveAwcMap) {
       everInside: rows.some(r => r.gf === 'INSIDE'),
       timeline: rows.map(r => ({ day: r.day, kind: r.kind, time: r.time, gf: r.gf, dist: r.dist }))
     };
-  }).filter(c => c.remote >= 2 && c.days >= 3)
+  }).filter(c => c.remote >= 2 && c.days >= 2)
     .sort((a, b) => b.maxDist - a.maxDist)
     .slice(0, 6)
     .map((c, i) => Object.assign({ ref: 'Case ' + String.fromCharCode(65 + i) }, c));
@@ -290,8 +307,27 @@ const inTimes = marks.filter(m => m.kind === 'IN' && /^\d{2}:\d{2}$/.test(m.time
   .map(m => Number(m.time.slice(0, 2)) * 60 + Number(m.time.slice(3, 5)));
 
 // ------------------------------------------------------------------- out
+// The rollout ramp, on every mark of the month. Kept separate and clearly
+// labelled: it is context for how the window came to look as it does, not
+// part of what the window itself reports.
+const rolloutByDay = {};
+allMarks.forEach(m => {
+  const d = rolloutByDay[m.day] || (rolloutByDay[m.day] = { day: m.day, marks: 0, outside: 0, located: 0 });
+  d.marks++;
+  if (m.gf === 'OUTSIDE') { d.outside++; d.located++; }
+  else if (m.gf === 'INSIDE') d.located++;
+});
+const rollout = Object.keys(rolloutByDay).sort().map(k => {
+  const d = rolloutByDay[k];
+  return { day: k, marks: d.marks, outside: d.outside, located: d.located,
+    outsidePct: pct(d.outside, d.located), operational: d.marks >= OPERATIONAL_MIN_MARKS };
+}).filter(d => d.operational);
+
 const out = {
   generatedAt: new Date().toISOString(),
+  window: { fromDay: FROM_DAY, days: windowDays, label: windowDays.length
+    ? Number(windowDays[0]) + '-' + Number(windowDays[windowDays.length - 1]) + ' August 2026' : '' },
+  rollout: rollout,
   source: { generatedAt: meta.generatedAt, month: meta.month, date: meta.date },
   scale: {
     staff: today.adopt.staff, onboarded: today.adopt.onboarded,
