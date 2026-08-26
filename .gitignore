@@ -43,3 +43,10 @@ Training/img/
 # helper is being pushed to the Apps Script project. Those routinely name real
 # mobile numbers. Never commit this directory.
 backend/clasp/
+
+# Confidential government report: generated locally from real district data.
+# This repository is public (GitHub Pages serves it), so the report itself and
+# its computed figures must never be committed. Regenerate with:
+#   node tools/report-stats.js --json > docs/report/stats.json
+#   node tools/build-report.js
+docs/report/
