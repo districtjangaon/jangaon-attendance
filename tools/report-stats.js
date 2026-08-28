@@ -391,7 +391,11 @@ const out = {
     codes: Object.keys(findingCodes).sort((a, b) => findingCodes[b] - findingCodes[a])
       .map(c => ({ code: c, n: findingCodes[c], example: findingText[c] }))
   },
-  beneficiaries: { latest: today.rpt, series: benDays },
+  // today.rpt is the CURRENT day, which before the centres report is all
+  // zeros. The report needs the most recent day that actually carries
+  // returns, and must say which day that was.
+  beneficiaries: { latest: today.rpt, series: benDays,
+    lastReported: benDays.filter(function (d) { return d.awcs > 0; }).slice(-1)[0] || null },
   performance: today.perf,
   pendingLeaves: today.pendingLeaves,
   projects: today.projects

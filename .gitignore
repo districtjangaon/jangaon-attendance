@@ -50,3 +50,12 @@ backend/clasp/
 #   node tools/report-stats.js --json > docs/report/stats.json
 #   node tools/build-report.js
 docs/report/
+
+# District report outputs. This repository is public (GitHub Pages serves it).
+# report/    - the confidential report itself
+# evidence/  - captured screens and submitted payloads
+# analysis/  - per-worker location findings and the worker-reference key
+# Regenerate with the commands in REPORT_NOTES.md.
+report/
+evidence/
+analysis/
