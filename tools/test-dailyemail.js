@@ -104,8 +104,12 @@ vm.runInContext(fs.readFileSync(path.join(ROOT, 'backend', 'Util.gs'), 'utf8'), 
 
 // Util.gs brings the real accessors; replace them before DailyEmail.gs loads.
 ctx.getUsersAll_ = () => USERS.slice();
+// Exactly what backend/Util.gs getSectors_ returns: code, project, name, sup.
+// An earlier stub used sector_code, a field that accessor never emits, and so
+// hid a lookup that was silently falling back to the bare sector code.
 ctx.getSectors_ = () => [
-  { sector_code: 'S01', name: 'Sector One' }, { sector_code: 'S02', name: 'Sector Two' }];
+  { code: 'S01', project: 'JGN', name: 'Sector One', sup: '' },
+  { code: 'S02', project: 'JGN', name: 'Sector Two', sup: '' }];
 ctx.masterSheetRows_ = () => [
   ['A1', 'S01', 'JGN', 'Centre One', 17.7, 79.1, 300, 'TRUE'],
   ['A2', 'S01', 'JGN', 'Centre Two', 17.7, 79.1, 300, 'TRUE'],
@@ -168,6 +172,12 @@ check('sector rolls add up to the establishment',
   JSON.stringify(d.bySector.map(s => s.key + ':' + s.roll)));
 check('a sector carries its own not-marked count', sec('Sector Two').notMarked === 2,
   JSON.stringify(sec('Sector Two')));
+check('sectors are reported by name, never by code',
+  d.bySector.every(x => /^Sector /.test(x.key)),
+  'got ' + JSON.stringify(d.bySector.map(x => x.key)));
+check('every person row carries the sector name',
+  d.rows.every(r => /^Sector /.test(r.sector)),
+  'got ' + JSON.stringify([...new Set(d.rows.map(r => r.sector))]));
 check('supervisors are excluded from the centre counts',
   d.centres.total === 4, 'centres ' + d.centres.total);
 check('a centre where nobody marked is identified', d.centres.none === 1,

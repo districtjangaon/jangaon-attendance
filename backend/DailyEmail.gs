@@ -147,7 +147,7 @@ function dailyAttendanceData_(dateStr) {
   });
 
   const sectors = {}, awcs = {};
-  getSectors_().forEach(function (s) { sectors[String(s.sector_code)] = String(s.name); });
+  getSectors_().forEach(function (s) { sectors[String(s.code)] = String(s.name); });
   masterSheetRows_('AWCs', AWC_H).forEach(function (r) {
     const a = awcFromRow_(r);
     awcs[String(a.awc_id)] = String(a.name);
