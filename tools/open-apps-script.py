@@ -11,8 +11,9 @@ whichever account happens to be first in the session. When that is not the
 account that owns the project, Google cannot resolve the URL and shows
 "Sorry, unable to open the file at present".
 
-Adding ?authuser=<email> pins the request to one account and the consent
-screen then appears against the right one.
+script.google.com selects the account by a /u/N/ path segment, where N is the
+position in the browser session. ?authuser=<email> is NOT honoured there: it
+falls through to Drive's file opener, which produces exactly that error.
 
 The script ID is read from backend/clasp/.clasp.json, which is gitignored,
 and is never printed - the browser is opened directly.
@@ -70,19 +71,40 @@ def main():
         for a in accounts:
             print('  ' + a)
         print('')
-        print('Open the editor pinned to one of them:')
-        print('  python tools/open-apps-script.py ' + (accounts[0] if accounts else 'you@example.com'))
+        print('The project is owned by whichever of these clasp is actively using -')
+        print('that is the one at the root of ~/.clasprc.json.')
         print('')
-        print('Use the account that OWNS the Apps Script project. If you are not sure,')
-        print('try each: the wrong one shows "unable to open the file".')
+        print('Open the editor by account POSITION in this browser, from 0:')
+        print('  python tools/open-apps-script.py 0')
+        print('  python tools/open-apps-script.py 1')
+        print('')
+        print('The wrong position shows "unable to open the file"; try the next one.')
         return
 
-    email = sys.argv[1].strip()
-    url = ('https://script.google.com/home/projects/' + script_id +
-           '/edit?authuser=' + email)
-    print('Opening the Apps Script editor as ' + email + ' ...')
-    print('If a consent screen appears, accept it in THIS window - do not use the')
-    print('link from the execution log, which carries no account and will misroute.')
+    arg = sys.argv[1].strip()
+    if not arg.isdigit():
+        print('script.google.com selects an account by position in the browser session,')
+        print('not by address. ?authuser=<email> is not honoured there - it falls through')
+        print('to Drive, which is where "unable to open the file" comes from.')
+        print('')
+        print('Pass the position instead, counting from 0 in the order the accounts were')
+        print('added to this browser:')
+        print('  python tools/open-apps-script.py 0')
+        print('  python tools/open-apps-script.py 1')
+        print('')
+        print('Or take the route that never needs the position at all:')
+        print('  1. open https://script.google.com/home')
+        print('  2. click the avatar, top right, and pick the owning account')
+        print('  3. the project is in the list - open it from there')
+        return
+
+    url = 'https://script.google.com/u/' + arg + '/home/projects/' + script_id + '/edit'
+    print('Opening the Apps Script editor as account position ' + arg + ' ...')
+    print('')
+    print('If it shows "unable to open the file", that position is a different')
+    print('account - run this again with the next number.')
+    print('If the project opens, accept any consent screen IN THAT TAB. Never use')
+    print('the link from the execution log: it carries no account and misroutes.')
     webbrowser.open(url)
 
 
