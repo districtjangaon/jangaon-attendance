@@ -74,6 +74,41 @@ function testRecipient_(to) {
   return String(to || DAILY_EMAIL_TEST_TO || DAILY_EMAIL_TO).trim();
 }
 
+/**
+ * Build today's report and put it in Drive instead of mailing it.
+ *
+ * Uses only Drive and Sheets, both of which this project is already
+ * authorised for, so it runs without the mail permission. Use it to check the
+ * figures and the spreadsheet while the send permission is being granted.
+ * Logs the two links.
+ */
+function previewDailyAttendanceToDrive() {
+  previewDailyAttendanceFor_(fmtDay_(Date.now()));
+}
+
+/** The same preview for a named past day, e.g. '2026-08-27'. */
+function previewDailyAttendanceForDay(dateStr) {
+  previewDailyAttendanceFor_(dateStr || fmtDay_(Date.now()));
+}
+
+function previewDailyAttendanceFor_(dateStr) {
+  const d = dailyAttendanceData_(dateStr);
+  const folder = DriveApp.getRootFolder();
+
+  const html = dailyAttendanceHtml_(dateStr, d, holidayFor_(dateStr), true);
+  const htmlFile = folder.createFile(
+    Utilities.newBlob(html, 'text/html', 'Jangaon-attendance-' + dateStr + '.html'));
+  const xlsxFile = folder.createFile(dailyAttendanceXlsx_(dateStr, d));
+
+  Logger.log('Report for ' + dateStr);
+  Logger.log('  ' + d.totals.markedIn + ' of ' + d.totals.roll + ' marked IN, ' +
+    d.totals.markedOut + ' marked OUT, ' + d.totals.onLeave + ' on leave, ' +
+    d.totals.notMarked + ' not marked, ' + d.totals.never + ' never marked');
+  Logger.log('  email body : ' + htmlFile.getUrl());
+  Logger.log('  spreadsheet: ' + xlsxFile.getUrl());
+  return { html: htmlFile.getUrl(), xlsx: xlsxFile.getUrl() };
+}
+
 // ---------------------------------------------------------------- the work
 function dailyAttendanceEmail_(dateStr, to, isTest) {
   const holiday = holidayFor_(dateStr);
