@@ -24,6 +24,7 @@ import os
 import sys
 import webbrowser
 import base64
+import urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, 'backend', 'clasp', '.clasp.json')
@@ -74,14 +75,29 @@ def main():
         print('The project is owned by whichever of these clasp is actively using -')
         print('that is the one at the root of ~/.clasprc.json.')
         print('')
-        print('Open the editor by account POSITION in this browser, from 0:')
-        print('  python tools/open-apps-script.py 0')
-        print('  python tools/open-apps-script.py 1')
+        print('Open the editor pinned to the account that OWNS the project:')
+        for a in accounts:
+            print('  python tools/open-apps-script.py ' + a)
         print('')
-        print('The wrong position shows "unable to open the file"; try the next one.')
+        print('Note: the owner is not necessarily the account clasp is logged in as.')
+        print('clasp can push to any project you have edit rights on.')
         return
 
     arg = sys.argv[1].strip()
+    if '@' in arg:
+        # AccountChooser resolves the account by address and only then follows
+        # `continue`, so the target opens in the right account whatever
+        # position it happens to occupy in this browser.
+        target = 'https://script.google.com/home/projects/' + script_id + '/edit'
+        url = ('https://accounts.google.com/AccountChooser?Email=' +
+               urllib.parse.quote(arg) + '&continue=' + urllib.parse.quote(target, safe=''))
+        print('Opening the Apps Script editor as ' + arg + ' ...')
+        print('')
+        print('If Google asks which account, pick ' + arg + '.')
+        print('Then, in that tab: Run > sendDailyAttendanceEmailTest, and accept')
+        print('the permission dialog THERE. Never use the link in the execution log.')
+        webbrowser.open(url)
+        return
     if not arg.isdigit():
         print('script.google.com selects an account by position in the browser session,')
         print('not by address. ?authuser=<email> is not honoured there - it falls through')
