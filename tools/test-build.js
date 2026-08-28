@@ -71,5 +71,34 @@ if (shellBlock) {
     untracked.join(', '));
 }
 
+// ------------------------------------------------- backend OAuth scopes
+// appsscript.json pins oauthScopes explicitly, so Apps Script never infers a
+// missing one; the first symptom is an exception in production. Every Google
+// service the backend calls must have its scope declared here.
+console.log('\nBackend OAuth scopes');
+const manifest = JSON.parse(read('backend/appsscript.json'));
+const scopes = manifest.oauthScopes || [];
+const backendSrc = fs.readdirSync(path.join(ROOT, 'backend'))
+  .filter(f => f.endsWith('.gs') && f !== 'COMBINED.gs')
+  .map(f => read('backend/' + f)).join('\n');
+
+const NEEDS = [
+  [/\bMailApp\s*\./, 'script.send_mail', 'MailApp.sendEmail'],
+  [/\bGmailApp\s*\./, 'gmail.send', 'GmailApp'],
+  [/\bUrlFetchApp\s*\./, 'script.external_request', 'UrlFetchApp.fetch'],
+  [/ScriptApp\.(newTrigger|getProjectTriggers|deleteTrigger)/, 'script.scriptapp',
+   'trigger management'],
+  [/\bDriveApp\s*\.|SpreadsheetApp\.create/, 'drive', 'Drive file access'],
+  [/\bSpreadsheetApp\s*\./, 'spreadsheets', 'SpreadsheetApp'],
+  [/Session\.getEffectiveUser|Session\.getActiveUser/, 'userinfo.email',
+   'the signed-in address']
+];
+NEEDS.forEach(pair => {
+  if (!pair[0].test(backendSrc)) return;
+  const declared = scopes.some(x => x.split('/').pop() === pair[1]);
+  check('the backend calls ' + pair[2] + ', so ' + pair[1] + ' is declared', declared,
+    'add https://www.googleapis.com/auth/' + pair[1] + ' to backend/appsscript.json');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
