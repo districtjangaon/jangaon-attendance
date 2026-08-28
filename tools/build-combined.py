@@ -15,7 +15,7 @@ from pathlib import Path
 # every other file reads at load time, and Main.gs routes to functions the
 # others define. Anything new goes in before Main.gs.
 ORDER = ['Util.gs', 'Auth.gs', 'Marks.gs', 'Admin.gs', 'Leaves.gs', 'Map.gs', 'Reports.gs',
-         'Verify.gs', 'Summary.gs', 'DailyEmail.gs', 'Maintenance.gs', 'Main.gs']
+         'Verify.gs', 'Summary.gs', 'DailyEmail.gs', 'Backup.gs', 'Maintenance.gs', 'Main.gs']
 backend = Path(__file__).resolve().parent.parent / 'backend'
 
 # A hardcoded list silently drops any file that is not on it, and the only
