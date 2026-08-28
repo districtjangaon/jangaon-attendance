@@ -4105,6 +4105,12 @@ function apiCaseGeo_(auth, req) {
 // district because the report has to reach recipients outside the department
 // without being blocked.
 const DAILY_EMAIL_TO = 'jangaoncdm@gmail.com';
+// Where the test sends go. Put your own address here, then run
+// sendDailyAttendanceEmailTest from the editor. Deliberately not derived from
+// the signed-in account: reading that needs an extra OAuth scope, and one
+// fewer permission on a project holding staff photographs is worth more than
+// the convenience.
+const DAILY_EMAIL_TEST_TO = '';
 const DAILY_EMAIL_SUBJECT_PREFIX = 'Jangaon attendance';
 // Gmail hides anything past ~102 KB behind a "message clipped" link, and the
 // never-marked list sits at the end. Names are dropped from the body beyond
@@ -4135,12 +4141,27 @@ function sendDailyAttendanceEmail() {
 
 /** Send today's report to one address without touching the live recipient. */
 function sendDailyAttendanceEmailTest(to) {
-  dailyAttendanceEmail_(fmtDay_(Date.now()), to || Session.getEffectiveUser().getEmail(), true);
+  dailyAttendanceEmail_(fmtDay_(Date.now()), testRecipient_(to), true);
 }
 
 /** Send a named past day, for checking against a day that has real traffic. */
 function sendDailyAttendanceEmailFor(dateStr, to) {
-  dailyAttendanceEmail_(dateStr, to || Session.getEffectiveUser().getEmail(), true);
+  dailyAttendanceEmail_(dateStr, testRecipient_(to), true);
+}
+
+/**
+ * The address a test send goes to. Fails with an instruction rather than
+ * falling back to anything: the live recipient is the District Collector and
+ * a test must never reach that inbox by default.
+ */
+function testRecipient_(to) {
+  const addr = String(to || DAILY_EMAIL_TEST_TO || '').trim();
+  if (!addr) {
+    throw new Error('Set DAILY_EMAIL_TEST_TO near the top of DailyEmail.gs to your own ' +
+      'email address, save, and run this again. It is blank so that a test send cannot ' +
+      'go anywhere by accident.');
+  }
+  return addr;
 }
 
 // ---------------------------------------------------------------- the work
