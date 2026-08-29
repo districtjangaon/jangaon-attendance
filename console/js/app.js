@@ -1683,28 +1683,41 @@ const App = (() => {
    * The scale is shared between the bar and the expectation tick, so the two
    * are comparable by eye - that is the whole point of drawing it.
    */
-  function vfyBar(label, got, want, unit) {
-    const max = Math.max(got, want) * 1.18 || 1;
-    const gotPct = Math.max(1.5, (got / max) * 100);
-    const wantPct = (want / max) * 100;
-    const over = got > want;
-    // Within a fifth of the expectation is not worth calling a discrepancy.
-    const near = want > 0 && Math.abs(got - want) / want < 0.2;
-    const cls = near ? 'near' : over ? 'over' : 'under';
-    const word = near ? 'about as expected' : over ? 'above expected' : 'below expected';
-    const glyph = near ? '=' : over ? '\u25b2' : '\u25bc';
-    const round = v => v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+  function vfyBar(label, got, want, unit, basis) {
+    // The question is polarity - short or over, and by how much - not
+    // magnitude, so the bar diverges from the reference rather than growing
+    // from zero. The midpoint IS the expectation; distance from it is the
+    // finding. Capped at +/-100% so one wild centre cannot flatten the rest.
+    const pct = want > 0 ? ((got - want) / want) * 100 : 0;
+    const shown = Math.max(-100, Math.min(100, pct));
+    const near = Math.abs(pct) < 20;
+    const cls = near ? 'near' : pct > 0 ? 'over' : 'under';
+    const word = near ? 'as expected' : pct > 0 ? 'over' : 'short';
+    const glyph = near ? '\u2022' : pct > 0 ? '\u25b2' : '\u25bc';
+    const round = v => Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+    const half = Math.abs(shown) / 2;             // half the track is each side
+    const style = pct > 0
+      ? 'left:50%;width:' + half.toFixed(1) + '%'
+      : 'right:50%;width:' + half.toFixed(1) + '%';
+    const capped = Math.abs(pct) > 100 ? ' vb-capped' : '';
     return '<div class="vb" title="' + esc(label) + ': ' + round(got) + ' ' + esc(unit) +
-      ' used, about ' + round(want) + ' expected for this beneficiary mix">' +
+      ' used against ' + round(want) + ' ' + esc(basis) + '">' +
       '<span class="vb-l">' + esc(label) + '</span>' +
       '<span class="vb-track">' +
-        '<span class="vb-fill ' + cls + '" style="width:' + gotPct.toFixed(1) + '%"></span>' +
-        '<span class="vb-tick" style="left:' + Math.min(99, wantPct).toFixed(1) + '%"></span>' +
+        '<span class="vb-zero"></span>' +
+        '<span class="vb-fill ' + cls + capped + '" style="' + style + '"></span>' +
       '</span>' +
       '<span class="vb-v">' + round(got) + '</span>' +
-      '<span class="vb-x ' + cls + '">' + glyph + ' ' + word +
-        ' <span class="vb-exp">(~' + round(want) + ')</span></span>' +
+      '<span class="vb-x ' + cls + '">' + glyph + ' ' +
+        (near ? word : Math.abs(Math.round(pct)) + '% ' + word) +
+        ' <span class="vb-exp">vs ' + round(want) + ' expected</span></span>' +
       '</div>';
+  }
+
+  /** Which reference the cards are comparing against right now. */
+  function vfyBasis() {
+    const el = document.querySelector('input[name="vfy-cmp"]:checked');
+    return el ? el.value : 'district';
   }
 
   /** The measures behind one finding, drawn rather than described. */
@@ -1712,9 +1725,14 @@ const App = (() => {
     const items = vfyData.items || [];
     const bars = [];
 
+    const basis = vfyBasis();
+    const refFor = (item, n) => basis === 'norm'
+      ? { v: window.normFor(item, n), why: 'the prescribed entitlement' }
+      : { v: vfyExpected(f.d, item, n), why: 'the district average' };
+
     // Meals first: it is the one an officer checks against the photograph.
-    const wantMeals = vfyExpected(f.d, 'meals', f.n);
-    if (wantMeals != null) bars.push(vfyBar('Meals', f.n.m, wantMeals, 'meals'));
+    const wantMeals = refFor('meals', f.n);
+    if (wantMeals.v != null) bars.push(vfyBar('Meals', f.n.m, wantMeals.v, 'meals', wantMeals.why));
 
     // Then any consumable the reasons actually complained about.
     const flagged = {};
@@ -1724,10 +1742,10 @@ const App = (() => {
     });
     items.forEach((it, j) => {
       if (!flagged[it]) return;
-      const want = vfyExpected(f.d, it, f.n);
-      if (want == null) return;
+      const want = refFor(it, f.n);
+      if (want.v == null) return;
       bars.push(vfyBar(it.charAt(0).toUpperCase() + it.slice(1),
-        (f.n.u || [])[j] || 0, want, it));
+        (f.n.u || [])[j] || 0, want.v, it, want.why));
     });
 
     // A register that does not balance has no expectation to plot against -
@@ -1745,7 +1763,11 @@ const App = (() => {
       esc(x.code === 'MEALS_SHORT' ? 'meals short of beneficiaries present'
         : 'more meals than beneficiaries present') + '</span>').join('');
 
-    return (bars.length ? '<div class="vb-set">' + bars.join('') + '</div>' : '') +
+    const noNorm = !bars.length && vfyBasis() === 'norm'
+      ? '<p class="vb-nonorm">No entitlement is configured for these commodities, so ' +
+        'this centre cannot be measured against one. Set them in console/js/norms.js ' +
+        'from the Government Order in force.</p>' : '';
+    return noNorm + (bars.length ? '<div class="vb-set">' + bars.join('') + '</div>' : '') +
       (ledger || other ? '<div class="vb-chips">' + ledger + other + '</div>' : '') +
       // The full wording is kept, not discarded: an officer writing a note
       // needs the sentence, and the record has to stay quotable.
@@ -1765,6 +1787,17 @@ const App = (() => {
     const all = (vfyData.findings || []).filter(f => names.awcs[f.a]);
     const reviewed = all.filter(f => vfyReviews[f.a + '|' + vfyIso(f.d)]);
     const mism = reviewed.filter(f => vfyReviews[f.a + '|' + vfyIso(f.d)].v === 'MISMATCH');
+
+    // Say what the comparison rests on, every time, so a reader is never
+    // guessing which of the two questions the bars are answering.
+    const cmpNote = $('vfy-cmp-note');
+    if (cmpNote) {
+      cmpNote.textContent = vfyBasis() === 'norm'
+        ? (window.normsConfigured()
+            ? window.NUTRITION_NORMS.source
+            : 'Not configured yet — set the per-day quantities in console/js/norms.js.')
+        : 'Fitted across every centre that reported that day.';
+    }
 
     $('vfy-cards').innerHTML =
       bigcard('bc-red', 'Reports to check', all.length - reviewed.length, 'not yet reviewed') +
@@ -2990,6 +3023,9 @@ const App = (() => {
     $('btn-vfy-load').onclick = loadVerify;
     $('vfy-month').onchange = loadVerify;
     $('vfy-scope').onchange = renderVerify;
+    document.querySelectorAll('input[name="vfy-cmp"]').forEach(r => {
+      r.onchange = renderVerify;
+    });
     $('vfy-filter').onchange = renderVerify;
     $('vfy-search').oninput = renderVerify;
     $('btn-vfy-csv').onclick = verifyCsv;

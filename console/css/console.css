@@ -558,21 +558,38 @@ body.dark .dupe-bar .info { color: #ffd98a; }
 .vb-l { color: var(--muted); }
 .vb-track { position: relative; height: 10px; background: var(--ch-grid);
   border-radius: 5px; }
-.vb-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
-.vb-fill.over { background: var(--st-bad); }
-.vb-fill.under { background: var(--st-warn); }
+.vb-fill { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+/* Colour follows CONCERN, not direction. Short of entitlement means the
+   beneficiary went without, which is the more serious of the two and takes the
+   red; issuing well above it is a different worry - possible leakage or a
+   miscount - and takes the amber. Direction is already unambiguous from which
+   side of the midpoint the bar falls on, plus the glyph and the word, so the
+   hues are free to carry severity.
+   Light #c2262a / #d97706 passes all six checks.
+   Dark  #df5560 / #e08b1a passes five; the amber sits 0.04 above the lightness
+   band because every hue inside the band collapses to dE 5.8 against the red
+   under deuteranopia. Separation was the greater risk. */
+.vb-fill.under { background: #c2262a; }
+.vb-fill.over { background: #d97706; }
 .vb-fill.near { background: var(--st-idle); }
-/* The expectation. A 2px surface-coloured ring keeps it legible where it
-   overlaps the fill, which is exactly where it matters most. */
-.vb-tick { position: absolute; top: -3px; bottom: -3px; width: 2px;
-  background: var(--ch-ink); box-shadow: 0 0 0 2px var(--surface); }
+body.dark .vb-fill.under { background: #df5560; }
+body.dark .vb-fill.over { background: #e08b1a; }
+/* A bar at the cap is squared off on its outer end, so a reader can see the
+   value ran past the scale rather than landing exactly on it. */
+.vb-fill.vb-capped.over { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.vb-fill.vb-capped.under { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.vb-zero { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px;
+  background: var(--ch-ink); opacity: .55; }
+.vb-nonorm { font-size: 12px; color: var(--muted); margin: 8px 0 2px; }
+.vfy-cmp { align-items: center; gap: 12px; font-size: 12.5px; }
+.vfy-cmp label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 /* --ch-ink, not --ink: body.dark redefines the chart token and not the base
    one, so var(--ink) here would be near-black on a near-black surface. */
 .vb-v { font-family: var(--font-mono); text-align: right; color: var(--ch-ink);
   font-variant-numeric: tabular-nums; }
 .vb-x { font-size: 11.5px; white-space: nowrap; }
-.vb-x.over { color: var(--st-bad); }
-.vb-x.under { color: var(--st-warn); }
+.vb-x.under { color: var(--st-bad); }
+.vb-x.over { color: var(--st-warn); }
 .vb-x.near { color: var(--muted); }
 .vb-exp { color: var(--muted); font-family: var(--font-mono); }
 .vb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
@@ -581,7 +598,6 @@ body.dark .dupe-bar .info { color: #ffd98a; }
 .vb-more { margin-top: 4px; }
 .vb-more summary { font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .vb-more .vfy-why { margin: 6px 0 0; }
-body.dark .vb-tick { box-shadow: 0 0 0 2px var(--ch-surface); }
 /* Same root cause, pre-existing: the entered figures are bolded with an
    explicit --ink and vanish in dark mode. */
 body.dark .vfy-entered b, body.dark .vfy-entered { color: var(--ch-ink); }
