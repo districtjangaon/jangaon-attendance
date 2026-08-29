@@ -1829,12 +1829,12 @@ const App = (() => {
             '<span class="reg-sub">' + esc(sectorName(f.s)) + ' · ' + esc(prettyDay(iso)) + '</span>' +
             '<span class="vfy-score" title="How far this report is from adding up">' +
             f.score + '</span></div>' +
-          vfyMeasures(f) +
+          '<div class="vfy-body">' + vfyMeasures(f) +
           '<div class="vfy-entered">Entered: <b>' + f.n.c + '</b> ' +
             (f.n.c === 1 ? 'child' : 'children') + ' · ' + f.n.p + ' pregnant · ' +
             f.n.o + (f.n.o === 1 ? ' other' : ' others') + ' · <b>' + f.n.m + '</b> ' +
             (f.n.m === 1 ? 'meal' : 'meals') +
-            (items ? '<span class="reg-sub"> — ' + items + '</span>' : '') + '</div>' +
+            (items ? '<span class="reg-sub"> — ' + items + '</span>' : '') + '</div></div>' +
           '<div class="vfy-actions">' +
             phBtn(f.ph.c, 'children photo') + phBtn(f.ph.m, 'meal photo') +
             phBtn(f.ph.p, 'pregnant photo') + phBtn(f.ph.o, 'others photo') +

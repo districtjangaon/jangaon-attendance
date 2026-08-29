@@ -552,13 +552,24 @@ body.dark .dupe-bar .info { color: #ffd98a; }
    red at once: every hue that sits inside the band collapses to dE 5.8 under
    deuteranopia. Separation wins - a reader who cannot tell the two apart is
    worse off than a mark slightly lighter than the band prefers. */
-.vb-set { margin: 8px 0 4px; }
-.vb { display: grid; grid-template-columns: 78px 1fr 46px auto; gap: 10px;
-  align-items: center; padding: 3px 0; font-size: 12.5px; }
-.vb-l { color: var(--muted); }
-.vb-track { position: relative; height: 10px; background: var(--ch-grid);
-  border-radius: 5px; }
-.vb-fill { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+/* The measures and the entered figures share the width instead of stacking,
+   so a card is short enough that several findings fit on one screen. */
+.vfy-body { display: flex; flex-wrap: wrap; gap: 6px 32px; align-items: flex-start; }
+.vfy-body > :first-child { flex: 0 1 auto; }
+.vfy-body .vfy-entered { flex: 1 1 260px; min-width: 240px; }
+@media (max-width: 900px) { .vfy-body { display: block; } }
+.vb-set { margin: 6px 0 2px; }
+/* Fixed track, not 1fr: stretched across a wide card the bar carried no more
+   information than a short one, and pushed the value and the verdict a screen
+   apart. The set now reads as one block. */
+.vb { display: grid; grid-template-columns: 62px 200px 44px auto; gap: 9px;
+  align-items: center; padding: 1px 0; font-size: 12px;
+  justify-content: start; }
+.vb-l { color: var(--muted); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.vb-track { position: relative; height: 8px; background: var(--ch-grid);
+  border-radius: 4px; }
+.vb-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
 /* Colour follows CONCERN, not direction. Short of entitlement means the
    beneficiary went without, which is the more serious of the two and takes the
    red; issuing well above it is a different worry - possible leakage or a
@@ -588,6 +599,7 @@ body.dark .vb-fill.over { background: #e08b1a; }
 .vb-v { font-family: var(--font-mono); text-align: right; color: var(--ch-ink);
   font-variant-numeric: tabular-nums; }
 .vb-x { font-size: 11.5px; white-space: nowrap; }
+.vb-v, .vb-x { line-height: 1.4; }
 .vb-x.under { color: var(--st-bad); }
 .vb-x.over { color: var(--st-warn); }
 .vb-x.near { color: var(--muted); }
@@ -603,6 +615,6 @@ body.dark .vb-fill.over { background: #e08b1a; }
 body.dark .vfy-entered b, body.dark .vfy-entered { color: var(--ch-ink); }
 body.dark .vb-chip { background: #3a1d20; }
 @media (max-width: 620px) {
-  .vb { grid-template-columns: 64px 1fr 40px; }
-  .vb-x { grid-column: 1 / -1; padding-left: 74px; }
+  .vb { grid-template-columns: 56px 1fr 38px; }
+  .vb-x { grid-column: 1 / -1; padding-left: 65px; }
 }
