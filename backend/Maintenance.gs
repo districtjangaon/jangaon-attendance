@@ -669,3 +669,50 @@ function resolveSectorSupervisors_() {
   }
   CACHE.remove('sectors');
 }
+
+/**
+ * Grant a named user full console access.
+ *
+ * Run from the editor:  grantConsoleAccess('U2023')
+ *
+ * Sets role ADMIN, status ACTIVE and the leave-sanction right. An ADMIN sees
+ * every console tab - dashboard, analytics, flagged, daily reports, monthly,
+ * leaves, leave register, verification, map, users - and every export on
+ * them, because the exports are built from what the tab already holds.
+ *
+ * Reports what it changed rather than what it set, so running it on an
+ * account that is already correct says so instead of implying work was done.
+ * Every change is audit-logged with its previous value.
+ */
+function grantConsoleAccess(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) throw new Error('Pass a user id, e.g. grantConsoleAccess("U2023")');
+  const u = getUserById_(uid);
+  if (!u) throw new Error('No such user: ' + uid);
+
+  const want = { role: 'ADMIN', status: 'ACTIVE', can_approve_leave: '1' };
+  const changed = [];
+  Object.keys(want).forEach(function (k) {
+    const now = String(u[k] == null ? '' : u[k]);
+    if (now === want[k]) return;
+    changed.push(k + ': "' + now + '" -> "' + want[k] + '"');
+  });
+
+  Logger.log('User   ' + uid + '  ' + String(u.name) + '  (' + String(u.cadre) + ')');
+  if (!changed.length) {
+    Logger.log('Already has full console access. Nothing changed.');
+    return { userId: uid, changed: [] };
+  }
+
+  updateUser_(u, want);
+  changed.forEach(function (c) {
+    audit_('MAINTENANCE', 'CONSOLE_ACCESS_GRANT', uid, c.split(' -> ')[0], c);
+  });
+  CACHE.remove('users');
+
+  Logger.log('Changed: ' + changed.join(' | '));
+  Logger.log('She can now open the console with her own number and PIN, see every');
+  Logger.log('tab, and decide leave. If she has never signed in, the first sign-in');
+  Logger.log('will ask her to set a PIN.');
+  return { userId: uid, changed: changed };
+}

@@ -1612,7 +1612,9 @@ const App = (() => {
     { k: 'balp', label: 'Balamrutham +', unit: 'ml', dec: false, max: 25000 },
     { k: 'milk', label: 'Milk', unit: 'litres', dec: true, max: 100 }
   ];
-  const ST_COLS = ['ob', 'used', 'recd'];
+  // Closing is entered, not derived. A computed closing can never contradict
+  // the other three, which is precisely what the ledger check exists to find.
+  const ST_COLS = ['ob', 'used', 'recd', 'cb'];
 
   function buildStockTable() {
     const t = $('stock-table');
@@ -1622,8 +1624,9 @@ const App = (() => {
         ST_COLS.map(c => '<td><input id="st-' + it.k + '-' + c +
           '" type="number" inputmode="' + (it.dec ? 'decimal' : 'numeric') +
           '" min="0" max="' + it.max + '"' + (it.dec ? ' step="0.5"' : '') +
-          ' placeholder="0"></td>').join('') +
-        '<td class="cb" id="st-' + it.k + '-cb">&ndash;</td>';
+          ' placeholder="0">' +
+          (c === 'cb' ? '<span class="st-hint" id="st-' + it.k + '-hint"></span>' : '') +
+          '</td>').join('');
       t.appendChild(tr);
       ST_COLS.forEach(c => $('st-' + it.k + '-' + c)
         .addEventListener('input', () => updateStockCb(it)));
@@ -1635,17 +1638,31 @@ const App = (() => {
     return v === '' || isNaN(Number(v)) ? null : Number(v);
   };
 
-  function stockCb(it) {
+  /** Opening + Received - Used. Shown beside the closing box as a hint only. */
+  function stockExpected(it) {
     const ob = stockVal(it, 'ob'), used = stockVal(it, 'used'), recd = stockVal(it, 'recd');
     if (ob == null || used == null || recd == null) return null;
     return Math.round((ob + recd - used) * 10) / 10;
   }
 
+  /**
+   * Show the arithmetic next to what the worker typed, and mark a difference.
+   * It is never corrected for her: a real difference is the finding, and
+   * overwriting it would erase the only signal the ledger check has.
+   */
   function updateStockCb(it) {
-    const cb = stockCb(it);
-    const cell = $('st-' + it.k + '-cb');
-    cell.textContent = cb == null ? '–' : cb;
-    cell.classList.toggle('neg', cb != null && cb < 0);
+    const want = stockExpected(it);
+    const got = stockVal(it, 'cb');
+    const hint = $('st-' + it.k + '-hint');
+    if (!hint) return;
+    if (want == null) { hint.textContent = ''; hint.className = 'st-hint'; return; }
+    hint.textContent = '= ' + want;
+    const off = got != null && Math.abs(got - want) > 0.05;
+    hint.className = 'st-hint' + (off ? ' off' : '') + (want < 0 ? ' neg' : '');
+    hint.title = off
+      ? 'Your count differs from Opening + Received - Used by ' +
+        (Math.round((got - want) * 10) / 10) + '. That is recorded as entered.'
+      : 'Opening + Received - Used';
   }
 
   const RPT_KINDS = {
@@ -1732,7 +1749,8 @@ const App = (() => {
     STOCK_ITEMS.forEach(it => {
       ST_COLS.forEach(c => {
         if (badValue($('st-' + it.k + '-' + c).value)) {
-          missing.push(it.label + ' ' + (c === 'ob' ? 'opening' : c === 'used' ? 'used' : 'received'));
+          missing.push(it.label + ' ' +
+            { ob: 'opening', used: 'used', recd: 'received', cb: 'closing' }[c]);
         }
       });
     });
@@ -1774,7 +1792,9 @@ const App = (() => {
         ob: Math.min(it.max, round1(stockVal(it, 'ob'), it.dec)),
         used: Math.min(it.max, round1(stockVal(it, 'used'), it.dec)),
         recd: Math.min(it.max, round1(stockVal(it, 'recd'), it.dec)),
-        cb: Math.min(it.max, round1(stockCb(it), it.dec))
+        // Entered, not derived. Clamping this to the per-item cap while the
+        // other three were free is what used to manufacture ledger drift.
+        cb: Math.min(it.max, round1(stockVal(it, 'cb'), it.dec))
       };
     });
     setBusy('btn-rp-submit', true, 'Saving report…');

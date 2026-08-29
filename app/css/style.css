@@ -551,3 +551,12 @@ input:focus, select:focus {
 /* A field marked required on the form itself, so a worker is not told about
    it only after a failed round trip on a weak network. */
 .req-mark { font-size: 12px; font-weight: 600; color: var(--err, #c62828); }
+
+
+/* The arithmetic, beside the closing box a worker types for herself. Amber
+   when her count differs - a difference is a fact to record, not an error to
+   correct, so nothing is overwritten and nothing is blocked. */
+.st-hint { display: block; font-size: 11px; color: #6b7280; margin-top: 2px;
+  font-family: var(--font-mono, monospace); }
+.st-hint.off { color: #a15c00; font-weight: 600; }
+.st-hint.neg { color: #c62828; }
