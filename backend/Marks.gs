@@ -63,6 +63,19 @@ function apiSync_(auth, req) {
           catch (err) { fl.push(s[4]); }
         } else fl.push(s[3]);
       });
+      // Unusable images are named per slot, so a supervisor knows WHICH
+      // photograph cannot be relied on rather than just that one cannot.
+      [['photoFp', 'children'], ['photoFp2', 'meal'],
+       ['photoFp3', 'pregnant'], ['photoFp4', 'others']].forEach(function (p) {
+        const fp = it.rec[p[0]];
+        if (!fp) return;
+        if (Number(fp.lum) < PHOTO_DARK_LUM) fl.push('PHOTO_DARK_' + p[1].toUpperCase());
+        else if (Number(fp.spread) < PHOTO_FLAT_SPREAD) fl.push('PHOTO_FLAT_' + p[1].toUpperCase());
+      });
+      it.photoHash = [it.rec.photoFp, it.rec.photoFp2, it.rec.photoFp3, it.rec.photoFp4]
+        .map(function (f) { return f ? String(f.hash) : ''; }).join(',');
+      it.photoLum = it.rec.photoFp ? Number(it.rec.photoFp.lum) : '';
+      it.photoSpread = it.rec.photoFp ? Number(it.rec.photoFp.spread) : '';
       it.photoFlag = fl.join(',');
       continue;
     }
@@ -74,6 +87,15 @@ function apiSync_(auth, req) {
       }
     } else {
       it.photoFlag = 'NO_PHOTO';
+    }
+    const fp = it.rec.photoFp;
+    it.photoHash = fp ? String(fp.hash) : '';
+    it.photoLum = fp ? Number(fp.lum) : '';
+    it.photoSpread = fp ? Number(fp.spread) : '';
+    if (fp && Number(fp.lum) < PHOTO_DARK_LUM) {
+      it.photoFlag = it.photoFlag ? it.photoFlag + ',PHOTO_DARK' : 'PHOTO_DARK';
+    } else if (fp && Number(fp.spread) < PHOTO_FLAT_SPREAD) {
+      it.photoFlag = it.photoFlag ? it.photoFlag + ',PHOTO_FLAT' : 'PHOTO_FLAT';
     }
   }
 
@@ -240,8 +262,31 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
     String(rec.clientTs || ''), fmtIso_(serverMs), skewSec,
     lat, lng, acc, gf.status, gf.awcId, gf.dist, it.photoId,
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
-    syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40)
+    syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40),
+    String(it.photoHash || ''), it.photoLum === undefined ? '' : it.photoLum,
+    it.photoSpread === undefined ? '' : it.photoSpread
   ];
+}
+
+/**
+ * The Marks tab of a monthly file, with its header healed.
+ *
+ * Columns are only ever APPENDED, so old rows stay aligned; but a sheet
+ * written by an earlier build is narrower than MARKS_H, and asking for more
+ * columns than a sheet has is an error rather than a short read. Every reader
+ * must come through here.
+ */
+function marksSheet_(ss) {
+  const sh = ss.getSheetByName('Marks');
+  if (!sh) return null;
+  if (sh.getMaxColumns() < MARKS_H.length) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), MARKS_H.length - sh.getMaxColumns());
+  }
+  if (String(sh.getRange(1, MARKS_H.length).getValue()) !== MARKS_H[MARKS_H.length - 1]) {
+    sh.getRange(1, 1, 1, MARKS_H.length).setValues([MARKS_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), MARKS_H.length).setNumberFormat('@');
+  }
+  return sh;
 }
 
 /**

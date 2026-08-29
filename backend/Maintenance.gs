@@ -553,7 +553,7 @@ function buildRegister(ymOpt) {
     return best ? { name: best.name, d: bestD } : null;
   };
 
-  const sh = ss.getSheetByName('Marks');
+  const sh = marksSheet_(ss);
   const last = sh.getLastRow();
   const days = {}; // uid_yyyymmdd -> { IN: markObj, OUT: markObj }
   if (last >= 2) {

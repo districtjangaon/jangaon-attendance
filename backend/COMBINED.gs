@@ -57,7 +57,10 @@ const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', '
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
   'lat', 'lng', 'accuracy_m', 'geofence', 'awc_id', 'distance_m', 'photo_id',
-  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz'];
+  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz',
+  // What the lens saw: a 64-bit perceptual hash, plus mean brightness and
+  // spread. Measured on the handset before the stamp bar was drawn.
+  'photo_hash', 'photo_lum', 'photo_spread'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
 // Seen pings: one per person per working day, written when the app is opened
 // without a mark following. APPEND-ONLY and pruned nightly to 7 days — see
@@ -117,6 +120,13 @@ const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
 // coordinates and consumer GPS aren't precise enough for tighter fences —
 // every AWC's effective radius is at least this (larger per-AWC values win).
 const PHOTO_RETENTION_DAYS = 45;  // per policy decision 2026-08-02
+// A photograph too dark, or too flat, to show anything cannot corroborate a
+// count whatever the count says. These are unusability thresholds, not
+// judgements: they say the evidence is missing, never that anyone lied.
+// 0-255 mean brightness; spread is the standard deviation over the same
+// 9x8 grey grid, so a covered lens or a blank wall reads near zero.
+const PHOTO_DARK_LUM = 26;
+const PHOTO_FLAT_SPREAD = 7;
 // Build stamps look like "v5.20-20260825-1859". The date and time are the only
 // monotonic part - the version number in front is set by hand and can repeat -
 // so comparisons use the stamp alone, as one integer: 202608251859.
@@ -758,6 +768,19 @@ function apiSync_(auth, req) {
           catch (err) { fl.push(s[4]); }
         } else fl.push(s[3]);
       });
+      // Unusable images are named per slot, so a supervisor knows WHICH
+      // photograph cannot be relied on rather than just that one cannot.
+      [['photoFp', 'children'], ['photoFp2', 'meal'],
+       ['photoFp3', 'pregnant'], ['photoFp4', 'others']].forEach(function (p) {
+        const fp = it.rec[p[0]];
+        if (!fp) return;
+        if (Number(fp.lum) < PHOTO_DARK_LUM) fl.push('PHOTO_DARK_' + p[1].toUpperCase());
+        else if (Number(fp.spread) < PHOTO_FLAT_SPREAD) fl.push('PHOTO_FLAT_' + p[1].toUpperCase());
+      });
+      it.photoHash = [it.rec.photoFp, it.rec.photoFp2, it.rec.photoFp3, it.rec.photoFp4]
+        .map(function (f) { return f ? String(f.hash) : ''; }).join(',');
+      it.photoLum = it.rec.photoFp ? Number(it.rec.photoFp.lum) : '';
+      it.photoSpread = it.rec.photoFp ? Number(it.rec.photoFp.spread) : '';
       it.photoFlag = fl.join(',');
       continue;
     }
@@ -769,6 +792,15 @@ function apiSync_(auth, req) {
       }
     } else {
       it.photoFlag = 'NO_PHOTO';
+    }
+    const fp = it.rec.photoFp;
+    it.photoHash = fp ? String(fp.hash) : '';
+    it.photoLum = fp ? Number(fp.lum) : '';
+    it.photoSpread = fp ? Number(fp.spread) : '';
+    if (fp && Number(fp.lum) < PHOTO_DARK_LUM) {
+      it.photoFlag = it.photoFlag ? it.photoFlag + ',PHOTO_DARK' : 'PHOTO_DARK';
+    } else if (fp && Number(fp.spread) < PHOTO_FLAT_SPREAD) {
+      it.photoFlag = it.photoFlag ? it.photoFlag + ',PHOTO_FLAT' : 'PHOTO_FLAT';
     }
   }
 
@@ -935,8 +967,31 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
     String(rec.clientTs || ''), fmtIso_(serverMs), skewSec,
     lat, lng, acc, gf.status, gf.awcId, gf.dist, it.photoId,
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
-    syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40)
+    syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40),
+    String(it.photoHash || ''), it.photoLum === undefined ? '' : it.photoLum,
+    it.photoSpread === undefined ? '' : it.photoSpread
   ];
+}
+
+/**
+ * The Marks tab of a monthly file, with its header healed.
+ *
+ * Columns are only ever APPENDED, so old rows stay aligned; but a sheet
+ * written by an earlier build is narrower than MARKS_H, and asking for more
+ * columns than a sheet has is an error rather than a short read. Every reader
+ * must come through here.
+ */
+function marksSheet_(ss) {
+  const sh = ss.getSheetByName('Marks');
+  if (!sh) return null;
+  if (sh.getMaxColumns() < MARKS_H.length) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), MARKS_H.length - sh.getMaxColumns());
+  }
+  if (String(sh.getRange(1, MARKS_H.length).getValue()) !== MARKS_H[MARKS_H.length - 1]) {
+    sh.getRange(1, 1, 1, MARKS_H.length).setValues([MARKS_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), MARKS_H.length).setNumberFormat('@');
+  }
+  return sh;
 }
 
 /**
@@ -3876,7 +3931,7 @@ function nightlyJob() {
 function buildMonthFiles_(ym, basePath, withExceptions) {
   const ss = getMonthSS_(ym, true);
   if (!ss) return [];
-  const sh = ss.getSheetByName('Marks');
+  const sh = marksSheet_(ss);
   const last = sh.getLastRow();
   const marks = last < 2 ? [] :
     sh.getRange(2, 1, last - 1, MARKS_H.length).getValues().map(v => rowToObj_(MARKS_H, v));
@@ -3895,6 +3950,7 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
   const lastFixes = {};  // uid -> newest located mark, for the map's stale pins
   const bySector = {};   // sc -> uid -> dd -> {IN:{...}, OUT:{...}}
   const coordTrail = {}; // uid -> [{dd, coords}] for the static-coordinates anomaly
+  const photoSeen = {};  // photo fingerprint -> every mark that submitted it
   const exceptions = [];
 
   for (const o of marks) {
@@ -3932,6 +3988,44 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
     if (withExceptions && !corr && (cell.gf !== 'INSIDE' || cell.fl)) {
       exceptions.push({ key: key, u: uid, s: sc, d: p[1], t: type, at: cell.t, gf: cell.gf, fl: cell.fl, ph: cell.ph });
     }
+    // Index the photograph fingerprint. A hash is only meaningful once the
+    // whole month has been read, so the check itself waits until after.
+    if (o.photo_hash) {
+      String(o.photo_hash).split(',').forEach(function (h) {
+        if (!h) return;
+        (photoSeen[h] = photoSeen[h] || []).push(
+          { key: key, u: uid, s: sc, d: p[1], t: type, at: cell.t, ph: cell.ph });
+      });
+    }
+  }
+
+  /**
+   * The same picture submitted twice.
+   *
+   * A perceptual hash matching says the images are the same scene, which a
+   * live camera does not produce twice by accident. It does NOT say who did
+   * what: the same photograph appearing on two days is the finding, and the
+   * explanation belongs to the worker. Every copy after the first is raised,
+   * so the first submission is not accused of anything.
+   */
+  if (withExceptions) {
+    Object.keys(photoSeen).forEach(function (h) {
+      const hits = photoSeen[h];
+      if (hits.length < 2) return;
+      const sameDay = hits.every(function (x) { return x.d === hits[0].d; });
+      const sameUser = hits.every(function (x) { return x.u === hits[0].u; });
+      // Within one day the four report photographs are different shots of the
+      // same room; matching there is weak evidence and is left alone.
+      if (sameDay && sameUser) return;
+      hits.slice(1).forEach(function (x) {
+        exceptions.push({
+          key: 'DUP_' + x.key, u: x.u, s: x.s, d: x.d, t: x.t, at: x.at,
+          gf: 'PHOTO_REUSED',
+          fl: sameUser ? 'PHOTO_REUSED_OWN' : 'PHOTO_REUSED_ACROSS_STAFF',
+          ph: x.ph
+        });
+      });
+    });
   }
 
   // Manual marks adjudicated in by a supervisor (orig_key that has no Marks row).
@@ -4075,7 +4169,7 @@ function apiCaseGeo_(auth, req) {
   const ym = Utilities.formatDate(new Date(), TZ, 'yyyy-MM');
   const ss = getMonthSS_(ym, false);
   if (!ss) return { ok: false, code: 'NO_MONTH' };
-  const sh = ss.getSheetByName('Marks');
+  const sh = marksSheet_(ss);
   const last = sh.getLastRow();
   if (last < 2) return { ok: true, ym: ym, fromDay: fromDay, marks: [], awcs: {} };
 
@@ -4277,7 +4371,7 @@ function dailyAttendanceData_(dateStr) {
   const reportedBy = {};     // uid -> filed the daily beneficiary return
   const ss = getMonthSS_(ym, false);
   if (ss) {
-    const sh = ss.getSheetByName('Marks');
+    const sh = marksSheet_(ss);
     const last = sh.getLastRow();
     if (last >= 2) {
       sh.getRange(2, 1, last - 1, MARKS_H.length).getValues().forEach(function (v) {
@@ -5338,7 +5432,7 @@ function buildRegister(ymOpt) {
     return best ? { name: best.name, d: bestD } : null;
   };
 
-  const sh = ss.getSheetByName('Marks');
+  const sh = marksSheet_(ss);
   const last = sh.getLastRow();
   const days = {}; // uid_yyyymmdd -> { IN: markObj, OUT: markObj }
   if (last >= 2) {

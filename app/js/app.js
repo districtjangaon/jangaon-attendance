@@ -1556,7 +1556,11 @@ const App = (() => {
         accuracy: g ? Math.round(g.accuracy) : '',
         netState: navigator.onLine ? 'ONLINE' : 'OFFLINE',
         tz: Geo.tz(),
-        photoBlob: photoBlob
+        photoBlob: photoBlob,
+        // Read here, not at sync time: a property set on a Blob is dropped by
+        // IndexedDB's structured clone, so it has to become a plain field
+        // before the record is queued.
+        photoFp: (photoBlob && photoBlob.fp) || null
       };
       await Sync.enqueue(record);
 
@@ -1792,7 +1796,11 @@ const App = (() => {
         eggs: stock.eggs.cb, riceKg: stock.rice.cb, pulsesKg: stock.pulses.cb,
         stock: stock,
         photoBlob: rptPhotos.child, photoBlob2: rptPhotos.meal,
-        photoBlob3: rptPhotos.preg, photoBlob4: rptPhotos.others
+        photoBlob3: rptPhotos.preg, photoBlob4: rptPhotos.others,
+        photoFp: (rptPhotos.child && rptPhotos.child.fp) || null,
+        photoFp2: (rptPhotos.meal && rptPhotos.meal.fp) || null,
+        photoFp3: (rptPhotos.preg && rptPhotos.preg.fp) || null,
+        photoFp4: (rptPhotos.others && rptPhotos.others.fp) || null
       };
       await Sync.enqueue(record);
       ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals'].forEach(id => { $(id).value = ''; });

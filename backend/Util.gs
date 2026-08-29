@@ -46,7 +46,10 @@ const SESS_H = ['token_id', 'user_id', 'device_id', 'issued_at', 'expires_at', '
 const AUD_H = ['ts', 'actor', 'action', 'target', 'old_value', 'new_value'];
 const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 'server_ts', 'skew_sec',
   'lat', 'lng', 'accuracy_m', 'geofence', 'awc_id', 'distance_m', 'photo_id',
-  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz'];
+  'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz',
+  // What the lens saw: a 64-bit perceptual hash, plus mean brightness and
+  // spread. Measured on the handset before the stamp bar was drawn.
+  'photo_hash', 'photo_lum', 'photo_spread'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
 // Seen pings: one per person per working day, written when the app is opened
 // without a mark following. APPEND-ONLY and pruned nightly to 7 days — see
@@ -106,6 +109,13 @@ const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
 // coordinates and consumer GPS aren't precise enough for tighter fences —
 // every AWC's effective radius is at least this (larger per-AWC values win).
 const PHOTO_RETENTION_DAYS = 45;  // per policy decision 2026-08-02
+// A photograph too dark, or too flat, to show anything cannot corroborate a
+// count whatever the count says. These are unusability thresholds, not
+// judgements: they say the evidence is missing, never that anyone lied.
+// 0-255 mean brightness; spread is the standard deviation over the same
+// 9x8 grey grid, so a covered lens or a blank wall reads near zero.
+const PHOTO_DARK_LUM = 26;
+const PHOTO_FLAT_SPREAD = 7;
 // Build stamps look like "v5.20-20260825-1859". The date and time are the only
 // monotonic part - the version number in front is set by hand and can repeat -
 // so comparisons use the stamp alone, as one integer: 202608251859.

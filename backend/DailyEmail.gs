@@ -159,7 +159,7 @@ function dailyAttendanceData_(dateStr) {
   const reportedBy = {};     // uid -> filed the daily beneficiary return
   const ss = getMonthSS_(ym, false);
   if (ss) {
-    const sh = ss.getSheetByName('Marks');
+    const sh = marksSheet_(ss);
     const last = sh.getLastRow();
     if (last >= 2) {
       sh.getRange(2, 1, last - 1, MARKS_H.length).getValues().forEach(function (v) {

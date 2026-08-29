@@ -46,6 +46,51 @@ const Camera = (() => {
     }
   }
 
+  /**
+   * A fingerprint of what the lens actually saw, measured BEFORE the stamp bar
+   * is drawn - otherwise every photograph of a given day would share the date
+   * text and drift towards looking alike.
+   *
+   * dHash: shrink to 9x8 grey, then record whether each pixel is brighter than
+   * the one to its right. 64 bits, tolerant of re-compression and small
+   * exposure changes, and different for genuinely different scenes. It says
+   * "this is the same picture as that one" - nothing more, and it is not a
+   * judgement about anybody.
+   *
+   * lum and spread are the cheap unusability checks: a lens covered by a thumb
+   * or a photograph of a dark wall corroborates no count at all.
+   */
+  function fingerprint(srcCanvas) {
+    const w = 9, h = 8;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cx = c.getContext('2d');
+    cx.drawImage(srcCanvas, 0, 0, w, h);
+    const d = cx.getImageData(0, 0, w, h).data;
+    const grey = [];
+    for (let i = 0; i < w * h; i++) {
+      const p = i * 4;
+      grey.push(0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]);
+    }
+    let bits = '';
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w - 1; x++) {
+        bits += grey[y * w + x] > grey[y * w + x + 1] ? '1' : '0';
+      }
+    }
+    let hex = '';
+    for (let i = 0; i < bits.length; i += 4) {
+      hex += parseInt(bits.substr(i, 4), 2).toString(16);
+    }
+    const mean = grey.reduce((a, b) => a + b, 0) / grey.length;
+    const spread = Math.sqrt(
+      grey.reduce((a, b) => a + (b - mean) * (b - mean), 0) / grey.length);
+    return { hash: hex, lum: Math.round(mean), spread: Math.round(spread) };
+  }
+
+  // Exposed for tools/ verification only; harmless in the app.
+  if (typeof window !== 'undefined') window.__fp = fingerprint;
+
   /** Square snapshot with a burnt-in stamp bar, compressed to <= maxKB. */
   async function capture(videoEl, stampLines, maxKB) {
     const side = 480;
@@ -56,6 +101,10 @@ const Camera = (() => {
     canvas.height = side;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(videoEl, (vw - s) / 2, (vh - s) / 2, s, s, 0, 0, side, side);
+
+    // Before the stamp: the bar carries the date, and hashing it would pull
+    // every photograph taken on one day towards the same fingerprint.
+    const fp = fingerprint(canvas);
 
     const barH = 18 * stampLines.length + 10;
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -69,8 +118,9 @@ const Camera = (() => {
       const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', q));
       if (!blob) break;
       last = blob;
-      if (blob.size <= maxKB * 1024) return blob;
+      if (blob.size <= maxKB * 1024) { last.fp = fp; return last; }
     }
+    if (last) last.fp = fp;
     return last; // smallest attempt; better slightly over than no photo
   }
 

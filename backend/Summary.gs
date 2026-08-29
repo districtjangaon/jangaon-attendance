@@ -468,7 +468,7 @@ function nightlyJob() {
 function buildMonthFiles_(ym, basePath, withExceptions) {
   const ss = getMonthSS_(ym, true);
   if (!ss) return [];
-  const sh = ss.getSheetByName('Marks');
+  const sh = marksSheet_(ss);
   const last = sh.getLastRow();
   const marks = last < 2 ? [] :
     sh.getRange(2, 1, last - 1, MARKS_H.length).getValues().map(v => rowToObj_(MARKS_H, v));
@@ -487,6 +487,7 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
   const lastFixes = {};  // uid -> newest located mark, for the map's stale pins
   const bySector = {};   // sc -> uid -> dd -> {IN:{...}, OUT:{...}}
   const coordTrail = {}; // uid -> [{dd, coords}] for the static-coordinates anomaly
+  const photoSeen = {};  // photo fingerprint -> every mark that submitted it
   const exceptions = [];
 
   for (const o of marks) {
@@ -524,6 +525,44 @@ function buildMonthFiles_(ym, basePath, withExceptions) {
     if (withExceptions && !corr && (cell.gf !== 'INSIDE' || cell.fl)) {
       exceptions.push({ key: key, u: uid, s: sc, d: p[1], t: type, at: cell.t, gf: cell.gf, fl: cell.fl, ph: cell.ph });
     }
+    // Index the photograph fingerprint. A hash is only meaningful once the
+    // whole month has been read, so the check itself waits until after.
+    if (o.photo_hash) {
+      String(o.photo_hash).split(',').forEach(function (h) {
+        if (!h) return;
+        (photoSeen[h] = photoSeen[h] || []).push(
+          { key: key, u: uid, s: sc, d: p[1], t: type, at: cell.t, ph: cell.ph });
+      });
+    }
+  }
+
+  /**
+   * The same picture submitted twice.
+   *
+   * A perceptual hash matching says the images are the same scene, which a
+   * live camera does not produce twice by accident. It does NOT say who did
+   * what: the same photograph appearing on two days is the finding, and the
+   * explanation belongs to the worker. Every copy after the first is raised,
+   * so the first submission is not accused of anything.
+   */
+  if (withExceptions) {
+    Object.keys(photoSeen).forEach(function (h) {
+      const hits = photoSeen[h];
+      if (hits.length < 2) return;
+      const sameDay = hits.every(function (x) { return x.d === hits[0].d; });
+      const sameUser = hits.every(function (x) { return x.u === hits[0].u; });
+      // Within one day the four report photographs are different shots of the
+      // same room; matching there is weak evidence and is left alone.
+      if (sameDay && sameUser) return;
+      hits.slice(1).forEach(function (x) {
+        exceptions.push({
+          key: 'DUP_' + x.key, u: x.u, s: x.s, d: x.d, t: x.t, at: x.at,
+          gf: 'PHOTO_REUSED',
+          fl: sameUser ? 'PHOTO_REUSED_OWN' : 'PHOTO_REUSED_ACROSS_STAFF',
+          ph: x.ph
+        });
+      });
+    });
   }
 
   // Manual marks adjudicated in by a supervisor (orig_key that has no Marks row).
@@ -667,7 +706,7 @@ function apiCaseGeo_(auth, req) {
   const ym = Utilities.formatDate(new Date(), TZ, 'yyyy-MM');
   const ss = getMonthSS_(ym, false);
   if (!ss) return { ok: false, code: 'NO_MONTH' };
-  const sh = ss.getSheetByName('Marks');
+  const sh = marksSheet_(ss);
   const last = sh.getLastRow();
   if (last < 2) return { ok: true, ym: ym, fromDay: fromDay, marks: [], awcs: {} };
 

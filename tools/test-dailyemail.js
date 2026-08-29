@@ -119,6 +119,9 @@ ctx.getMonthSS_ = () => ({
   getSheetByName: n => n === 'Marks' ? sheet(MARKS) : n === 'Reports' ? sheet(REPORTS) : null
 });
 ctx.leavesOverlapping_ = () => LEAVES.slice();
+// Lives in Marks.gs, which this harness does not load. It only heals the
+// header and hands back the tab, so returning the tab is the whole contract.
+ctx.marksSheet_ = ss => ss.getSheetByName('Marks');
 ctx.getHolidays_ = () => ({});
 ctx.LEAVE_TYPE_LABEL = { CASUAL: 'Casual Leave', SICK: 'Medical Leave' };
 

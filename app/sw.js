@@ -11,7 +11,7 @@
 // The shell is served cache-first and the browser only re-installs this worker
 // when its BYTES change, so a build that leaves this name alone never reaches
 // a phone that already has the old one. tools/test-build.js enforces the match.
-const CACHE = 'attendance-v5.21-20260829-1614';
+const CACHE = 'attendance-v5.22-20260829-1800';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [

@@ -78,6 +78,13 @@ const Sync = (() => {
             photo2B64: item.photoBlob2 ? await blobToB64(item.photoBlob2) : undefined,
             photo3B64: item.photoBlob3 ? await blobToB64(item.photoBlob3) : undefined,
             photo4B64: item.photoBlob4 ? await blobToB64(item.photoBlob4) : undefined,
+            // What the lens saw, measured on the handset before the stamp was
+            // drawn. Cheap to send, and it is what lets a reused or unusable
+            // photograph be told from a real one without opening it.
+            photoFp: item.photoFp || undefined,
+            photoFp2: item.photoFp2 || undefined,
+            photoFp3: item.photoFp3 || undefined,
+            photoFp4: item.photoFp4 || undefined,
             children: item.children, pregnant: item.pregnant,
             others: item.others, meals: item.meals,
             eggs: item.eggs, riceKg: item.riceKg, pulsesKg: item.pulsesKg,
