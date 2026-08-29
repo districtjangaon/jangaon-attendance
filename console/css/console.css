@@ -355,8 +355,20 @@ body.dark {
   gap: 10px; align-items: start; }
 #vfy-queue > p.info { grid-column: 1 / -1; }
 .vfy-card {
-  border: 1px solid var(--line); border-left: 4px solid var(--err);
-  border-radius: 10px; padding: 12px 14px; background: var(--surface);
+  position: relative; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px 12px 18px; background: var(--surface);
+}
+/* Accent, not encoding: the edge says "this is a finding", the bars say what
+   kind. Keeping it decorative is what leaves the data channels free. */
+.vfy-card::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: linear-gradient(180deg, #4f5ce5 0%, #8b5cf6 28%, #2aa7d8 55%,
+    #0ca38a 78%, #7c8a12 100%);
+}
+body.dark .vfy-card::before {
+  background: linear-gradient(180deg, #6b78ea 0%, #8f6ff0 28%, #2f9fce 55%,
+    #17a98f 78%, #8a9a20 100%);
 }
 .vfy-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .vfy-head b { font-size: 15px; }
@@ -577,7 +589,23 @@ body.dark .dupe-bar .info { color: #ffd98a; }
   align-items: center; padding: 1px 0; font-size: 12px;
   justify-content: start; }
 .vb-l { color: var(--muted); white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; }
+  text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+/* Identity, on its own channel. Colour cannot carry both which commodity this
+   is AND whether the centre is short of it - one channel, one job - so the
+   commodity takes a chip beside its name and the bar keeps the polarity.
+   Status hues (red, amber) are deliberately absent from this set: reusing them
+   here would make an eggs row look like a shortfall.
+   Validated as a categorical palette on both surfaces; the one contrast WARN
+   is met by the label that sits next to every chip. */
+.vb-dot { width: 8px; height: 8px; border-radius: 2px; flex: none;
+  background: var(--st-idle); }
+.vb[data-item="meals"] .vb-dot { background: var(--ch-ink); }
+.vb[data-item="eggs"] .vb-dot { background: var(--s1); }
+.vb[data-item="rice"] .vb-dot { background: var(--s2); }
+.vb[data-item="pulses"] .vb-dot { background: var(--s5); }
+.vb[data-item="bal"] .vb-dot { background: var(--s6); }
+.vb[data-item="balp"] .vb-dot { background: var(--s7); }
+.vb[data-item="milk"] .vb-dot { background: var(--s8); }
 .vb-track { position: relative; height: 8px; background: var(--ch-grid);
   border-radius: 4px; }
 .vb-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }

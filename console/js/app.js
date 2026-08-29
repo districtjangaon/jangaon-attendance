@@ -1641,20 +1641,42 @@ const App = (() => {
     vfyData = file;
     vfyReviews = (rev && rev.ok && rev.reviews) || {};
     vfyLoadedYm = ym;
+    // After vfyLoadedYm: the day labels are formatted through vfyIso, which
+    // reads it, and would otherwise render as ".28.null".
+    vfyFillDays();
     renderVerify();
   }
 
   const vfyIso = dd => vfyLoadedYm + '-' + dd;
 
   /** Findings in the caller's scope, filtered and ranked. */
+  /**
+   * Fill the day filter from the days this month's run actually produced, so
+   * it never offers a date with nothing behind it. Rebuilt whenever a new
+   * month loads; the current choice is kept if that day still exists.
+   */
+  function vfyFillDays() {
+    const sel = $('vfy-day');
+    if (!sel) return;
+    const keep = sel.value;
+    const days = Array.from(new Set((vfyData && vfyData.findings || []).map(f => f.d)))
+      .sort((a, b) => Number(b) - Number(a));
+    sel.innerHTML = '<option value="ALL">Every day this month</option>' +
+      days.map(d => '<option value="' + esc(d) + '">' +
+        esc(prettyDay(vfyIso(d))) + '</option>').join('');
+    if (keep && days.indexOf(keep) >= 0) sel.value = keep;
+  }
+
   function vfyRows() {
     if (!vfyData) return [];
     const sc = $('vfy-scope').value;
     const show = $('vfy-filter').value;
+    const day = ($('vfy-day') || {}).value || 'ALL';
     const q = ($('vfy-search').value || '').trim().toLowerCase();
     return (vfyData.findings || []).filter(f => {
       if (!names.awcs[f.a]) return false;            // outside this viewer's scope
       if (sc !== 'ALL' && names.awcs[f.a].sc !== sc) return false;
+      if (day !== 'ALL' && String(f.d) !== day) return false;
       const r = vfyReviews[f.a + '|' + vfyIso(f.d)];
       if (show === 'open' && r) return false;
       if (show === 'mismatch' && (!r || r.v !== 'MISMATCH')) return false;
@@ -1700,9 +1722,10 @@ const App = (() => {
       ? 'left:50%;width:' + half.toFixed(1) + '%'
       : 'right:50%;width:' + half.toFixed(1) + '%';
     const capped = Math.abs(pct) > 100 ? ' vb-capped' : '';
-    return '<div class="vb" title="' + esc(label) + ': ' + round(got) + ' ' + esc(unit) +
+    return '<div class="vb" data-item="' + esc(String(unit).toLowerCase()) +
+      '" title="' + esc(label) + ': ' + round(got) + ' ' + esc(unit) +
       ' used against ' + round(want) + ' ' + esc(basis) + '">' +
-      '<span class="vb-l">' + esc(label) + '</span>' +
+      '<span class="vb-l"><i class="vb-dot"></i>' + esc(label) + '</span>' +
       '<span class="vb-track">' +
         '<span class="vb-zero"></span>' +
         '<span class="vb-fill ' + cls + capped + '" style="' + style + '"></span>' +
@@ -3023,6 +3046,7 @@ const App = (() => {
     $('btn-vfy-load').onclick = loadVerify;
     $('vfy-month').onchange = loadVerify;
     $('vfy-scope').onchange = renderVerify;
+    $('vfy-day').onchange = renderVerify;
     document.querySelectorAll('input[name="vfy-cmp"]').forEach(r => {
       r.onchange = renderVerify;
     });
