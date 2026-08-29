@@ -233,6 +233,10 @@ function getConfigFor_(user) {
     sync: { jitterMaxSec: Number(PROPS.getProperty('JITTER_MAX_SEC') || 90), batchMax: BATCH_MAX },
     photoMaxKB: 60,
     privacyVersion: 1,
+    // The app compares its own build against this and updates itself when it
+    // is behind. Enforced on the handset rather than by refusing records: a
+    // stale app must be replaced, but its attendance must still arrive.
+    minAppBuild: minAppBuild_(),
     serverTs: nowIso_()
   };
 }

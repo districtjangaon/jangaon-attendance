@@ -117,6 +117,21 @@ const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
 // coordinates and consumer GPS aren't precise enough for tighter fences —
 // every AWC's effective radius is at least this (larger per-AWC values win).
 const PHOTO_RETENTION_DAYS = 45;  // per policy decision 2026-08-02
+// Build stamps look like "v5.20-20260825-1859". The date and time are the only
+// monotonic part - the version number in front is set by hand and can repeat -
+// so comparisons use the stamp alone, as one integer: 202608251859.
+function buildStamp_(v) {
+  const m = String(v || '').match(/(\d{8})-(\d{4})/);
+  return m ? Number(m[1] + m[2]) : 0;
+}
+
+/**
+ * The build every handset must be on, or 0 when nothing is enforced.
+ * Set the MIN_APP_BUILD script property to a stamp such as 20260825-1859.
+ */
+function minAppBuild_() {
+  return String(PROPS.getProperty('MIN_APP_BUILD') || '');
+}
 const BATCH_MAX = 20;             // max marks per sync POST
 const CADRES = ['AWT', 'AWH', 'SUPERVISOR', 'CDPO', 'OTHER'];
 const ROLES = ['FIELD', 'SUPERVISOR', 'CDPO', 'ADMIN'];
@@ -662,6 +677,10 @@ function getConfigFor_(user) {
     sync: { jitterMaxSec: Number(PROPS.getProperty('JITTER_MAX_SEC') || 90), batchMax: BATCH_MAX },
     photoMaxKB: 60,
     privacyVersion: 1,
+    // The app compares its own build against this and updates itself when it
+    // is behind. Enforced on the handset rather than by refusing records: a
+    // stale app must be replaced, but its attendance must still arrive.
+    minAppBuild: minAppBuild_(),
     serverTs: nowIso_()
   };
 }
@@ -751,6 +770,19 @@ function apiSync_(auth, req) {
     } else {
       it.photoFlag = 'NO_PHOTO';
     }
+  }
+
+  // A record from a build older than the district requires is accepted and
+  // marked, never refused. Refusing would lose the attendance and punish the
+  // worker for a version she did not choose; the flag is what makes a stale
+  // handset visible, and the app updates itself on its next config fetch.
+  const minB = buildStamp_(minAppBuild_());
+  if (minB) {
+    prepared.forEach(function (it) {
+      if (buildStamp_(it.rec.appVersion) < minB) {
+        it.photoFlag = it.photoFlag ? it.photoFlag + ',OLD_APP' : 'OLD_APP';
+      }
+    });
   }
 
   const lock = LockService.getScriptLock();

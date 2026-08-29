@@ -106,6 +106,21 @@ const GEOFENCE_MIN_RADIUS_M = 300; // district relaxation 2026-08-20: imported
 // coordinates and consumer GPS aren't precise enough for tighter fences —
 // every AWC's effective radius is at least this (larger per-AWC values win).
 const PHOTO_RETENTION_DAYS = 45;  // per policy decision 2026-08-02
+// Build stamps look like "v5.20-20260825-1859". The date and time are the only
+// monotonic part - the version number in front is set by hand and can repeat -
+// so comparisons use the stamp alone, as one integer: 202608251859.
+function buildStamp_(v) {
+  const m = String(v || '').match(/(\d{8})-(\d{4})/);
+  return m ? Number(m[1] + m[2]) : 0;
+}
+
+/**
+ * The build every handset must be on, or 0 when nothing is enforced.
+ * Set the MIN_APP_BUILD script property to a stamp such as 20260825-1859.
+ */
+function minAppBuild_() {
+  return String(PROPS.getProperty('MIN_APP_BUILD') || '');
+}
 const BATCH_MAX = 20;             // max marks per sync POST
 const CADRES = ['AWT', 'AWH', 'SUPERVISOR', 'CDPO', 'OTHER'];
 const ROLES = ['FIELD', 'SUPERVISOR', 'CDPO', 'ADMIN'];

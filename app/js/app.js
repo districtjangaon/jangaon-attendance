@@ -135,8 +135,71 @@ const App = (() => {
       : g.lat.toFixed(5) + ',' + g.lng.toFixed(5); // empty gazetteer: last resort
   }
 
+  /**
+   * The build this handset is actually running, read from the footer tag the
+   * build stamps. Exposed globally so the sync worker records it against every
+   * mark and report.
+   */
+  function readBuild() {
+    const el = document.querySelector('.build-tag');
+    const m = (el ? el.textContent : '').match(/v[\d.]+-\d{8}-\d{4}/);
+    return m ? m[0] : '';
+  }
+
+  /** Build stamps compare as one integer: v5.20-20260825-1859 -> 202608251859. */
+  function buildStamp(v) {
+    const m = String(v || '').match(/(\d{8})-(\d{4})/);
+    return m ? Number(m[1] + m[2]) : 0;
+  }
+
+  /**
+   * The district requires a newer build than this one: throw away the cached
+   * shell and reload, so the worker is on the current version before her next
+   * mark.
+   *
+   * Caches and the service worker only. IndexedDB is never touched - it holds
+   * queued marks that have not reached the server, and losing those to an
+   * upgrade would be far worse than running an old build.
+   */
+  async function forceUpdate(required) {
+    // One attempt per session. If the reload comes back still behind - the
+    // required build is not published yet, or Pages has not caught up - say so
+    // rather than reloading forever.
+    if (sessionStorage.getItem('forcedUpdate')) {
+      $('home-msg') && ($('home-msg').textContent =
+        'This app needs updating to ' + required + ' but the update has not arrived yet. ' +
+        'Marks are still being saved. Try again in a few minutes.');
+      return;
+    }
+    sessionStorage.setItem('forcedUpdate', required);
+    try {
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch (e) { /* fall through to the reload regardless */ }
+    location.reload();
+  }
+
+  /** Compare our build against what the server requires. */
+  function enforceVersion(cfg) {
+    if (!cfg || !cfg.minAppBuild) return;
+    const mine = buildStamp(window.APP_BUILD);
+    const need = buildStamp(cfg.minAppBuild);
+    if (!need || !mine || mine >= need) {
+      sessionStorage.removeItem('forcedUpdate');
+      return;
+    }
+    forceUpdate(cfg.minAppBuild);
+  }
+
   // ---------- init ----------
   async function init() {
+    window.APP_BUILD = readBuild();
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(() => {});
       // A new version activated: reload to run it — but never mid-capture,
@@ -629,6 +692,9 @@ const App = (() => {
         const uid = res.config.user.id;
         accounts[uid] = { token: res.token, user: res.config.user, config: res.config };
         activeUid = uid;
+        // Checked here because config arrives here: a handset behind the
+        // required build replaces itself now, not at some later sync.
+        enforceVersion(res.config);
         await saveAccounts();
         resetLogin();
         await primePermissions();

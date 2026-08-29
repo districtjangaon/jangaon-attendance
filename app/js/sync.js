@@ -70,7 +70,7 @@ const Sync = (() => {
             clientTs: item.clientTs,
             lat: item.lat, lng: item.lng, accuracy: item.accuracy,
             deviceId: deviceId,
-            appVersion: window.APP_CONFIG.VERSION,
+            appVersion: (window.APP_BUILD || window.APP_CONFIG.VERSION),
             netState: item.netState,
             photoB64: item.photoBlob ? await blobToB64(item.photoBlob) : '',
             // Daily-report (RPT) extras; undefined on plain marks, which

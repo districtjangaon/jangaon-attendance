@@ -77,6 +77,19 @@ function apiSync_(auth, req) {
     }
   }
 
+  // A record from a build older than the district requires is accepted and
+  // marked, never refused. Refusing would lose the attendance and punish the
+  // worker for a version she did not choose; the flag is what makes a stale
+  // handset visible, and the app updates itself on its next config fetch.
+  const minB = buildStamp_(minAppBuild_());
+  if (minB) {
+    prepared.forEach(function (it) {
+      if (buildStamp_(it.rec.appVersion) < minB) {
+        it.photoFlag = it.photoFlag ? it.photoFlag + ',OLD_APP' : 'OLD_APP';
+      }
+    });
+  }
+
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
