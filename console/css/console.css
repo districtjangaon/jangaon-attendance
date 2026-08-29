@@ -348,9 +348,15 @@ body.dark {
 
 /* Verification queue: one card per report that does not add up. The reasons
    are the point, so they get the room; the score is deliberately small. */
+/* Two findings to a row on a wide screen. auto-fill with a hard minimum, not
+   a fixed two columns: on a narrow screen it becomes one, and the cards keep
+   their width instead of stretching to fill a half-empty last row. */
+#vfy-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(620px, 1fr));
+  gap: 10px; align-items: start; }
+#vfy-queue > p.info { grid-column: 1 / -1; }
 .vfy-card {
   border: 1px solid var(--line); border-left: 4px solid var(--err);
-  border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface);
+  border-radius: 10px; padding: 12px 14px; background: var(--surface);
 }
 .vfy-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .vfy-head b { font-size: 15px; }
@@ -554,10 +560,15 @@ body.dark .dupe-bar .info { color: #ffd98a; }
    worse off than a mark slightly lighter than the band prefers. */
 /* The measures and the entered figures share the width instead of stacking,
    so a card is short enough that several findings fit on one screen. */
-.vfy-body { display: flex; flex-wrap: wrap; gap: 6px 32px; align-items: flex-start; }
+.vfy-card { container-type: inline-size; }
+.vfy-body { display: flex; flex-wrap: wrap; gap: 4px 24px; align-items: flex-start; }
 .vfy-body > :first-child { flex: 0 1 auto; }
-.vfy-body .vfy-entered { flex: 1 1 260px; min-width: 240px; }
-@media (max-width: 900px) { .vfy-body { display: block; } }
+.vfy-body .vfy-entered { flex: 1 1 220px; min-width: 200px; }
+/* Measured against the CARD, not the window: two-up cards are half as wide as
+   the screen, so a viewport media query would keep them on one line and
+   overflow. */
+@container (max-width: 700px) { .vfy-body { display: block; } }
+@media (max-width: 700px) { .vfy-body { display: block; } }
 .vb-set { margin: 6px 0 2px; }
 /* Fixed track, not 1fr: stretched across a wide card the bar carried no more
    information than a short one, and pushed the value and the verdict a screen
