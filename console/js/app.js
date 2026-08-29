@@ -1663,6 +1663,96 @@ const App = (() => {
     });
   }
 
+  /**
+   * What the district's own fitted model expects this centre to have used,
+   * given the beneficiaries it entered. b is [per child, per pregnant woman,
+   * per other]; null when the month had too little data to fit that item.
+   */
+  function vfyExpected(day, item, n) {
+    const md = (vfyData.medians || {})[day];
+    const f = md && md[item];
+    if (!f || !f.b) return null;
+    return f.b[0] * n.c + f.b[1] * n.p + f.b[2] * n.o;
+  }
+
+  /**
+   * One measure as a bar against its expectation.
+   *
+   * Direction is never carried by colour alone: every bar takes a glyph and a
+   * word as well, which is also what lets the two status hues sit in one list.
+   * The scale is shared between the bar and the expectation tick, so the two
+   * are comparable by eye - that is the whole point of drawing it.
+   */
+  function vfyBar(label, got, want, unit) {
+    const max = Math.max(got, want) * 1.18 || 1;
+    const gotPct = Math.max(1.5, (got / max) * 100);
+    const wantPct = (want / max) * 100;
+    const over = got > want;
+    // Within a fifth of the expectation is not worth calling a discrepancy.
+    const near = want > 0 && Math.abs(got - want) / want < 0.2;
+    const cls = near ? 'near' : over ? 'over' : 'under';
+    const word = near ? 'about as expected' : over ? 'above expected' : 'below expected';
+    const glyph = near ? '=' : over ? '\u25b2' : '\u25bc';
+    const round = v => v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+    return '<div class="vb" title="' + esc(label) + ': ' + round(got) + ' ' + esc(unit) +
+      ' used, about ' + round(want) + ' expected for this beneficiary mix">' +
+      '<span class="vb-l">' + esc(label) + '</span>' +
+      '<span class="vb-track">' +
+        '<span class="vb-fill ' + cls + '" style="width:' + gotPct.toFixed(1) + '%"></span>' +
+        '<span class="vb-tick" style="left:' + Math.min(99, wantPct).toFixed(1) + '%"></span>' +
+      '</span>' +
+      '<span class="vb-v">' + round(got) + '</span>' +
+      '<span class="vb-x ' + cls + '">' + glyph + ' ' + word +
+        ' <span class="vb-exp">(~' + round(want) + ')</span></span>' +
+      '</div>';
+  }
+
+  /** The measures behind one finding, drawn rather than described. */
+  function vfyMeasures(f) {
+    const items = vfyData.items || [];
+    const bars = [];
+
+    // Meals first: it is the one an officer checks against the photograph.
+    const wantMeals = vfyExpected(f.d, 'meals', f.n);
+    if (wantMeals != null) bars.push(vfyBar('Meals', f.n.m, wantMeals, 'meals'));
+
+    // Then any consumable the reasons actually complained about.
+    const flagged = {};
+    (f.r || []).forEach(x => {
+      if (x.code !== 'PERHEAD_HIGH' && x.code !== 'PERHEAD_LOW') return;
+      items.forEach(it => { if (x.t.indexOf(it) >= 0) flagged[it] = true; });
+    });
+    items.forEach((it, j) => {
+      if (!flagged[it]) return;
+      const want = vfyExpected(f.d, it, f.n);
+      if (want == null) return;
+      bars.push(vfyBar(it.charAt(0).toUpperCase() + it.slice(1),
+        (f.n.u || [])[j] || 0, want, it));
+    });
+
+    // A register that does not balance has no expectation to plot against -
+    // the opening and closing figures are not in this file - so it is stated
+    // as a chip rather than invented as a bar.
+    const ledger = (f.r || []).filter(x => x.code === 'LEDGER_OFF').map(x => {
+      const hit = items.filter(it => x.t.toLowerCase().indexOf(it) >= 0)[0];
+      return '<span class="vb-chip" title="' + esc(x.t) + '">\u26a0 ' +
+        esc(hit ? hit + ' register does not balance' : 'register does not balance') + '</span>';
+    }).join('');
+
+    const other = (f.r || []).filter(x =>
+      x.code === 'MEALS_SHORT' || x.code === 'MEALS_EXCESS').map(x =>
+      '<span class="vb-chip" title="' + esc(x.t) + '">\u26a0 ' +
+      esc(x.code === 'MEALS_SHORT' ? 'meals short of beneficiaries present'
+        : 'more meals than beneficiaries present') + '</span>').join('');
+
+    return (bars.length ? '<div class="vb-set">' + bars.join('') + '</div>' : '') +
+      (ledger || other ? '<div class="vb-chips">' + ledger + other + '</div>' : '') +
+      // The full wording is kept, not discarded: an officer writing a note
+      // needs the sentence, and the record has to stay quotable.
+      '<details class="vb-more"><summary>wording</summary><ul class="vfy-why">' +
+      (f.r || []).map(x => '<li>' + esc(x.t) + '</li>').join('') + '</ul></details>';
+  }
+
   function renderVerify() {
     if (!vfyData) {
       $('vfy-queue').innerHTML = Charts.empty(
@@ -1706,7 +1796,7 @@ const App = (() => {
             '<span class="reg-sub">' + esc(sectorName(f.s)) + ' · ' + esc(prettyDay(iso)) + '</span>' +
             '<span class="vfy-score" title="How far this report is from adding up">' +
             f.score + '</span></div>' +
-          '<ul class="vfy-why">' + f.r.map(x => '<li>' + esc(x.t) + '</li>').join('') + '</ul>' +
+          vfyMeasures(f) +
           '<div class="vfy-entered">Entered: <b>' + f.n.c + '</b> ' +
             (f.n.c === 1 ? 'child' : 'children') + ' · ' + f.n.p + ' pregnant · ' +
             f.n.o + (f.n.o === 1 ? ' other' : ' others') + ' · <b>' + f.n.m + '</b> ' +

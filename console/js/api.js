@@ -545,7 +545,21 @@ const Api = (() => {
     return {
       ym: ym, generatedAt: new Date().toISOString(),
       items: ['eggs', 'rice', 'pulses', 'bal', 'balp', 'milk'],
-      medians: {},
+      // The district's fitted expectation per beneficiary: [per child, per
+      // pregnant woman, per other]. The real file carries one of these per
+      // day; without it the verification cards have nothing to compare a
+      // centre against and fall back to bare text.
+      medians: (function () {
+        const fit = {
+          eggs: { b: [0.66, 0.88, 2.41], n: 1036, r2: 0.62 },
+          rice: { b: [0.11, 0.14, 0.30], n: 1036, r2: 0.55 },
+          meals: { b: [1.07, 0.65, 0.26], n: 1036, r2: 0.91 },
+          pulses: null, bal: null, balp: null, milk: null
+        };
+        const out = {};
+        for (let d = 1; d <= 31; d++) out[String(d).padStart(2, '0')] = fit;
+        return out;
+      })(),
       findings: [
         mk(ids[0], dd, 84, [
           { code: 'MEALS_SHORT', w: 40,

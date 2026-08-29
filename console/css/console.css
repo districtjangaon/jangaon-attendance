@@ -543,3 +543,50 @@ body.dark td.reg-over { background: #4a1c22; color: #ffb0b8; }
 .dupe-bar .info { color: var(--warn); font-weight: 600; }
 body.dark .dupe-bar { background: #4a3a12; }
 body.dark .dupe-bar .info { color: #ffd98a; }
+
+
+/* ---- verification: a finding as a comparison, not a paragraph -------------
+   Status colours, so they carry a glyph and a word as well - never hue alone.
+   Light mode passes every check in the palette validator. On the dark surface
+   the amber cannot satisfy both the lightness band and CVD separation from the
+   red at once: every hue that sits inside the band collapses to dE 5.8 under
+   deuteranopia. Separation wins - a reader who cannot tell the two apart is
+   worse off than a mark slightly lighter than the band prefers. */
+.vb-set { margin: 8px 0 4px; }
+.vb { display: grid; grid-template-columns: 78px 1fr 46px auto; gap: 10px;
+  align-items: center; padding: 3px 0; font-size: 12.5px; }
+.vb-l { color: var(--muted); }
+.vb-track { position: relative; height: 10px; background: var(--ch-grid);
+  border-radius: 5px; }
+.vb-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.vb-fill.over { background: var(--st-bad); }
+.vb-fill.under { background: var(--st-warn); }
+.vb-fill.near { background: var(--st-idle); }
+/* The expectation. A 2px surface-coloured ring keeps it legible where it
+   overlaps the fill, which is exactly where it matters most. */
+.vb-tick { position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: var(--ch-ink); box-shadow: 0 0 0 2px var(--surface); }
+/* --ch-ink, not --ink: body.dark redefines the chart token and not the base
+   one, so var(--ink) here would be near-black on a near-black surface. */
+.vb-v { font-family: var(--font-mono); text-align: right; color: var(--ch-ink);
+  font-variant-numeric: tabular-nums; }
+.vb-x { font-size: 11.5px; white-space: nowrap; }
+.vb-x.over { color: var(--st-bad); }
+.vb-x.under { color: var(--st-warn); }
+.vb-x.near { color: var(--muted); }
+.vb-exp { color: var(--muted); font-family: var(--font-mono); }
+.vb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.vb-chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
+  background: var(--err-soft); color: var(--st-bad); border: 1px solid var(--st-bad); }
+.vb-more { margin-top: 4px; }
+.vb-more summary { font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.vb-more .vfy-why { margin: 6px 0 0; }
+body.dark .vb-tick { box-shadow: 0 0 0 2px var(--ch-surface); }
+/* Same root cause, pre-existing: the entered figures are bolded with an
+   explicit --ink and vanish in dark mode. */
+body.dark .vfy-entered b, body.dark .vfy-entered { color: var(--ch-ink); }
+body.dark .vb-chip { background: #3a1d20; }
+@media (max-width: 620px) {
+  .vb { grid-template-columns: 64px 1fr 40px; }
+  .vb-x { grid-column: 1 / -1; padding-left: 74px; }
+}
