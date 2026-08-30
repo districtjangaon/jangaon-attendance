@@ -79,30 +79,139 @@ function apiLogin_(req) {
   // rebinds only via admin. The same deviceId bound to several users (shared
   // centre phone) is fine. Console roles (ADMIN/CDPO/SUPERVISOR) are exempt:
   // they legitimately sign in from office PC, laptop and phone browser.
-  if (String(user.role) === 'FIELD') {
-    if (user.device_id && user.device_id !== deviceId) {
-      return { ok: false, code: 'DEVICE_MISMATCH' };
-    }
-    if (!user.device_id) {
-      // Device pair policy: a centre phone carries at most one AWT + one AWH.
-      // Enforced HERE, before binding, so a refused login leaves the account
-      // free to bind to the right phone later (client-side-only enforcement
-      // would strand the account: the bind would already have happened).
-      const bound = getUsersAll_().filter(u =>
-        String(u.device_id) === deviceId && String(u.role) === 'FIELD' &&
-        String(u.status) === 'ACTIVE' && String(u.user_id) !== String(user.user_id));
-      if (bound.length >= 2) return { ok: false, code: 'DEVICE_FULL' };
-      if (bound.some(u => String(u.cadre) === String(user.cadre))) {
-        return { ok: false, code: 'DEVICE_CADRE', cadre: String(user.cadre) };
-      }
-      updateUser_(user, { device_id: deviceId, device_bound_at: nowIso_() });
-      audit_(user.user_id, 'DEVICE_BIND', user.user_id, '', deviceId);
-    }
-  }
+  const bindErr = bindDevice_(user, deviceId);
+  if (bindErr) return bindErr;
 
   CACHE.remove(rlKey);
   const token = issueToken_(user, deviceId);
   return { ok: true, token: token, config: getConfigFor_(user) };
+}
+
+/**
+ * Bind a field worker to this handset, or explain why not. Returns null when
+ * the login may proceed, and an error object when it may not.
+ *
+ * Extracted so that every route which issues a token enforces the SAME rules.
+ * Duplicating them for a second sign-in path is how a device policy quietly
+ * develops a hole.
+ *
+ * Console roles (ADMIN/CDPO/SUPERVISOR) are exempt: they legitimately sign in
+ * from an office PC, a laptop and a phone browser.
+ */
+function bindDevice_(user, deviceId) {
+  if (String(user.role) !== 'FIELD') return null;
+  if (user.device_id && user.device_id !== deviceId) {
+    return { ok: false, code: 'DEVICE_MISMATCH' };
+  }
+  if (!user.device_id) {
+    // Device pair policy: a centre phone carries at most one AWT + one AWH.
+    // Enforced HERE, before binding, so a refused login leaves the account
+    // free to bind to the right phone later (client-side-only enforcement
+    // would strand the account: the bind would already have happened).
+    const bound = getUsersAll_().filter(u =>
+      String(u.device_id) === deviceId && String(u.role) === 'FIELD' &&
+      String(u.status) === 'ACTIVE' && String(u.user_id) !== String(user.user_id));
+    if (bound.length >= 2) return { ok: false, code: 'DEVICE_FULL' };
+    if (bound.some(u => String(u.cadre) === String(user.cadre))) {
+      return { ok: false, code: 'DEVICE_CADRE', cadre: String(user.cadre) };
+    }
+    updateUser_(user, { device_id: deviceId, device_bound_at: nowIso_() });
+    audit_(user.user_id, 'DEVICE_BIND', user.user_id, '', deviceId);
+  }
+  return null;
+}
+
+/**
+ * Who else works at this centre.
+ *
+ * Committee finding 5, measured 2026-08-30: of 500 Helper accounts, 254 are
+ * registered on their own mobile number rather than the centre's. Sign-in
+ * resolves a PHONE to its candidates, so typing the centre number on the
+ * Teacher's handset does not offer those Helpers at all — their names simply
+ * are not in the list, which reads exactly like an account that was never
+ * activated. It is not a fault in their records; a Helper may perfectly well
+ * have her own number. It is the sign-in screen asking the wrong question.
+ *
+ * So this asks the right one. Names and cadre only, never phone numbers, and
+ * only for the caller's OWN centre — the same information the phone-based
+ * picker already shows to anyone holding the centre's number.
+ */
+function apiCentreUsers_(auth, req) {
+  const awcId = String(auth.user.awc_id || '');
+  if (!awcId) return { ok: true, users: [] };
+  const users = getUsersAll_().filter(u =>
+    String(u.awc_id) === awcId && String(u.status) === 'ACTIVE' &&
+    String(u.role) === 'FIELD' && String(u.user_id) !== String(auth.userId));
+  return { ok: true, users: users.map(u => ({
+    id: String(u.user_id), name: String(u.name), cadre: String(u.cadre),
+    // So the picker can say "she has not set a PIN yet" instead of failing
+    // at the next step with nothing to explain it.
+    registered: !!u.pin_hash
+  })) };
+}
+
+/**
+ * Sign a colleague in on this handset, by name and PIN, with no phone number
+ * typed at all.
+ *
+ * WHAT THIS DOES NOT WEAKEN. It needs a live session of someone already at
+ * the same centre, and then the colleague's own PIN — strictly more than the
+ * phone-number path, which needs only a number that the whole centre knows.
+ * It carries the same lockout, the same failure counter and the same device
+ * binding rules, through the same functions. It cannot reach a worker at
+ * another centre: the target is filtered by the caller's own awc_id before
+ * anything is checked.
+ */
+function apiCentreLogin_(auth, req) {
+  const awcId = String(auth.user.awc_id || '');
+  const targetId = String(req.userId || '');
+  const deviceId = String(req.deviceId || '').trim();
+  if (!awcId || !targetId) return { ok: false, code: 'NO_USER' };
+  if (!deviceId) return { ok: false, code: 'NO_DEVICE' };
+
+  const user = getUserById_(targetId);
+  if (!user || String(user.status) !== 'ACTIVE' || String(user.role) !== 'FIELD' ||
+      String(user.awc_id) !== awcId) {
+    return { ok: false, code: 'NO_USER' };
+  }
+  if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
+    return { ok: false, code: 'LOCKED', until: String(user.locked_until) };
+  }
+
+  if (!user.pin_hash) {
+    const newPin = String(req.newPin || '');
+    if (!newPin) return { ok: false, code: 'SET_PIN_REQUIRED', userId: String(user.user_id) };
+    if (!/^\d{4}$/.test(newPin)) return { ok: false, code: 'BAD_PIN_FORMAT' };
+    const salt = Utilities.getUuid();
+    updateUser_(user, {
+      pin_hash: hashPin_(newPin, salt), pin_salt: salt, pin_set_at: nowIso_(),
+      failed_attempts: '0', locked_until: ''
+    });
+    audit_(user.user_id, 'PIN_SET', user.user_id, '', '');
+  } else {
+    const pin = String(req.pin || '');
+    if (!pin) return { ok: false, code: 'PIN_REQUIRED' };
+    if (hashPin_(pin, String(user.pin_salt)) !== String(user.pin_hash)) {
+      const fails = (Number(user.failed_attempts) || 0) + 1;
+      if (fails >= LOCKOUT_AFTER) {
+        const until = fmtIso_(Date.now() + LOCKOUT_MIN * 60000);
+        updateUser_(user, { failed_attempts: '0', locked_until: until });
+        audit_(user.user_id, 'PIN_LOCKOUT', user.user_id, '', until);
+        return { ok: false, code: 'LOCKED', until: until };
+      }
+      updateUser_(user, { failed_attempts: String(fails) });
+      return { ok: false, code: 'WRONG_PIN', left: LOCKOUT_AFTER - fails };
+    }
+    if (Number(user.failed_attempts) > 0) {
+      updateUser_(user, { failed_attempts: '0', locked_until: '' });
+    }
+  }
+
+  const bindErr = bindDevice_(user, deviceId);
+  if (bindErr) return bindErr;
+
+  audit_(user.user_id, 'CENTRE_LOGIN', user.user_id, String(auth.userId), deviceId);
+  return { ok: true, token: issueToken_(user, deviceId), config: getConfigFor_(user) };
 }
 
 function issueToken_(user, deviceId) {

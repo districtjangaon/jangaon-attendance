@@ -278,7 +278,12 @@ const App = (() => {
     $('btn-history-back').onclick = goHome;
     $('btn-users').onclick = showUsers;
     $('btn-users-back').onclick = goHome;
-    $('btn-adduser').onclick = () => { resetLogin(); show('screen-login'); };
+    $('btn-adduser').onclick = () => {
+      resetLogin();
+      // Offer the centre's own roster before asking for a number at all.
+      loadCentreUsers(active());
+      show('screen-login');
+    };
     $('btn-menu').onclick = showMenu;
     $('btn-menu-back').onclick = goHome;
     $('btn-logout').onclick = doLogout;
@@ -324,6 +329,13 @@ const App = (() => {
     $('btn-rp-photo-meal').onclick = () => openRptCamera('meal');
     $('btn-rp-submit').onclick = submitReport;
     $('btn-devreq').onclick = requestDeviceApproval;
+    // Typing a number is an explicit choice of the other path.
+    $('in-phone').addEventListener('input', () => {
+      if (!centreSel) return;
+      centreSel = null;
+      $('login-msg').textContent = '';
+      loadCentreUsers(active());
+    });
   }
 
   /** Header ↻: check for a new version and reload — works on every screen. */
@@ -624,6 +636,8 @@ const App = (() => {
 
   // ---------- login ----------
   function resetLogin() {
+    centreSel = null;
+    if ($('centre-block')) $('centre-block').hidden = true;
     devReqCtx = null;
     if ($('btn-devreq')) $('btn-devreq').hidden = true;
     loginSel = null;
@@ -635,6 +649,117 @@ const App = (() => {
     $('in-newpin').value = '';
     $('in-newpin2').value = '';
     $('login-msg').textContent = '';
+  }
+
+  /**
+   * The colleague chosen from the centre picker, and the session used to
+   * vouch for her. Held only until she signs in or leaves the screen.
+   */
+  let centreSel = null;
+
+  /**
+   * Ask the server who else works at this centre. Names and cadre only; the
+   * server never returns a colleague's phone number, and scopes the answer to
+   * the signed-in worker's own centre.
+   */
+  async function loadCentreUsers(acc) {
+    const block = $('centre-block');
+    if (!block) return;
+    block.hidden = true;
+    if (!acc) return;
+    try {
+      const res = await Api.post({ action: 'centreUsers', token: acc.token });
+      if (!res || !res.ok || !res.users || !res.users.length) return;
+      const list = $('centre-list');
+      list.innerHTML = '';
+      res.users.forEach(u => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'whoami-btn';
+        b.innerHTML = '<b>' + u.name + '</b><span>' +
+          (u.cadre === 'AWT' ? 'Teacher (AWT)' : u.cadre === 'AWH' ? 'Helper (AWH)' : u.cadre) +
+          (u.registered ? '' : ' \u00b7 first time \u2014 she chooses her PIN now') + '</span>';
+        b.onclick = () => pickCentreUser(acc, u);
+        list.appendChild(b);
+      });
+      block.hidden = false;
+    } catch (e) { /* offline: the number path below still works */ }
+  }
+
+  function pickCentreUser(acc, u) {
+    centreSel = { vouch: acc, user: u };
+    $('centre-block').hidden = true;
+    $('whoami-block').hidden = true;
+    $('login-msg').textContent = u.name + ' \u2014 ' +
+      (u.registered ? 'enter her 4-digit PIN.' : 'first login: she chooses her PIN below.');
+    $('pin-block').hidden = !u.registered;
+    $('newpin-block').hidden = u.registered;
+    $('in-pin').value = '';
+    $('in-newpin').value = '';
+    $('in-newpin2').value = '';
+    (u.registered ? $('in-pin') : $('in-newpin')).focus();
+  }
+
+  /**
+   * Sign the chosen colleague in without a phone number. Vouched for by the
+   * session already on this handset; her own PIN is still required, and the
+   * server applies the same lockout and the same device rules as any login.
+   */
+  async function doCentreLogin() {
+    const msg = $('login-msg');
+    const u = centreSel.user;
+    const body = { action: 'centreLogin', token: centreSel.vouch.token,
+      userId: u.id, deviceId: await deviceId() };
+    if (!$('newpin-block').hidden) {
+      const p1 = $('in-newpin').value.trim(), p2 = $('in-newpin2').value.trim();
+      if (!/^\d{4}$/.test(p1)) { msg.textContent = 'PIN must be exactly 4 digits.'; return; }
+      if (p1 !== p2) { msg.textContent = 'The two PINs do not match.'; return; }
+      body.newPin = p1;
+    } else {
+      const pin = $('in-pin').value.trim();
+      if (!/^\d{4}$/.test(pin)) { msg.textContent = 'Enter her 4-digit PIN.'; return; }
+      body.pin = pin;
+    }
+    setBusy('btn-login', true, 'Checking\u2026 please wait');
+    try {
+      const res = await Api.post(body);
+      if (res.ok) {
+        const uid = res.config.user.id;
+        accounts[uid] = { token: res.token, user: res.config.user, config: res.config };
+        activeUid = uid;
+        enforceVersion(res.config);
+        await saveAccounts();
+        resetLogin();
+        await primePermissions();
+        showWelcome(res.config.user);
+        Sync.schedule('login');
+        sendSeenPing();
+        return;
+      }
+      if (res.code === 'SET_PIN_REQUIRED') {
+        $('newpin-block').hidden = false;
+        $('pin-block').hidden = true;
+        msg.textContent = 'First login: she chooses her PIN below.';
+        return;
+      }
+      // A device refusal here is appealable exactly as on the number path.
+      const askable = { DEVICE_MISMATCH: 1, DEVICE_FULL: 1, DEVICE_CADRE: 1 };
+      if (askable[res.code]) {
+        $('btn-devreq').hidden = true;   // the appeal route needs her number
+        msg.textContent = res.code === 'DEVICE_MISMATCH'
+          ? u.name + ' is signed in on another phone. Sign in with her own mobile number below and press the approval button.'
+          : 'This phone already has its two users. Ask the district office.';
+        return;
+      }
+      msg.textContent = res.code === 'WRONG_PIN'
+        ? 'Wrong PIN.' + (res.left ? ' Attempts left: ' + res.left : '')
+        : res.code === 'LOCKED' ? 'Too many wrong attempts. Try again after 15 minutes.'
+        : 'Could not sign in (' + res.code + ').';
+    } catch (e) {
+      msg.textContent = 'No connection. Adding a user needs internet.';
+    } finally {
+      setBusy('btn-login', false);
+    }
   }
 
   function renderWhoami(users) {
@@ -661,6 +786,7 @@ const App = (() => {
   }
 
   async function doLogin() {
+    if (centreSel) return doCentreLogin();
     const phone = $('in-phone').value.trim();
     const pin = $('in-pin').value.trim();
     const newPinShown = !$('newpin-block').hidden;

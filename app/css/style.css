@@ -581,3 +581,12 @@ input:focus, select:focus {
   border-left: 3px solid #14b899; border-radius: 0 8px 8px 0;
   padding: 8px 10px; margin: 6px 0 10px;
 }
+
+
+/* The centre roster, offered before the number box. Half the Helpers in the
+   district are registered on their own mobile, so a number is the one thing
+   the person holding the phone may not know. */
+.centre-or {
+  text-align: center; font-size: 13px; color: var(--muted);
+  margin: 14px 0 4px; text-transform: lowercase;
+}

@@ -30,6 +30,17 @@
   <section id="screen-login" class="screen">
     <button id="btn-install" class="btn btn-primary install-btn" hidden>&#11015; Install this app on the phone</button>
     <h2>Login</h2>
+
+    <!-- Colleagues at this centre, offered by NAME when someone is already
+         signed in on this phone. Half the Helpers in the district are
+         registered on their own mobile, so asking for the centre's number
+         never finds them. Asking for a name always does. -->
+    <div id="centre-block" hidden>
+      <p class="info">Others at your centre &mdash; tap your name to sign in on this phone:</p>
+      <div id="centre-list" class="whoami-list"></div>
+      <p class="centre-or">or sign in with a mobile number</p>
+    </div>
+
     <label for="in-phone">Mobile number</label>
     <input id="in-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="tel">
 
@@ -284,7 +295,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v5.24-20260830-2012</footer>
+  <footer class="build-tag">BUILD: v5.25-20260830-2131</footer>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button id="nav-home"><span>&#127968;</span>Home</button>

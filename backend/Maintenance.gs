@@ -718,28 +718,48 @@ function grantConsoleAccess(userId) {
 }
 
 /**
- * Why "additional user logins are not getting activated" — with counts.
+ * Committee finding 5, examined: why a Helper cannot mark on her Teacher's phone.
  *
  * Run from the editor:  deviceAudit()
  *
- * Committee point 5, 2026-08-30. The complaint is real but it is not one
- * fault; it is four, and they need different remedies. This separates them so
- * the district acts on the actual distribution instead of the loudest case:
+ * READ THE CATEGORIES CAREFULLY — MOST OF THEM ARE NOT FAULTS. The first
+ * version of this function called them "causes", which was wrong and would
+ * have put a misleading figure in front of the Committee: it reported that
+ * 50.8% of Helpers had a "phone mismatch", when a Helper registered on her
+ * own mobile number is an ordinary, correct arrangement. What these
+ * categories describe is HOW PHONES ARE DISTRIBUTED across the district.
+ * Only two of them are anybody's work.
  *
- *   NEVER_SIGNED_IN   no PIN has ever been set. Nothing is broken — the
- *                     account has simply not been opened yet. Remedy is a
- *                     visit or a phone call, not a technical fix.
- *   BOUND_ELSEWHERE   bound to a handset that is not her Teacher's. This is
- *                     the one that reads as "not getting activated": she is
- *                     refused on the centre phone and cannot free herself.
- *                     Remedy is an approval, now available in the console.
- *   PHONE_MISMATCH    her number in the register is not the centre number the
- *                     Teacher uses, so the shared-phone login never offers her
- *                     at all. Remedy is a master-data correction.
- *   INACTIVE          status is not ACTIVE. Login refuses before any device
- *                     check runs. Remedy is a master-data correction.
+ *   NEEDS ACTION
+ *     NEVER_SIGNED_IN    No PIN has ever been set, so the account has never
+ *                        been opened. Nothing is broken; someone has to sit
+ *                        with her once. This is the real backlog.
  *
- * Read-only. It changes nothing and is safe to run during the marking window.
+ *   NEEDS A CORRECTION
+ *     INACTIVE           Status is not ACTIVE, so sign-in refuses before any
+ *                        device check runs. A master-data correction.
+ *
+ *   NOT FAULTS — configuration, reported so the numbers are understood
+ *     OWN_NUMBER         Registered on her own mobile rather than the centre's.
+ *                        She signs in perfectly well with her own number. The
+ *                        trap is that she does NOT appear when someone types
+ *                        the CENTRE number on the Teacher's handset, which
+ *                        reads exactly like an account that was never
+ *                        activated. Answered by the centre picker, which lists
+ *                        colleagues by name instead of asking for a number.
+ *     SEPARATE_HANDSET   Bound to a handset that is not her Teacher's — which
+ *                        is simply what it looks like when she has a phone of
+ *                        her own. It only becomes a problem the day she needs
+ *                        the Teacher's phone instead, and that day she can now
+ *                        ask for approval from the sign-in screen.
+ *     SHARES_CENTRE_PHONE  Same number as her Teacher: the shared-phone case
+ *                        the system was designed around.
+ *
+ * THE NUMBER THAT ACTUALLY MEASURES BLOCKAGE is the count of pending approval
+ * requests, printed at the end. That is workers who tried, were refused, and
+ * said so — not an inference from how the register happens to be filled in.
+ *
+ * Read-only. Changes nothing and is safe to run during the marking window.
  */
 function deviceAudit() {
   const users = getUsersAll_();
@@ -750,8 +770,8 @@ function deviceAudit() {
     if (a) (byAwc[a] = byAwc[a] || []).push(u);
   });
 
-  const buckets = { NEVER_SIGNED_IN: [], BOUND_ELSEWHERE: [], PHONE_MISMATCH: [],
-    INACTIVE: [], READY: [] };
+  const buckets = { NEVER_SIGNED_IN: [], INACTIVE: [], OWN_NUMBER: [],
+    SEPARATE_HANDSET: [], SHARES_CENTRE_PHONE: [] };
 
   field.filter(function (u) { return String(u.cadre) === 'AWH'; }).forEach(function (h) {
     const mates = (byAwc[String(h.awc_id || '')] || [])
@@ -763,28 +783,37 @@ function deviceAudit() {
     if (String(h.status) !== 'ACTIVE') { buckets.INACTIVE.push(label); return; }
     if (!h.pin_hash) { buckets.NEVER_SIGNED_IN.push(label); return; }
     if (teacher && String(teacher.phone) !== String(h.phone)) {
-      buckets.PHONE_MISMATCH.push(label + ' — hers ' + String(h.phone) +
+      buckets.OWN_NUMBER.push(label + ' — hers ' + String(h.phone) +
         ', centre ' + String(teacher.phone));
       return;
     }
     if (h.device_id && teacher && teacher.device_id &&
         String(h.device_id) !== String(teacher.device_id)) {
-      buckets.BOUND_ELSEWHERE.push(label);
+      buckets.SEPARATE_HANDSET.push(label);
       return;
     }
-    buckets.READY.push(label);
+    buckets.SHARES_CENTRE_PHONE.push(label);
   });
 
   const total = Object.keys(buckets).reduce(function (n, k) { return n + buckets[k].length; }, 0);
+  const pct = function (n) { return total ? Math.round((n / total) * 1000) / 10 : 0; };
+
   Logger.log('Helper (AWH) accounts examined: ' + total);
-  ['BOUND_ELSEWHERE', 'NEVER_SIGNED_IN', 'PHONE_MISMATCH', 'INACTIVE', 'READY']
-    .forEach(function (k) {
-      const pct = total ? Math.round((buckets[k].length / total) * 1000) / 10 : 0;
-      Logger.log('  ' + k + ': ' + buckets[k].length + '  (' + pct + '%)');
-    });
-  // The first 40 of each, so the log stays readable; the counts above are the
-  // whole population and are what the Committee is owed.
-  ['BOUND_ELSEWHERE', 'PHONE_MISMATCH', 'INACTIVE'].forEach(function (k) {
+  Logger.log('');
+  Logger.log('NEEDS ACTION');
+  ['NEVER_SIGNED_IN', 'INACTIVE'].forEach(function (k) {
+    Logger.log('  ' + k + ': ' + buckets[k].length + '  (' + pct(buckets[k].length) + '%)');
+  });
+  Logger.log('');
+  Logger.log('NOT FAULTS — how phones are distributed');
+  ['OWN_NUMBER', 'SEPARATE_HANDSET', 'SHARES_CENTRE_PHONE'].forEach(function (k) {
+    Logger.log('  ' + k + ': ' + buckets[k].length + '  (' + pct(buckets[k].length) + '%)');
+  });
+
+  // Only the two actionable lists are printed. Naming 254 women under a
+  // heading that is not a fault is how a working arrangement turns into a
+  // list of people to chase.
+  ['NEVER_SIGNED_IN', 'INACTIVE'].forEach(function (k) {
     if (!buckets[k].length) return;
     Logger.log('');
     Logger.log('--- ' + k + ' (first 40 of ' + buckets[k].length + ') ---');
@@ -798,10 +827,12 @@ function deviceAudit() {
       .filter(function (r) { return String(r[0]) === 'PENDING'; }).length;
   }
   Logger.log('');
-  Logger.log('Approval requests waiting in the console: ' + open);
+  Logger.log('ACTUALLY BLOCKED RIGHT NOW (asked and were refused): ' + open);
+  Logger.log('This is the figure to quote. The rest is configuration.');
+
   return { total: total, counts: Object.keys(buckets).reduce(function (o, k) {
     o[k] = buckets[k].length; return o;
-  }, {}), pendingRequests: open };
+  }, {}), blockedNow: open };
 }
 
 /**

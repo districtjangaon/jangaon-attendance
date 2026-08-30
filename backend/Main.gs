@@ -46,6 +46,8 @@ function doPost(e) {
       appMode: apiAppMode_,
       seenPing: apiSeenPing_,
       stockCarry: apiStockCarry_,
+      centreUsers: apiCentreUsers_,
+      centreLogin: apiCentreLogin_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,
