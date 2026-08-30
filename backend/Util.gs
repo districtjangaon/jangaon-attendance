@@ -49,7 +49,15 @@ const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 
   'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz',
   // What the lens saw: a 64-bit perceptual hash, plus mean brightness and
   // spread. Measured on the handset before the stamp bar was drawn.
-  'photo_hash', 'photo_lum', 'photo_spread'];
+  'photo_hash', 'photo_lum', 'photo_spread',
+  // Committee points 3 and 4, 2026-08-30. The delay complaint and the
+  // office-phone complaint were both unanswerable because nothing recorded
+  // how long the handset waited or what it was running. gps_wait_sec is the
+  // seconds the shutter was held waiting for a fix - the whole of the delay,
+  // measured where it happens. platform is a two-field summary (OS version /
+  // browser version), parsed on the handset: enough to tell a fleet of old
+  // WebViews from a fleet of new ones, and never the full user-agent string.
+  'gps_wait_sec', 'platform'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
 // Seen pings: one per person per working day, written when the app is opened
 // without a mark following. APPEND-ONLY and pruned nightly to 7 days — see

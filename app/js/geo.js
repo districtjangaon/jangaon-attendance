@@ -137,6 +137,35 @@ const Geo = {
   best() { return this._best; },
   denied() { return this._denied; },
 
+  /** True while a hunt is live. start() would restart it and lose the fix. */
+  running() { return this._watchId != null; },
+
+  /**
+   * Begin hunting with no screen attached, and never throw away a reading
+   * already in hand. Called when the home screen appears so that by the time
+   * she has walked to the camera the satellites are already found - the
+   * single biggest part of the delay reported on 2026-08-30 was that the hunt
+   * had not started yet when she pressed the shutter.
+   */
+  warm() {
+    if (this._watchId != null) return;
+    const had = this._best;
+    if (had && had.accuracy != null && had.accuracy <= this.ACCEPT_M) return;
+    this.start(this._onUpdate);
+    if (had) this._offer(had);   // _offer keeps the better of the two
+  },
+
+  /**
+   * Point a screen at the hunt that is already running, instead of starting a
+   * new one. Replays the current best immediately so the line is never blank
+   * when a fix is already held. Returns that fix, or null.
+   */
+  attach(onUpdate) {
+    this._onUpdate = onUpdate || null;
+    if (onUpdate && this._best) onUpdate(this._best, null);
+    return this._best;
+  },
+
   /** Resolves with the best fix available within ms (or null). Never rejects. */
   settle(ms) {
     return new Promise(resolve => {

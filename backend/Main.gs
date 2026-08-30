@@ -18,6 +18,10 @@ function doPost(e) {
     if (action === 'ping') return jsonOut_({ ok: true, ts: nowIso_() });
     if (action === 'login') return jsonOut_(apiLogin_(req));
     if (action === 'diag') return jsonOut_(apiDiag_(req)); // DIAG_KEY-gated, read-only
+    // Sits beside login for the same reason login does: a worker locked out of
+    // her own phone binding has no token to present. PIN-checked inside, and
+    // it shares login's per-phone rate limit and lockout.
+    if (action === 'deviceRequest') return jsonOut_(apiDeviceRequest_(req));
 
     // Everything else requires a valid session token.
     const auth = verifyToken_(req.token);
@@ -36,6 +40,7 @@ function doPost(e) {
       resolveIssue: apiResolveIssue_,
       appMode: apiAppMode_,
       seenPing: apiSeenPing_,
+      stockCarry: apiStockCarry_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,
@@ -50,6 +55,8 @@ function doPost(e) {
       caseGeo: apiCaseGeo_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
+      deviceRequests: apiDeviceRequestList_,
+      deviceRequestDecide: apiDeviceRequestDecide_,
       setAwcCoords: apiSetAwcCoords_,
       raiseIssue: apiRaiseIssue_,
       listIssues: apiListIssues_,

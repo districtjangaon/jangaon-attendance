@@ -323,6 +323,7 @@ const App = (() => {
     $('btn-rp-photo-others').onclick = () => openRptCamera('others');
     $('btn-rp-photo-meal').onclick = () => openRptCamera('meal');
     $('btn-rp-submit').onclick = submitReport;
+    $('btn-devreq').onclick = requestDeviceApproval;
   }
 
   /** Header ↻: check for a new version and reload — works on every screen. */
@@ -623,6 +624,8 @@ const App = (() => {
 
   // ---------- login ----------
   function resetLogin() {
+    devReqCtx = null;
+    if ($('btn-devreq')) $('btn-devreq').hidden = true;
     loginSel = null;
     $('whoami-block').hidden = true;
     $('whoami-list').innerHTML = '';
@@ -703,15 +706,24 @@ const App = (() => {
         sendSeenPing();
         return;
       }
+      // Which refusals a request can actually fix. A wrong PIN or a
+      // deactivated account is not one of them, and offering the button there
+      // would send the office work it cannot do anything with.
+      const askable = { DEVICE_MISMATCH: 1, DEVICE_FULL: 1, DEVICE_CADRE: 1 };
+      $('btn-devreq').hidden = !askable[res.code];
+      devReqCtx = askable[res.code]
+        ? { phone: phone, pin: body.pin || '', userId: loginSel || '', reason: res.code }
+        : null;
+
       const texts = {
         NO_USER: 'This number is not registered. Contact the district office.',
         INACTIVE: 'This account is deactivated. Contact the district office.',
         PIN_REQUIRED: 'Enter your 4-digit PIN.',
         WRONG_PIN: 'Wrong PIN.' + (res.left ? ' Attempts left: ' + res.left : ''),
         LOCKED: 'Too many wrong attempts. Try again after 15 minutes.',
-        DEVICE_MISMATCH: 'This account is active on another phone. Ask the district office to approve this phone.',
-        DEVICE_FULL: 'This phone already has its two users (AWT + AWH). Use your own phone, or ask the district office.',
-        DEVICE_CADRE: 'Only one Teacher and one Helper can use each phone. Use your own phone, or ask the district office.',
+        DEVICE_MISMATCH: 'This account is already in use on another phone. Your PIN is correct — press the button below and the district office will approve this phone.',
+        DEVICE_FULL: 'This phone already has its two users (one Teacher and one Helper). Press the button below and the district office will sort it out.',
+        DEVICE_CADRE: 'Another ' + (res.cadre === 'AWH' ? 'Helper' : 'Teacher') + ' is already using this phone. Press the button below and the district office will sort it out.',
         RATE_LIMIT: 'Too many attempts. Please wait an hour.',
         BAD_PIN_FORMAT: 'PIN must be exactly 4 digits.'
       };
@@ -735,6 +747,41 @@ const App = (() => {
       msg.textContent = 'No connection. Login needs internet the first time.';
     } finally {
       setBusy('btn-login', false);
+    }
+  }
+
+  /**
+   * The context of the refusal that is being appealed, held only until the
+   * next login attempt. It carries the PIN she just proved, because the
+   * request route re-checks it server-side - there is no token to send.
+   */
+  let devReqCtx = null;
+
+  async function requestDeviceApproval() {
+    const msg = $('login-msg');
+    if (!devReqCtx) return;
+    setBusy('btn-devreq', true, 'Sending…');
+    try {
+      const res = await Api.post({
+        action: 'deviceRequest', phone: devReqCtx.phone, pin: devReqCtx.pin,
+        userId: devReqCtx.userId, reason: devReqCtx.reason, deviceId: await deviceId()
+      });
+      if (res && res.ok) {
+        $('btn-devreq').hidden = true;
+        devReqCtx = null;
+        msg.textContent = 'Request sent to the district office. You will be able to ' +
+          'login on this phone once they approve it — try again later today. ' +
+          'Asking again will not make it faster.';
+      } else if (res && res.code === 'WRONG_PIN') {
+        msg.textContent = 'Type your PIN again, press LOGIN, then press this button.';
+      } else {
+        msg.textContent = 'Could not send the request (' + ((res && res.code) || 'ERR') +
+          '). Please call the district office.';
+      }
+    } catch (e) {
+      msg.textContent = 'No connection. The request needs internet — try again in a moment.';
+    } finally {
+      setBusy('btn-devreq', false);
     }
   }
 
@@ -882,6 +929,12 @@ const App = (() => {
       $('mark-done').hidden = true;
       $('btn-mark').textContent = next;
       $('btn-mark').classList.toggle('out', next === 'OUT');
+      // Start hunting satellites NOW, while she reads this screen and walks to
+      // the camera. A cold GPS needs 20-40 s outdoors; that used to be spent
+      // standing at the shutter with the button saying "Saving...". Only when
+      // a mark is actually outstanding - warming after the day is done would
+      // hold the radio open for nothing.
+      Geo.warm();
     } else {
       $('btn-mark').hidden = true;
       $('mark-done').hidden = false;
@@ -1439,29 +1492,66 @@ const App = (() => {
 
   // ---------- marking ----------
   /** (Re)start GPS acquisition for the capture screen; retried on demand. */
-  function startGeoWatch() {
-    geoResult = null;
+  /**
+   * Two fields the district could not previously answer the Committee with.
+   * platformTag is OS major + browser major and nothing else: enough to tell
+   * a fleet of old WebViews from a fleet of current ones, never the full
+   * user-agent string of an identifiable employee.
+   */
+  function platformTag() {
+    const ua = navigator.userAgent || '';
+    const and = (ua.match(/Android\s+([\d.]+)/) || [])[1];
+    const ios = (ua.match(/OS (\d+)[_\d]* like Mac/) || [])[1];
+    const os = and ? 'Android ' + and : ios ? 'iOS ' + ios : 'Other';
+    const cr = (ua.match(/Chrome\/(\d+)/) || [])[1];
+    const sf = (ua.match(/Version\/(\d+)[\d.]* Mobile.*Safari/) || [])[1];
+    // "; wv)" is how an Android WebView identifies itself - an app-embedded
+    // browser that updates on a different schedule from Chrome.
+    const wv = /;\s*wv\)/.test(ua) ? ' WebView' : '';
+    const br = cr ? 'Chrome ' + cr + wv : sf ? 'Safari ' + sf : 'Other';
+    return (os + ' / ' + br).slice(0, 40);
+  }
+
+  function onGeo(fix, err) { geoResult = fix; paintGps(fix, err); }
+
+  function paintGps(fix, err) {
     const gpsLine = $('cam-gps');
-    gpsLine.textContent = 'Getting GPS…';
-    gpsLine.className = 'gps-line';
+    if (!gpsLine) return;
+    if (fix) {
+      gpsLine.textContent = fix.lat.toFixed(5) + ', ' + fix.lng.toFixed(5) +
+        ' · ±' + Math.round(fix.accuracy) + ' m' +
+        (fix.coarse ? ' (approximate — still improving)' : '');
+      gpsLine.className = 'gps-line ' + (fix.coarse ? '' : 'ok');
+      return;
+    }
+    if (err == null) {
+      gpsLine.textContent = 'Getting GPS…';
+      gpsLine.className = 'gps-line';
+      return;
+    }
+    gpsLine.className = 'gps-line bad';
+    gpsLine.textContent = err === 'INSECURE'
+      ? 'This page is not on a secure (https) address, so the phone will not give its location. Open the app from the official link.'
+      : err === 'DENIED'
+        ? 'Location permission is blocked for this app. Allow it in the browser site settings, then try again.'
+        : 'GPS not found — location is required. Move under open sky.';
+  }
+
+  function startGeoWatch(force) {
+    // A hunt started on the home screen is usually already running and may
+    // already hold a fix. Restarting it would discard that and make her wait
+    // from zero again - which is what the retry path used to do.
+    if (!force && Geo.running()) {
+      geoResult = Geo.attach(onGeo);
+      if (!geoResult) paintGps(null, null);
+      geoPromise = Geo.settle(15000).then(g => { geoResult = g; return g; });
+      return;
+    }
+    geoResult = null;
+    paintGps(null, null);
     // The fix keeps improving while she takes the photo — every better
     // reading redraws this line, so what she sees is what will be filed.
-    Geo.start((fix, err) => {
-      geoResult = fix;
-      if (fix) {
-        gpsLine.textContent = fix.lat.toFixed(5) + ', ' + fix.lng.toFixed(5) +
-          ' · ±' + Math.round(fix.accuracy) + ' m' +
-          (fix.coarse ? ' (approximate — still improving)' : '');
-        gpsLine.className = 'gps-line ' + (fix.coarse ? '' : 'ok');
-        return;
-      }
-      gpsLine.className = 'gps-line bad';
-      gpsLine.textContent = err === 'INSECURE'
-        ? 'This page is not on a secure (https) address, so the phone will not give its location. Open the app from the official link.'
-        : err === 'DENIED'
-          ? 'Location permission is blocked for this app. Allow it in the browser site settings, then try again.'
-          : 'GPS not found — location is required. Move under open sky.';
-    });
+    Geo.start(onGeo);
     geoPromise = Geo.settle(15000).then(g => { geoResult = g; return g; });
   }
 
@@ -1519,7 +1609,25 @@ const App = (() => {
       // District order 2026-08-19: photo AND a GPS fix are mandatory for an
       // attendance mark. Geofence miss or poor accuracy still saves (flagged)
       // — only the complete ABSENCE of a fix or photo blocks, with retry.
-      const g = Geo.best() || (await geoPromise);
+      //
+      // Committee point 3, 2026-08-30 - "delay in marking through photo
+      // capture". This await is the delay: up to 15 s, behind a button that
+      // said "Saving..." and no other explanation, so a working app looked
+      // like a hung one. The wait itself cannot always be removed - a cold
+      // receiver under a roof takes as long as it takes - but being kept in
+      // the dark about it can be, and the seconds are now recorded so the
+      // district can see the real distribution instead of anecdotes.
+      const waitFrom = Date.now();
+      let g = Geo.best();
+      if (!g) {
+        const tick = setInterval(() => {
+          $('cam-msg').textContent = 'Waiting for the location — ' +
+            Math.round((Date.now() - waitFrom) / 1000) + 's. Step outside or ' +
+            'near a window; the photo saves by itself as soon as it arrives.';
+        }, 1000);
+        try { g = await geoPromise; } finally { clearInterval(tick); }
+      }
+      const gpsWaitSec = Math.round((Date.now() - waitFrom) / 1000);
       if (!g) {
         $('cam-msg').textContent = 'Location is required to mark attendance. ' +
           'Move near a window or open sky — GPS is retrying, then tap capture again.';
@@ -1560,7 +1668,9 @@ const App = (() => {
         // Read here, not at sync time: a property set on a Blob is dropped by
         // IndexedDB's structured clone, so it has to become a plain field
         // before the record is queued.
-        photoFp: (photoBlob && photoBlob.fp) || null
+        photoFp: (photoBlob && photoBlob.fp) || null,
+        gpsWaitSec: gpsWaitSec,
+        platform: platformTag()
       };
       await Sync.enqueue(record);
 
@@ -1597,6 +1707,7 @@ const App = (() => {
   function openReport() {
     $('rpt-msg').textContent = '';
     updateRptPhotoButtons();
+    loadStockCarry();   // fire-and-forget: fills in when the answer lands
     show('screen-report');
   }
 
@@ -1663,6 +1774,71 @@ const App = (() => {
       ? 'Your count differs from Opening + Received - Used by ' +
         (Math.round((got - want) * 10) / 10) + '. That is recorded as entered.'
       : 'Opening + Received - Used';
+  }
+
+  /**
+   * Committee point 2, 2026-08-30: "the closing balance of stock is not
+   * automatically carried forward as the opening balance for the following
+   * day." It was not - nothing read the last report, so six opening figures
+   * were retyped from memory every morning and the ledger could never be
+   * reconciled against itself.
+   *
+   * The server is the source of truth, because it survives a reinstalled app
+   * and a changed handset. The last answer is kept on the phone as well and
+   * used when there is no signal, which at report time is common. A locally
+   * closed report writes its own closing straight into that cache, so a
+   * centre offline for a week still opens each morning where it closed.
+   *
+   * Offered, never imposed: the figures land in editable boxes, and a worker
+   * who counts something different types what she counted. That disagreement
+   * is filed as CARRY_OFF for her supervisor - it is the finding, not an error.
+   */
+  let stockCarry = null;
+
+  function carryKey(acc) { return 'carry_' + String(acc.user.awcId || ''); }
+
+  async function loadStockCarry() {
+    const acc = active();
+    if (!acc) return;
+    stockCarry = (await DB.kvGet(carryKey(acc))) || null;
+    applyStockCarry();
+    try {
+      const res = await Api.post({ action: 'stockCarry', token: acc.token,
+        awcId: acc.user.awcId });
+      if (res && res.ok && res.carry) {
+        // A local cache written by a report that has not synced yet can be
+        // NEWER than the server's. Take the later of the two, never the
+        // last one to arrive.
+        if (!stockCarry || String(res.carry.date) >= String(stockCarry.date)) {
+          stockCarry = res.carry;
+          await DB.kvSet(carryKey(acc), stockCarry);
+          applyStockCarry();
+        }
+      }
+    } catch (e) { /* offline: the cached carry above already went in */ }
+  }
+
+  function applyStockCarry() {
+    const note = $('st-carry-note');
+    if (!stockCarry || !stockCarry.cb) { if (note) note.hidden = true; return; }
+    let filled = 0;
+    STOCK_ITEMS.forEach(it => {
+      const v = stockCarry.cb[it.k];
+      if (v == null) return;
+      const box = $('st-' + it.k + '-ob');
+      // Never overwrite something she has already typed.
+      if (!box || box.value.trim() !== '') return;
+      box.value = v;
+      filled++;
+      updateStockCb(it);
+    });
+    if (note) {
+      const d = String(stockCarry.date || '');
+      const shown = d.length === 8 ? d.slice(6, 8) + '-' + d.slice(4, 6) + '-' + d.slice(0, 4) : d;
+      note.hidden = !filled;
+      note.textContent = 'Opening carried forward from your closing balance of ' +
+        shown + '. Correct any figure that does not match the store.';
+    }
   }
 
   const RPT_KINDS = {
@@ -1823,6 +1999,11 @@ const App = (() => {
         photoFp4: (rptPhotos.others && rptPhotos.others.fp) || null
       };
       await Sync.enqueue(record);
+      // Written before the record has reached the server: tomorrow's opening
+      // must not depend on tonight's signal.
+      stockCarry = { date: todayCompact(),
+        cb: STOCK_ITEMS.reduce((o, it) => { o[it.k] = stock[it.k].cb; return o; }, {}) };
+      await DB.kvSet(carryKey(acc), stockCarry);
       ['rp-children', 'rp-pregnant', 'rp-others', 'rp-meals'].forEach(id => { $(id).value = ''; });
       STOCK_ITEMS.forEach(it => {
         ST_COLS.forEach(c => { $('st-' + it.k + '-' + c).value = ''; });

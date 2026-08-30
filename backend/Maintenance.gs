@@ -716,3 +716,90 @@ function grantConsoleAccess(userId) {
   Logger.log('will ask her to set a PIN.');
   return { userId: uid, changed: changed };
 }
+
+/**
+ * Why "additional user logins are not getting activated" — with counts.
+ *
+ * Run from the editor:  deviceAudit()
+ *
+ * Committee point 5, 2026-08-30. The complaint is real but it is not one
+ * fault; it is four, and they need different remedies. This separates them so
+ * the district acts on the actual distribution instead of the loudest case:
+ *
+ *   NEVER_SIGNED_IN   no PIN has ever been set. Nothing is broken — the
+ *                     account has simply not been opened yet. Remedy is a
+ *                     visit or a phone call, not a technical fix.
+ *   BOUND_ELSEWHERE   bound to a handset that is not her Teacher's. This is
+ *                     the one that reads as "not getting activated": she is
+ *                     refused on the centre phone and cannot free herself.
+ *                     Remedy is an approval, now available in the console.
+ *   PHONE_MISMATCH    her number in the register is not the centre number the
+ *                     Teacher uses, so the shared-phone login never offers her
+ *                     at all. Remedy is a master-data correction.
+ *   INACTIVE          status is not ACTIVE. Login refuses before any device
+ *                     check runs. Remedy is a master-data correction.
+ *
+ * Read-only. It changes nothing and is safe to run during the marking window.
+ */
+function deviceAudit() {
+  const users = getUsersAll_();
+  const field = users.filter(function (u) { return String(u.role) === 'FIELD'; });
+  const byAwc = {};
+  field.forEach(function (u) {
+    const a = String(u.awc_id || '');
+    if (a) (byAwc[a] = byAwc[a] || []).push(u);
+  });
+
+  const buckets = { NEVER_SIGNED_IN: [], BOUND_ELSEWHERE: [], PHONE_MISMATCH: [],
+    INACTIVE: [], READY: [] };
+
+  field.filter(function (u) { return String(u.cadre) === 'AWH'; }).forEach(function (h) {
+    const mates = (byAwc[String(h.awc_id || '')] || [])
+      .filter(function (u) { return String(u.cadre) === 'AWT'; });
+    const teacher = mates[0] || null;
+    const label = String(h.user_id) + ' ' + String(h.name) + ' @ ' + String(h.awc_id || '-') +
+      (teacher ? ' (AWT ' + String(teacher.name) + ')' : ' (no AWT on record)');
+
+    if (String(h.status) !== 'ACTIVE') { buckets.INACTIVE.push(label); return; }
+    if (!h.pin_hash) { buckets.NEVER_SIGNED_IN.push(label); return; }
+    if (teacher && String(teacher.phone) !== String(h.phone)) {
+      buckets.PHONE_MISMATCH.push(label + ' — hers ' + String(h.phone) +
+        ', centre ' + String(teacher.phone));
+      return;
+    }
+    if (h.device_id && teacher && teacher.device_id &&
+        String(h.device_id) !== String(teacher.device_id)) {
+      buckets.BOUND_ELSEWHERE.push(label);
+      return;
+    }
+    buckets.READY.push(label);
+  });
+
+  const total = Object.keys(buckets).reduce(function (n, k) { return n + buckets[k].length; }, 0);
+  Logger.log('Helper (AWH) accounts examined: ' + total);
+  ['BOUND_ELSEWHERE', 'NEVER_SIGNED_IN', 'PHONE_MISMATCH', 'INACTIVE', 'READY']
+    .forEach(function (k) {
+      const pct = total ? Math.round((buckets[k].length / total) * 1000) / 10 : 0;
+      Logger.log('  ' + k + ': ' + buckets[k].length + '  (' + pct + '%)');
+    });
+  // The first 40 of each, so the log stays readable; the counts above are the
+  // whole population and are what the Committee is owed.
+  ['BOUND_ELSEWHERE', 'PHONE_MISMATCH', 'INACTIVE'].forEach(function (k) {
+    if (!buckets[k].length) return;
+    Logger.log('');
+    Logger.log('--- ' + k + ' (first 40 of ' + buckets[k].length + ') ---');
+    buckets[k].slice(0, 40).forEach(function (l) { Logger.log('  ' + l); });
+  });
+
+  const pending = devReqSheet_();
+  let open = 0;
+  if (pending.getLastRow() > 1) {
+    open = pending.getRange(2, 11, pending.getLastRow() - 1, 1).getValues()
+      .filter(function (r) { return String(r[0]) === 'PENDING'; }).length;
+  }
+  Logger.log('');
+  Logger.log('Approval requests waiting in the console: ' + open);
+  return { total: total, counts: Object.keys(buckets).reduce(function (o, k) {
+    o[k] = buckets[k].length; return o;
+  }, {}), pendingRequests: open };
+}

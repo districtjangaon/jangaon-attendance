@@ -137,12 +137,16 @@ function apiSync_(auth, req) {
           CACHE.put('mk_' + it.key, '1', 21600); // truly in the sheet: safe
           if (it.type === 'RPT') markReportSeen_(it.dateStr, user);
         } else if (it.type === 'RPT') {
+          // Read the carry BEFORE writing, or the report would be compared
+          // against the closing balance it is itself about to set.
+          it.carryBreaks = carryBreaks_(getStockCarry_(user.awc_id), it.rec, it.dateStr);
           rrows.push(buildReportRow_(user, it, serverMs));
           acks.push({ key: it.key, status: 'OK' });
           writtenKeys.push(it.key);
           // Marker set at push time (not after setValues) so an OUT later in
           // this same batch sees the report; a failed write only costs a flag.
           markReportSeen_(it.dateStr, user);
+          setStockCarry_(user, it.rec, it.dateStr);
         } else {
           rows.push(buildMarkRow_(user, it, skewSec, serverMs));
           acks.push({ key: it.key, status: 'OK' });
@@ -264,7 +268,9 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
     syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40),
     String(it.photoHash || ''), it.photoLum === undefined ? '' : it.photoLum,
-    it.photoSpread === undefined ? '' : it.photoSpread
+    it.photoSpread === undefined ? '' : it.photoSpread,
+    rec.gpsWaitSec == null || rec.gpsWaitSec === '' ? '' : Math.round(Number(rec.gpsWaitSec)),
+    String(rec.platform || '').slice(0, 40)
   ];
 }
 
@@ -374,6 +380,13 @@ function buildReportRow_(user, it, serverMs) {
     }
   });
   if (Number(rec.eggs) > RPT_MAX.eggs) suspects.push('QTY_SUSPECT_EGGS');
+  // The opening figure the worker filed does not match the closing figure the
+  // centre itself reported last time. Named per item so a supervisor sees
+  // WHICH commodity broke continuity, and never blocking: a physical count
+  // that disagrees with the book is the finding, not an error to refuse.
+  (it.carryBreaks || []).forEach(function (b) {
+    suspects.push('CARRY_OFF_' + String(b.item).toUpperCase());
+  });
   const allFlags = [it.photoFlag, suspects.filter(function (s, i, a) { return a.indexOf(s) === i; })
     .join(',')].filter(Boolean).join(',');
   const n = v => {

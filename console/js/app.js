@@ -2632,7 +2632,64 @@ const App = (() => {
   }
 
   // ---------------- Admin ----------------
+  /**
+   * The approval queue. Loaded whenever the tab is drawn rather than cached:
+   * it is short, someone is blocked behind every line of it, and a stale
+   * queue would have an officer approving requests already dealt with.
+   */
+  async function loadDeviceRequests() {
+    const block = $('devreq-block');
+    if (!block) return;
+    let list = [];
+    try {
+      const res = await Api.post({ action: 'deviceRequests', token: token });
+      if (!res || !res.ok) { block.hidden = true; return; }
+      list = res.requests || [];
+    } catch (e) { block.hidden = true; return; }
+
+    block.hidden = !list.length;
+    $('devreq-count').textContent = list.length;
+    const why = {
+      DEVICE_MISMATCH: 'Bound to a different phone',
+      DEVICE_FULL: 'This phone already has two workers',
+      DEVICE_CADRE: 'Another worker of the same cadre holds this phone'
+    };
+    $('devreq-table').innerHTML = '<table><tr><th>Worker</th><th>Cadre</th><th>Centre</th>' +
+      '<th>Why she is blocked</th><th>Who holds the phone now</th><th>Asked</th>' +
+      '<th>Decision</th></tr>' +
+      list.map(r => '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.cadre) + '</td><td>' +
+        esc(r.awcId ? awcName(r.awcId) : sectorDisplay(r.sector)) + '</td><td>' +
+        esc(why[r.reason] || r.reason) + '</td><td>' +
+        (r.holders.length
+          ? r.holders.map(h => esc(h.name) + ' (' + esc(h.cadre) + ')').join('<br>')
+          : '<span class="muted">nobody</span>') + '</td><td>' +
+        esc(String(r.at).slice(0, 16).replace('T', ' ')) + '</td><td>' +
+        '<button class="btn btn-plain btn-inline" data-req="' + esc(r.id) +
+          '" data-dec="APPROVED">Approve</button> ' +
+        '<button class="btn btn-plain btn-inline" data-req="' + esc(r.id) +
+          '" data-dec="REJECTED">Reject</button>' +
+        '</td></tr>').join('') + '</table>';
+
+    $('devreq-table').querySelectorAll('button[data-req]').forEach(b => {
+      b.onclick = async () => {
+        const who = list.find(r => r.id === b.dataset.req);
+        const ok = b.dataset.dec === 'APPROVED'
+          ? confirm('Approve ' + who.name + '?\n\nHer current phone binding is cleared. ' +
+              'The next phone she signs in from becomes her phone.')
+          : confirm('Reject the request from ' + who.name +
+              '?\n\nNothing changes and she stays blocked.');
+        if (!ok) return;
+        b.disabled = true;
+        const res = await Api.post({ action: 'deviceRequestDecide', token: token,
+          id: b.dataset.req, decision: b.dataset.dec });
+        if (res && res.ok) loadDeviceRequests();
+        else { b.disabled = false; alert('Failed: ' + ((res && res.code) || 'ERR')); }
+      };
+    });
+  }
+
   function renderAdmin() {
+    loadDeviceRequests();   // fire-and-forget: the user table does not wait on it
     if (!names) return;
     const q = $('admin-search').value.trim().toLowerCase();
     const lf = $('admin-filter').value; // '' | 'REG' | 'NOT'

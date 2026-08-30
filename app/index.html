@@ -59,6 +59,9 @@
     </div>
     <button id="btn-login" class="btn btn-primary">LOGIN</button>
     <p id="login-msg" class="msg"></p>
+    <!-- Appears only when the phone itself is what refused her. Until now that
+         message ended at "contact the district office", with nothing to press. -->
+    <button id="btn-devreq" class="btn btn-plain" hidden>Ask the district office to approve this phone</button>
     <div class="role-note"><b>Helper (AWH) without her own phone?</b> Mark your attendance
       on the Teacher's (AWT) phone: after the AWT logs in, open
       <b>Switch user &rarr; + Add another user</b> and login with your own number and PIN.</div>
@@ -237,10 +240,13 @@
     <button id="btn-rp-photo-meal" class="btn btn-plain photo-btn">&#128247; Take meal photo (live, geo-tagged)</button>
 
     <h2 class="rpt-stock-h">Stock register</h2>
-    <p class="info">Fill Opening, Used, Received and <b>Closing</b> for every item.
+    <p class="info">Opening is filled in for you from your own last closing balance
+      &mdash; check it against the store and correct it if the store says otherwise.
+      Then fill Used, Received and <b>Closing</b>.
       Closing is what is <b>actually left in the store</b> &mdash; count it and type it.
       The grey figure beside the box is Opening + Received &minus; Used, shown only so
       you can see the arithmetic; if your count differs from it, enter your count.</p>
+    <p id="st-carry-note" class="st-carry" hidden></p>
     <div class="stock-wrap">
       <table class="stock-table" id="stock-table">
         <tr><th>Item</th><th>Opening</th><th>Used</th><th>Received</th><th>Closing</th></tr>
@@ -278,7 +284,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v5.23-20260829-2010</footer>
+  <footer class="build-tag">BUILD: v5.24-20260830-2012</footer>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button id="nav-home"><span>&#127968;</span>Home</button>

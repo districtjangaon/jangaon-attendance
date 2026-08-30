@@ -72,6 +72,11 @@ const Sync = (() => {
             deviceId: deviceId,
             appVersion: (window.APP_BUILD || window.APP_CONFIG.VERSION),
             netState: item.netState,
+            // How long the shutter waited for a fix, and what the handset is.
+            // Committee points 3 and 4: both complaints were unanswerable
+            // because neither was ever recorded.
+            gpsWaitSec: item.gpsWaitSec,
+            platform: item.platform,
             photoB64: item.photoBlob ? await blobToB64(item.photoBlob) : '',
             // Daily-report (RPT) extras; undefined on plain marks, which
             // JSON.stringify simply omits.

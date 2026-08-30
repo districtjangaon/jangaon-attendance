@@ -14,7 +14,12 @@ from pathlib import Path
 # Explicit, because evaluation order matters: Util.gs defines the constants
 # every other file reads at load time, and Main.gs routes to functions the
 # others define. Anything new goes in before Main.gs.
-ORDER = ['Util.gs', 'Auth.gs', 'Marks.gs', 'Admin.gs', 'Leaves.gs', 'Map.gs', 'Reports.gs',
+# Stock.gs and Devices.gs come after Admin.gs: both call isConsoleRole_ /
+# sectorScope_ / deny_, which Admin.gs declares as top-level consts and
+# functions. Function declarations hoist across the concatenation, but the
+# const declarations do not, so order still matters here.
+ORDER = ['Util.gs', 'Auth.gs', 'Marks.gs', 'Admin.gs', 'Stock.gs', 'Devices.gs',
+         'Leaves.gs', 'Map.gs', 'Reports.gs',
          'Verify.gs', 'Summary.gs', 'DailyEmail.gs', 'Backup.gs', 'Maintenance.gs', 'Main.gs']
 backend = Path(__file__).resolve().parent.parent / 'backend'
 

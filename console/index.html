@@ -390,6 +390,15 @@
           <option value="NOT">Not registered</option>
         </select>
       </div>
+      <!-- Workers whose phone binding is refusing them. Above the user table
+           because it is the only part of this tab where someone is waiting. -->
+      <div id="devreq-block" hidden>
+        <h3 class="devreq-h">Phone approvals waiting <span id="devreq-count" class="tag ERR"></span></h3>
+        <p class="info">Each of these workers passed her PIN but the phone she is holding is
+          not the phone her account is bound to, so she cannot mark attendance.
+          Approving clears her binding; the next phone she signs in from becomes hers.</p>
+        <div id="devreq-table" class="tablewrap"></div>
+      </div>
       <p id="admin-stats" class="info"></p>
       <div id="admin-table" class="tablewrap"></div>
       <div id="admin-newuser" class="admin-block" hidden>
@@ -441,7 +450,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.26-20260829-1749</footer>
+  <footer class="build-tag">BUILD: v4.27-20260830-2012</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

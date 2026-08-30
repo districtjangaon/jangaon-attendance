@@ -60,7 +60,15 @@ const MARKS_H = ['key', 'user_id', 'sector_code', 'cadre', 'type', 'client_ts', 
   'device_id', 'app_version', 'net_state', 'sync_delay_sec', 'flags', 'tz',
   // What the lens saw: a 64-bit perceptual hash, plus mean brightness and
   // spread. Measured on the handset before the stamp bar was drawn.
-  'photo_hash', 'photo_lum', 'photo_spread'];
+  'photo_hash', 'photo_lum', 'photo_spread',
+  // Committee points 3 and 4, 2026-08-30. The delay complaint and the
+  // office-phone complaint were both unanswerable because nothing recorded
+  // how long the handset waited or what it was running. gps_wait_sec is the
+  // seconds the shutter was held waiting for a fix - the whole of the delay,
+  // measured where it happens. platform is a two-field summary (OS version /
+  // browser version), parsed on the handset: enough to tell a fleet of old
+  // WebViews from a fleet of new ones, and never the full user-agent string.
+  'gps_wait_sec', 'platform'];
 const CORR_H = ['corr_id', 'orig_key', 'actor', 'action', 'reason', 'ts'];
 // Seen pings: one per person per working day, written when the app is opened
 // without a mark following. APPEND-ONLY and pruned nightly to 7 days — see
@@ -842,12 +850,16 @@ function apiSync_(auth, req) {
           CACHE.put('mk_' + it.key, '1', 21600); // truly in the sheet: safe
           if (it.type === 'RPT') markReportSeen_(it.dateStr, user);
         } else if (it.type === 'RPT') {
+          // Read the carry BEFORE writing, or the report would be compared
+          // against the closing balance it is itself about to set.
+          it.carryBreaks = carryBreaks_(getStockCarry_(user.awc_id), it.rec, it.dateStr);
           rrows.push(buildReportRow_(user, it, serverMs));
           acks.push({ key: it.key, status: 'OK' });
           writtenKeys.push(it.key);
           // Marker set at push time (not after setValues) so an OUT later in
           // this same batch sees the report; a failed write only costs a flag.
           markReportSeen_(it.dateStr, user);
+          setStockCarry_(user, it.rec, it.dateStr);
         } else {
           rows.push(buildMarkRow_(user, it, skewSec, serverMs));
           acks.push({ key: it.key, status: 'OK' });
@@ -969,7 +981,9 @@ function buildMarkRow_(user, it, skewSec, serverMs) {
     String(rec.deviceId || ''), String(rec.appVersion || ''), String(rec.netState || ''),
     syncDelay, flags.join(','), String(rec.tz || '').slice(0, 40),
     String(it.photoHash || ''), it.photoLum === undefined ? '' : it.photoLum,
-    it.photoSpread === undefined ? '' : it.photoSpread
+    it.photoSpread === undefined ? '' : it.photoSpread,
+    rec.gpsWaitSec == null || rec.gpsWaitSec === '' ? '' : Math.round(Number(rec.gpsWaitSec)),
+    String(rec.platform || '').slice(0, 40)
   ];
 }
 
@@ -1079,6 +1093,13 @@ function buildReportRow_(user, it, serverMs) {
     }
   });
   if (Number(rec.eggs) > RPT_MAX.eggs) suspects.push('QTY_SUSPECT_EGGS');
+  // The opening figure the worker filed does not match the closing figure the
+  // centre itself reported last time. Named per item so a supervisor sees
+  // WHICH commodity broke continuity, and never blocking: a physical count
+  // that disagrees with the book is the finding, not an error to refuse.
+  (it.carryBreaks || []).forEach(function (b) {
+    suspects.push('CARRY_OFF_' + String(b.item).toUpperCase());
+  });
   const allFlags = [it.photoFlag, suspects.filter(function (s, i, a) { return a.indexOf(s) === i; })
     .join(',')].filter(Boolean).join(',');
   const n = v => {
@@ -1658,6 +1679,366 @@ function upsertUser_(f, actor) {
   ]);
   audit_(actor, 'USER_ADD', userId, '', { phone: phone, name: f.name, awc: awcId, sector: sector, role: role });
   return { userId: userId };
+}
+
+///////////////////////////////////////////////////////////////////////////
+//  Stock.gs
+///////////////////////////////////////////////////////////////////////////
+
+/**
+ * Stock.gs — the stock ledger's continuity between days.
+ *
+ * Committee finding (point 2): "the closing balance of stock is not
+ * automatically carried forward as the opening balance for the following
+ * day." It was not. Nothing anywhere read yesterday's report when today's
+ * form opened, so every worker retyped six opening figures from memory each
+ * morning. A register that starts from memory cannot be reconciled, and the
+ * ledger check downstream was measuring the worker's recall, not the store.
+ *
+ * WHY A SEPARATE SHEET. The obvious implementation is to read back the last
+ * report row for the centre. A district-month is ~18,000 report rows and the
+ * lookup happens 695 times each morning inside the marking window, so that is
+ * a scan we cannot afford. This is a 695-row book kept beside it: one row per
+ * centre, overwritten in place, O(1) to read and O(1) to write.
+ *
+ * IT IS A CONVENIENCE, NEVER A CONSTRAINT. The carried figure is offered to
+ * the worker and she may overwrite it — a physical count that disagrees with
+ * the book is exactly the fact this system exists to capture, and a locked
+ * field would force her to file a number she knows is wrong. When she does
+ * overwrite it the row is flagged CARRY_OFF with the size of the break, and
+ * that flag is the stock-accounting signal the Committee asked for.
+ */
+
+const CARRY_H = ['awc_id', 'date', 'user_id', 'updated_at']
+  .concat(STOCK_KEYS.map(function (k) { return k + '_cb'; }));
+
+/** One row per AWC. Created on demand; header self-heals like every other. */
+function carrySheet_() {
+  const ss = masterSS_();
+  let sh = ss.getSheetByName('StockCarry');
+  if (!sh) {
+    sh = ss.insertSheet('StockCarry');
+    sh.getRange(1, 1, 1, CARRY_H.length).setValues([CARRY_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), CARRY_H.length).setNumberFormat('@');
+    return sh;
+  }
+  if (sh.getMaxColumns() < CARRY_H.length) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), CARRY_H.length - sh.getMaxColumns());
+  }
+  if (String(sh.getRange(1, CARRY_H.length).getValue()) !== CARRY_H[CARRY_H.length - 1]) {
+    sh.getRange(1, 1, 1, CARRY_H.length).setValues([CARRY_H]);
+  }
+  return sh;
+}
+
+/**
+ * Yesterday's closing for this centre, or null when the centre has never
+ * filed a report. Null must reach the worker as an empty box, never as zero:
+ * a pre-filled 0 would be a figure the system invented and she signed for.
+ */
+function getStockCarry_(awcId) {
+  const aid = String(awcId || '');
+  if (!aid) return null;
+  const hit = CACHE.get('carry_' + aid);
+  if (hit) {
+    try { return JSON.parse(hit); } catch (e) { /* fall through to the sheet */ }
+  }
+  const sh = carrySheet_();
+  const row = findRowByValue_(sh, 1, aid);
+  if (!row) return null;
+  const o = rowToObj_(CARRY_H, sh.getRange(row, 1, 1, CARRY_H.length).getValues()[0]);
+  const out = { date: String(o.date), cb: {} };
+  STOCK_KEYS.forEach(function (k) {
+    const v = Number(o[k + '_cb']);
+    out.cb[k] = isFinite(v) ? v : null;
+  });
+  CACHE.put('carry_' + aid, JSON.stringify(out), 21600);
+  return out;
+}
+
+/**
+ * Record this report's closing balances as the centre's carry.
+ *
+ * Called from inside apiSync_'s existing lock, so it takes none of its own.
+ *
+ * A LATER DATE ALWAYS WINS. Marks sync out of order — a phone that was in
+ * airplane mode on Tuesday can deliver Tuesday's report on Thursday evening,
+ * after Wednesday's has already landed. Advancing the carry on arrival order
+ * would quietly rewind the whole centre. Compared as yyyymmdd strings, which
+ * sort correctly as text, so an older report updates the sheet's history but
+ * never the live carry.
+ */
+function setStockCarry_(user, rec, dateStr) {
+  const aid = String(user.awc_id || '');
+  if (!aid) return;
+  const st = rec && rec.stock;
+  if (!st) return;                       // pre-v2 app: no per-item closing to carry
+
+  const prev = getStockCarry_(aid);
+  if (prev && String(prev.date) > String(dateStr)) return;
+
+  const sh = carrySheet_();
+  const vals = { awc_id: aid, date: String(dateStr), user_id: String(user.user_id),
+    updated_at: nowIso_() };
+  const cb = {};
+  STOCK_KEYS.forEach(function (k) {
+    const v = st[k] && st[k].cb;
+    const n = Number(v);
+    cb[k] = (v === '' || v == null || !isFinite(n)) ? null : n;
+    vals[k + '_cb'] = cb[k] == null ? '' : cb[k];
+  });
+  const row = CARRY_H.map(function (h) { return vals[h]; });
+  const at = findRowByValue_(sh, 1, aid);
+  sh.getRange(at || sh.getLastRow() + 1, 1, 1, CARRY_H.length).setValues([row]);
+  CACHE.put('carry_' + aid, JSON.stringify({ date: String(dateStr), cb: cb }), 21600);
+}
+
+/**
+ * Which opening figures disagree with the carried closing, and by how much.
+ * Returns [] when there is nothing to compare against — a centre's first ever
+ * report, or a gap in reporting, is not a discrepancy.
+ *
+ * Tolerance is half of the item's own smallest step: whole units for eggs,
+ * 0.05 for the kilogram items. Rounding is not a finding.
+ */
+function carryBreaks_(prev, rec, dateStr) {
+  if (!prev || !rec || !rec.stock) return [];
+  if (!prev.date || String(prev.date) >= String(dateStr)) return [];
+  const out = [];
+  STOCK_KEYS.forEach(function (k) {
+    const was = prev.cb[k];
+    const now = rec.stock[k] && rec.stock[k].ob;
+    if (was == null || now == null || now === '') return;
+    const n = Number(now);
+    if (!isFinite(n)) return;
+    if (Math.abs(n - Number(was)) > 0.05) {
+      out.push({ item: k, was: Number(was), now: n,
+        diff: Math.round((n - Number(was)) * 10) / 10 });
+    }
+  });
+  return out;
+}
+
+/**
+ * The app asks for this when the report screen opens. Deliberately its own
+ * route rather than a field on login config: the carry changes every evening
+ * and a token lives for weeks, so config would hand back a stale figure for
+ * as long as the worker stays signed in.
+ */
+function apiStockCarry_(auth, req) {
+  const awcId = String(req.awcId || auth.user.awc_id || '');
+  // A worker may only ask about her own centre. Console roles may ask about
+  // any centre inside their own scope, and nothing outside it.
+  if (String(awcId) !== String(auth.user.awc_id || '')) {
+    if (!isConsoleRole_(auth.user)) return deny_();
+    const awc = getAwc_(awcId);
+    // awcFromRow_ names this field `sector`, not `sector_code` - reading the
+    // wrong one returns undefined, which compares out of every scope and
+    // silently refuses every supervisor.
+    const scope = sectorScope_(auth.user);
+    if (!awc || (scope && scope.indexOf(String(awc.sector)) < 0)) return deny_();
+  }
+  return { ok: true, carry: getStockCarry_(awcId), items: STOCK_KEYS };
+}
+
+///////////////////////////////////////////////////////////////////////////
+//  Devices.gs
+///////////////////////////////////////////////////////////////////////////
+
+/**
+ * Devices.gs — asking for a phone to be approved, and approving it.
+ *
+ * Committee finding (point 5): "additional user logins are not getting
+ * activated to enable Anganwadi Teachers to record the attendance of
+ * Anganwadi Helpers through the Teachers' phones."
+ *
+ * The binding rules themselves were right and are unchanged: one active phone
+ * per field worker, at most one Teacher and one Helper per phone. What was
+ * missing was the way back. A Helper whose account had bound to some other
+ * handset — a supervisor's phone during training, her own phone before the
+ * centre phone arrived, a factory reset that changed the device id — was told
+ * "ask the district office", and that was the end of the road. There was no
+ * request to make, nothing for the office to see, and no queue anyone could
+ * work through. 695 centres generate a steady trickle of these, and a trickle
+ * with no drain is a backlog.
+ *
+ * This is the drain: the worker asks from the login screen, the office sees
+ * every pending ask in one list with the reason and who currently holds the
+ * phone, and one tap frees the account.
+ *
+ * THE ASK IS PIN-AUTHENTICATED. It has to be reachable without a token — the
+ * whole point is that she cannot get one — so it re-checks the PIN itself and
+ * carries the same lockout and the same per-phone rate limit as login. It is
+ * not a way to find out whether a PIN is right without paying for the guess.
+ */
+
+const DEVREQ_H = ['req_id', 'user_id', 'name', 'cadre', 'phone', 'sector_code', 'awc_id',
+  'device_id', 'reason', 'requested_at', 'status', 'decided_by', 'decided_at'];
+
+function devReqSheet_() {
+  const ss = masterSS_();
+  let sh = ss.getSheetByName('DeviceRequests');
+  if (!sh) {
+    sh = ss.insertSheet('DeviceRequests');
+    sh.getRange(1, 1, 1, DEVREQ_H.length).setValues([DEVREQ_H]);
+    sh.getRange(1, 1, sh.getMaxRows(), DEVREQ_H.length).setNumberFormat('@');
+    return sh;
+  }
+  if (sh.getMaxColumns() < DEVREQ_H.length) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), DEVREQ_H.length - sh.getMaxColumns());
+  }
+  if (String(sh.getRange(1, DEVREQ_H.length).getValue()) !== DEVREQ_H[DEVREQ_H.length - 1]) {
+    sh.getRange(1, 1, 1, DEVREQ_H.length).setValues([DEVREQ_H]);
+  }
+  return sh;
+}
+
+/** Reasons the app may send. Anything else is recorded as OTHER. */
+const DEVREQ_REASONS = ['DEVICE_MISMATCH', 'DEVICE_FULL', 'DEVICE_CADRE'];
+
+/**
+ * "This phone is not letting me in — please approve it."
+ *
+ * Unauthenticated by necessity; PIN-checked, lockout-respecting and
+ * rate-limited exactly as login is. One open request per user: asking twice
+ * updates the existing row rather than filling the queue with duplicates, so
+ * a worker tapping the button three times costs the office one line, not three.
+ */
+function apiDeviceRequest_(req) {
+  const phone = String(req.phone || '').trim();
+  const deviceId = String(req.deviceId || '').trim();
+  const userId = String(req.userId || '').trim();
+  if (!/^\d{10}$/.test(phone)) return { ok: false, code: 'BAD_PHONE' };
+  if (!deviceId) return { ok: false, code: 'NO_DEVICE' };
+
+  const rlKey = 'lg_' + phone;
+  const attempts = Number(CACHE.get(rlKey) || '0');
+  if (attempts >= 20) return { ok: false, code: 'RATE_LIMIT' };
+  CACHE.put(rlKey, String(attempts + 1), 3600);
+
+  const candidates = getUsersByPhone_(phone).filter(u => u.status === 'ACTIVE');
+  const user = candidates.length === 1 && !userId
+    ? candidates[0]
+    : candidates.find(u => String(u.user_id) === userId);
+  if (!user) return { ok: false, code: 'NO_USER' };
+
+  if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
+    return { ok: false, code: 'LOCKED', until: String(user.locked_until) };
+  }
+  // A wrong PIN costs a failed attempt here too. Without that, this route
+  // would be an unlimited oracle sitting beside a limited one.
+  if (!user.pin_hash) return { ok: false, code: 'SET_PIN_REQUIRED', userId: String(user.user_id) };
+  if (hashPin_(String(req.pin || ''), String(user.pin_salt)) !== String(user.pin_hash)) {
+    const fails = (Number(user.failed_attempts) || 0) + 1;
+    if (fails >= LOCKOUT_AFTER) {
+      const until = fmtIso_(Date.now() + LOCKOUT_MIN * 60000);
+      updateUser_(user, { failed_attempts: '0', locked_until: until });
+      return { ok: false, code: 'LOCKED', until: until };
+    }
+    updateUser_(user, { failed_attempts: String(fails) });
+    return { ok: false, code: 'WRONG_PIN', left: LOCKOUT_AFTER - fails };
+  }
+
+  const reason = DEVREQ_REASONS.indexOf(String(req.reason)) >= 0 ? String(req.reason) : 'OTHER';
+  const sh = devReqSheet_();
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  try { lock.waitLock(5000); locked = true; } catch (e) { /* these are rare; write anyway */ }
+  try {
+    const open = findOpenRequestRow_(sh, String(user.user_id));
+    const row = [
+      open ? String(sh.getRange(open, 1).getValue()) : Utilities.getUuid(),
+      String(user.user_id), String(user.name), String(user.cadre), phone,
+      primarySector_(user), String(user.awc_id || ''), deviceId, reason,
+      nowIso_(), 'PENDING', '', ''
+    ];
+    sh.getRange(open || sh.getLastRow() + 1, 1, 1, DEVREQ_H.length).setValues([row]);
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+  audit_(user.user_id, 'DEVICE_REQUEST', user.user_id, String(user.device_id || ''), deviceId);
+  return { ok: true, userId: String(user.user_id) };
+}
+
+/** Row number of this user's open request, or 0. Scans the tail only. */
+function findOpenRequestRow_(sh, userId) {
+  if (sh.getLastRow() < 2) return 0;
+  const start = Math.max(2, sh.getLastRow() - 400);
+  const vals = sh.getRange(start, 1, sh.getLastRow() - start + 1, DEVREQ_H.length).getValues();
+  for (let i = vals.length - 1; i >= 0; i--) {
+    const o = rowToObj_(DEVREQ_H, vals[i]);
+    if (String(o.user_id) === userId && String(o.status) === 'PENDING') return start + i;
+  }
+  return 0;
+}
+
+/**
+ * The office's queue. Each entry carries WHO CURRENTLY HOLDS the phone she is
+ * asking for, because for DEVICE_FULL and DEVICE_CADRE that is the whole
+ * decision — approving her account alone would leave her blocked by the same
+ * two occupants she was blocked by before.
+ */
+function apiDeviceRequestList_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const sh = devReqSheet_();
+  if (sh.getLastRow() < 2) return { ok: true, requests: [] };
+  const scope = sectorScope_(auth.user);
+  const vals = sh.getRange(2, 1, sh.getLastRow() - 1, DEVREQ_H.length).getValues();
+  const users = getUsersAll_();
+  const out = [];
+  for (let i = vals.length - 1; i >= 0 && out.length < 200; i--) {
+    const o = rowToObj_(DEVREQ_H, vals[i]);
+    if (String(o.status) !== 'PENDING') continue;
+    if (scope && scope.indexOf(String(o.sector_code)) < 0) continue;
+    out.push({
+      id: String(o.req_id), userId: String(o.user_id), name: String(o.name),
+      cadre: String(o.cadre), phone: String(o.phone), sector: String(o.sector_code),
+      awcId: String(o.awc_id), reason: String(o.reason), at: String(o.requested_at),
+      // Names, not ids: whoever reads this queue is deciding about people.
+      holders: users.filter(u => String(u.device_id) === String(o.device_id) &&
+          String(u.role) === 'FIELD' && String(u.user_id) !== String(o.user_id))
+        .map(u => ({ userId: String(u.user_id), name: String(u.name),
+          cadre: String(u.cadre), awcId: String(u.awc_id || ''),
+          boundAt: String(u.device_bound_at || '') }))
+    });
+  }
+  return { ok: true, requests: out };
+}
+
+/**
+ * Approve: clear the requester's binding so her next login binds the phone she
+ * is actually holding. Reject: close the request, change nothing.
+ *
+ * Approving does NOT bind the new device here. Binding on the next successful
+ * login means the phone that gets bound is the one she signs in from, which is
+ * the phone that will do the marking — not whichever handset happened to send
+ * the request.
+ */
+function apiDeviceRequestDecide_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const id = String(req.id || '');
+  const decision = String(req.decision || '');
+  if (['APPROVED', 'REJECTED'].indexOf(decision) < 0) return { ok: false, code: 'BAD_DECISION' };
+  const sh = devReqSheet_();
+  const row = findRowByValue_(sh, 1, id);
+  if (!row) return { ok: false, code: 'NOT_FOUND' };
+  const o = rowToObj_(DEVREQ_H, sh.getRange(row, 1, 1, DEVREQ_H.length).getValues()[0]);
+  if (String(o.status) !== 'PENDING') return { ok: false, code: 'ALREADY_DECIDED' };
+
+  const target = getUserById_(String(o.user_id));
+  if (!target || !inScope_(auth.user, target)) return deny_();
+
+  if (decision === 'APPROVED') {
+    const old = String(target.device_id || '');
+    updateUser_(target, { device_id: '', device_bound_at: '' });
+    revokeUserSessions_(target.user_id);
+    audit_(auth.userId, 'DEVICE_REBIND_APPROVED', target.user_id, old, '');
+  } else {
+    audit_(auth.userId, 'DEVICE_REBIND_REJECTED', target.user_id, String(o.device_id), '');
+  }
+  // Columns 11..13 are status / decided_by / decided_at — the tail of DEVREQ_H.
+  sh.getRange(row, 11, 1, 3).setValues([[decision, String(auth.userId), nowIso_()]]);
+  return { ok: true, id: id, decision: decision };
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -5596,6 +5977,93 @@ function grantConsoleAccess(userId) {
   return { userId: uid, changed: changed };
 }
 
+/**
+ * Why "additional user logins are not getting activated" — with counts.
+ *
+ * Run from the editor:  deviceAudit()
+ *
+ * Committee point 5, 2026-08-30. The complaint is real but it is not one
+ * fault; it is four, and they need different remedies. This separates them so
+ * the district acts on the actual distribution instead of the loudest case:
+ *
+ *   NEVER_SIGNED_IN   no PIN has ever been set. Nothing is broken — the
+ *                     account has simply not been opened yet. Remedy is a
+ *                     visit or a phone call, not a technical fix.
+ *   BOUND_ELSEWHERE   bound to a handset that is not her Teacher's. This is
+ *                     the one that reads as "not getting activated": she is
+ *                     refused on the centre phone and cannot free herself.
+ *                     Remedy is an approval, now available in the console.
+ *   PHONE_MISMATCH    her number in the register is not the centre number the
+ *                     Teacher uses, so the shared-phone login never offers her
+ *                     at all. Remedy is a master-data correction.
+ *   INACTIVE          status is not ACTIVE. Login refuses before any device
+ *                     check runs. Remedy is a master-data correction.
+ *
+ * Read-only. It changes nothing and is safe to run during the marking window.
+ */
+function deviceAudit() {
+  const users = getUsersAll_();
+  const field = users.filter(function (u) { return String(u.role) === 'FIELD'; });
+  const byAwc = {};
+  field.forEach(function (u) {
+    const a = String(u.awc_id || '');
+    if (a) (byAwc[a] = byAwc[a] || []).push(u);
+  });
+
+  const buckets = { NEVER_SIGNED_IN: [], BOUND_ELSEWHERE: [], PHONE_MISMATCH: [],
+    INACTIVE: [], READY: [] };
+
+  field.filter(function (u) { return String(u.cadre) === 'AWH'; }).forEach(function (h) {
+    const mates = (byAwc[String(h.awc_id || '')] || [])
+      .filter(function (u) { return String(u.cadre) === 'AWT'; });
+    const teacher = mates[0] || null;
+    const label = String(h.user_id) + ' ' + String(h.name) + ' @ ' + String(h.awc_id || '-') +
+      (teacher ? ' (AWT ' + String(teacher.name) + ')' : ' (no AWT on record)');
+
+    if (String(h.status) !== 'ACTIVE') { buckets.INACTIVE.push(label); return; }
+    if (!h.pin_hash) { buckets.NEVER_SIGNED_IN.push(label); return; }
+    if (teacher && String(teacher.phone) !== String(h.phone)) {
+      buckets.PHONE_MISMATCH.push(label + ' — hers ' + String(h.phone) +
+        ', centre ' + String(teacher.phone));
+      return;
+    }
+    if (h.device_id && teacher && teacher.device_id &&
+        String(h.device_id) !== String(teacher.device_id)) {
+      buckets.BOUND_ELSEWHERE.push(label);
+      return;
+    }
+    buckets.READY.push(label);
+  });
+
+  const total = Object.keys(buckets).reduce(function (n, k) { return n + buckets[k].length; }, 0);
+  Logger.log('Helper (AWH) accounts examined: ' + total);
+  ['BOUND_ELSEWHERE', 'NEVER_SIGNED_IN', 'PHONE_MISMATCH', 'INACTIVE', 'READY']
+    .forEach(function (k) {
+      const pct = total ? Math.round((buckets[k].length / total) * 1000) / 10 : 0;
+      Logger.log('  ' + k + ': ' + buckets[k].length + '  (' + pct + '%)');
+    });
+  // The first 40 of each, so the log stays readable; the counts above are the
+  // whole population and are what the Committee is owed.
+  ['BOUND_ELSEWHERE', 'PHONE_MISMATCH', 'INACTIVE'].forEach(function (k) {
+    if (!buckets[k].length) return;
+    Logger.log('');
+    Logger.log('--- ' + k + ' (first 40 of ' + buckets[k].length + ') ---');
+    buckets[k].slice(0, 40).forEach(function (l) { Logger.log('  ' + l); });
+  });
+
+  const pending = devReqSheet_();
+  let open = 0;
+  if (pending.getLastRow() > 1) {
+    open = pending.getRange(2, 11, pending.getLastRow() - 1, 1).getValues()
+      .filter(function (r) { return String(r[0]) === 'PENDING'; }).length;
+  }
+  Logger.log('');
+  Logger.log('Approval requests waiting in the console: ' + open);
+  return { total: total, counts: Object.keys(buckets).reduce(function (o, k) {
+    o[k] = buckets[k].length; return o;
+  }, {}), pendingRequests: open };
+}
+
 ///////////////////////////////////////////////////////////////////////////
 //  Main.gs
 ///////////////////////////////////////////////////////////////////////////
@@ -5620,6 +6088,10 @@ function doPost(e) {
     if (action === 'ping') return jsonOut_({ ok: true, ts: nowIso_() });
     if (action === 'login') return jsonOut_(apiLogin_(req));
     if (action === 'diag') return jsonOut_(apiDiag_(req)); // DIAG_KEY-gated, read-only
+    // Sits beside login for the same reason login does: a worker locked out of
+    // her own phone binding has no token to present. PIN-checked inside, and
+    // it shares login's per-phone rate limit and lockout.
+    if (action === 'deviceRequest') return jsonOut_(apiDeviceRequest_(req));
 
     // Everything else requires a valid session token.
     const auth = verifyToken_(req.token);
@@ -5638,6 +6110,7 @@ function doPost(e) {
       resolveIssue: apiResolveIssue_,
       appMode: apiAppMode_,
       seenPing: apiSeenPing_,
+      stockCarry: apiStockCarry_,
       // console (supervisor/cdpo/admin)
       nameMap: apiNameMap_,
       correction: apiCorrection_,
@@ -5652,6 +6125,8 @@ function doPost(e) {
       caseGeo: apiCaseGeo_,
       pinReset: apiPinReset_,
       deviceUnbind: apiDeviceUnbind_,
+      deviceRequests: apiDeviceRequestList_,
+      deviceRequestDecide: apiDeviceRequestDecide_,
       setAwcCoords: apiSetAwcCoords_,
       raiseIssue: apiRaiseIssue_,
       listIssues: apiListIssues_,
