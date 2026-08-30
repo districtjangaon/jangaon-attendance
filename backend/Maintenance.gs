@@ -803,3 +803,52 @@ function deviceAudit() {
     o[k] = buckets[k].length; return o;
   }, {}), pendingRequests: open };
 }
+
+/**
+ * Finish a release: everything that cannot be done by deploying code.
+ *
+ * Run from the editor:  finishRelease()
+ *
+ * This exists because the alternative was a scratch file to paste in by hand,
+ * and a step that lives outside the pipeline is a step that eventually does
+ * not get run. It ships with the backend, so after any deploy it is simply
+ * there in the function list.
+ *
+ * Idempotent throughout. Running it twice changes nothing the second time and
+ * says so, so it is safe to run whenever you are unsure whether it was run.
+ */
+function finishRelease() {
+  const out = [];
+  const step = function (name, fn) {
+    try {
+      out.push('OK    ' + name + '  -> ' + (fn() || 'done'));
+    } catch (e) {
+      out.push('FAIL  ' + name + '  -> ' + String((e && e.message) || e));
+    }
+  };
+
+  // The version floor. Stamped into the build from app/index.html, so it is
+  // the app that actually shipped alongside this backend rather than a number
+  // somebody remembered to retype. A handset behind it replaces itself at its
+  // next config load instead of at some later sync.
+  step('MIN_APP_BUILD', function () {
+    const want = APP_BUILD_SHIPPED;
+    const had = PROPS.getProperty('MIN_APP_BUILD') || '(unset)';
+    if (had === want) return 'already ' + want;
+    PROPS.setProperty('MIN_APP_BUILD', want);
+    return had + ' -> ' + want;
+  });
+
+  // The 18:00 report to the Collector's office, and the nightly backup. Both
+  // installers already replace their own trigger rather than adding a second.
+  step('daily email trigger', function () { installDailyEmailTrigger(); return 'installed'; });
+  step('backup trigger', function () { installBackupTrigger(); return 'installed'; });
+
+  Logger.log(out.join('\n'));
+  Logger.log('');
+  Logger.log('Backend build ' + backendBuild_() + '  |  app floor ' + APP_BUILD_SHIPPED);
+  Logger.log('');
+  Logger.log('---- Committee finding 5: Helper accounts, by cause ----');
+  const audit = deviceAudit();   // read-only; safe at any hour
+  return { steps: out, helperAccounts: audit };
+}
