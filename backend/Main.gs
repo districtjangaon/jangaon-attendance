@@ -15,7 +15,12 @@ function doPost(e) {
   }
   try {
     const action = String(req.action || '');
-    if (action === 'ping') return jsonOut_({ ok: true, ts: nowIso_() });
+    // build is the fingerprint of the sources this deployment is serving. It
+    // is how the deploy script proves that EVERY endpoint the app calls was
+    // rolled, not only the one named in .clasp.json — on 2026-08-30 one of the
+    // two was a version behind and answered every request as if it were fine.
+    // A content hash of code carries no identifier and no secret.
+    if (action === 'ping') return jsonOut_({ ok: true, ts: nowIso_(), build: backendBuild_() });
     if (action === 'login') return jsonOut_(apiLogin_(req));
     if (action === 'diag') return jsonOut_(apiDiag_(req)); // DIAG_KEY-gated, read-only
     // Sits beside login for the same reason login does: a worker locked out of
@@ -77,10 +82,20 @@ function doPost(e) {
   }
 }
 
+/**
+ * The fingerprint stamped into COMBINED.gs by the build. Absent when the
+ * individual .gs files are loaded straight into the editor rather than built,
+ * which is a legitimate way to work — so this reports 'unbuilt' rather than
+ * throwing a ReferenceError at anyone who pings it.
+ */
+function backendBuild_() {
+  try { return BACKEND_BUILD; } catch (e) { return 'unbuilt'; }
+}
+
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || '';
   try {
-    if (action === 'ping') return jsonOut_({ ok: true, ts: nowIso_() });
+    if (action === 'ping') return jsonOut_({ ok: true, ts: nowIso_(), build: backendBuild_() });
     if (action === 'photo') return apiPhoto_(e.parameter);
     return jsonOut_({ ok: true, service: 'attendance-backend', ts: nowIso_() });
   } catch (err) {
