@@ -256,13 +256,20 @@ const App = (() => {
     buildStockTable();
     bindEvents();
     setInterval(() => { if (!$('screen-home').hidden) updateClock(); }, 20000);
-    // While the app is open, nudge the SW every 15 min — reminderCheck's own
-    // 2-hour throttle decides whether a notification actually fires.
-    setInterval(() => {
-      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: 'reminder-check' });
-      }
-    }, 15 * 60 * 1000);
+    // Nudge the service worker NOW, on every return to the foreground, and
+    // every 15 minutes while the app stays open. reminderCheck's own 2-hour
+    // throttle decides whether anything actually fires.
+    //
+    // On open matters most. Background reminders ride on Periodic Background
+    // Sync, which exists only for an installed PWA in Chrome — 415 of 1,082
+    // devices. For the other 659 the app being opened is the ONLY moment a
+    // reminder can be raised at all, and the old code waited 15 minutes for
+    // its first nudge, by which time she had marked and closed the app.
+    nudgeReminders();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) nudgeReminders();
+    });
+    setInterval(nudgeReminders, 15 * 60 * 1000);
 
     accounts = await DB.kvGet('accounts') || {};
     if ('Notification' in window && Notification.permission === 'granted') {
@@ -1257,8 +1264,8 @@ const App = (() => {
     if (d.getDay() !== 0) {
       if (!today.IN && nowHM >= (sch.late_after || '09:30')) {
         msg = '⏰ You have not marked IN yet today.';
-      } else if (acc.user.cadre === 'AWT' && today.IN && !rptDone && nowHM >= '11:00') {
-        msg = '📝 Today\'s report is not filled yet — needed before OUT.';
+      } else if (acc.user.cadre === 'AWT' && today.IN && !rptDone && nowHM >= '10:30') {
+        msg = '📝 Today\'s centre report is pending — fill it now; it is needed before OUT.';
       } else if (today.IN && !today.OUT && nowHM >= '16:30') {
         msg = '⏰ Remember to mark OUT before leaving.';
       }
@@ -1581,6 +1588,21 @@ const App = (() => {
    * The browser decides actual firing times — best-effort by design; the
    * in-app banner is the guaranteed path. No push service involved (₹0).
    */
+  function nudgeReminders() {
+    const sw = navigator.serviceWorker;
+    if (!sw) return;
+    // controller is null on the very first load, before the worker has taken
+    // control — fall back to the registration's active worker, so a newly
+    // installed app's first session is not the one session with no reminder.
+    if (sw.controller) {
+      sw.controller.postMessage({ type: 'reminder-check' });
+      return;
+    }
+    sw.ready.then(reg => {
+      if (reg.active) reg.active.postMessage({ type: 'reminder-check' });
+    }).catch(() => { /* no worker: the in-app banner still reminds */ });
+  }
+
   async function registerPeriodicReminder() {
     try {
       const reg = await navigator.serviceWorker.ready;

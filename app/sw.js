@@ -11,7 +11,7 @@
 // The shell is served cache-first and the browser only re-installs this worker
 // when its BYTES change, so a build that leaves this name alone never reaches
 // a phone that already has the old one. tools/test-build.js enforces the match.
-const CACHE = 'attendance-v5.26-20260901-2034';
+const CACHE = 'attendance-v5.27-20260901-2047';
 const FONT_CACHE = 'attendance-fonts-v1';
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 const SHELL = [
@@ -111,21 +111,34 @@ async function reminderCheck() {
 
   const rows = (await idbReq(store('queue').getAll())).concat(await idbReq(store('history').getAll()));
   const have = {}; // uid -> { IN:true, OUT:true } for today
+  // The daily report belongs to the CENTRE, not to the person who typed it.
+  // Keyed per user, an AWT whose Helper had already filed was told her report
+  // was missing - a reminder for work that was done, which teaches people to
+  // ignore reminders.
+  const rptAwc = {};
   rows.forEach(r => {
     const q = String(r.key).split('_');
-    if (q[1] === today) (have[q[0]] = have[q[0]] || {})[q[2]] = true;
+    if (q[1] !== today) return;
+    (have[q[0]] = have[q[0]] || {})[q[2]] = true;
+    if (q[2] === 'RPT' && r.awcId) rptAwc[String(r.awcId)] = true;
   });
 
   for (const uid of uids) {
     const sch = (accounts[uid].config && accounts[uid].config.schedule) || {};
     const name = (accounts[uid].user && accounts[uid].user.name) || '';
     const cadre = (accounts[uid].user && accounts[uid].user.cadre) || '';
+    const awc = String((accounts[uid].user && accounts[uid].user.awcId) || '');
     const h = have[uid] || {};
     let kind = null, text = '';
     if (!h.IN && nowHM >= (sch.late_after || '09:30') && nowHM <= '18:00') {
       kind = 'IN'; text = name + ' — you have not marked IN attendance today.';
-    } else if (cadre === 'AWT' && h.IN && !h.RPT && nowHM >= '11:00' && nowHM <= '19:00') {
-      kind = 'RPT'; text = name + ' — today\'s centre report (children, meals, stock) is not filled yet.';
+    } else if (cadre === 'AWT' && h.IN && !h.RPT && !rptAwc[awc] &&
+               nowHM >= '10:30' && nowHM <= '19:00') {
+      // Says what it needs, so she can collect the figures before she opens
+      // the app rather than after.
+      kind = 'RPT';
+      text = name + ' — today\'s centre report is pending. Fill children, ' +
+        'pregnant women, other beneficiaries, meals and the stock register.';
     } else if (h.IN && !h.OUT && nowHM >= '16:30' && nowHM <= '21:00') {
       kind = 'OUT'; text = name + ' — remember to mark OUT before the day ends.';
     }
@@ -141,7 +154,8 @@ async function reminderCheck() {
       t.oncomplete = res;
       t.onerror = rej;
     });
-    await self.registration.showNotification('Samridhi reminder', {
+    await self.registration.showNotification(
+      kind === 'RPT' ? 'Daily report pending' : 'Samridhi reminder', {
       body: text,
       icon: './icons/icon-192.png',
       badge: './icons/icon-192.png',
