@@ -197,9 +197,40 @@ const App = (() => {
     forceUpdate(cfg.minAppBuild);
   }
 
+  /**
+   * Never let a screen fail in silence.
+   *
+   * A button whose handler throws does nothing at all: no message, no busy
+   * state, no error the worker can report. Between 29 Aug and 1 Sep 2026 a
+   * single dangling function name in the report form did exactly that — she
+   * filled the whole return, pressed SUBMIT, and the app sat there. Nobody
+   * could describe the failure because there was nothing to describe, and
+   * because the OUT mark is gated on the report, ~400 Teachers a day were
+   * locked out of closing their day as well.
+   *
+   * So an unexpected error now SAYS SO, on the screen she is looking at, and
+   * name the build so the district office can act on the report. This does
+   * not make the app correct; it makes it honest about being wrong.
+   */
+  function installCrashSurface() {
+    const say = (what) => {
+      const box = ['rpt-msg', 'cam-msg', 'login-msg', 'home-msg']
+        .map(id => $(id)).find(el => el && el.offsetParent !== null);
+      const text = 'Something in the app failed (' + String(what).slice(0, 120) +
+        '). Nothing you typed was lost. Tell the district office this build: ' +
+        (window.APP_BUILD || '?') + '.';
+      if (box) box.textContent = text; else alert(text);
+    };
+    window.addEventListener('unhandledrejection', e => {
+      say((e.reason && e.reason.message) || e.reason);
+    });
+    window.addEventListener('error', e => { say(e.message); });
+  }
+
   // ---------- init ----------
   async function init() {
     window.APP_BUILD = readBuild();
+    installCrashSurface();
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(() => {});
       // A new version activated: reload to run it — but never mid-capture,
@@ -2060,7 +2091,13 @@ const App = (() => {
       msg.textContent = 'Required (0 allowed, blank/negative not): ' + missing.join(', ') + '.';
       return;
     }
-    const shortItem = STOCK_ITEMS.find(it => (stockCb(it) || 0) < 0);
+    // stockExpected, NOT stockCb. The rename in v5.23 left this call pointing
+    // at a function that no longer existed, and because it sits before the
+    // try/catch below the ReferenceError escaped as an unhandled rejection:
+    // the button did not even change to "Saving...". Between 29 Aug and
+    // 1 Sep that silently cost the district ~600 daily returns and, through
+    // the OUT gate, every Teacher's OUT mark. See the guard in initEvents.
+    const shortItem = STOCK_ITEMS.find(it => (stockExpected(it) || 0) < 0);
     if (shortItem) {
       msg.textContent = shortItem.label + ': used is more than opening + received. Please correct.';
       return;

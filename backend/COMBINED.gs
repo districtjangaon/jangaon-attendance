@@ -5,7 +5,7 @@
  * into the manifest (Project Settings -> show manifest).
  */
 const BACKEND_BUILD = '7ebeb7e0dc48';
-const APP_BUILD_SHIPPED = '20260830-2131';
+const APP_BUILD_SHIPPED = '20260901-2034';
 
 ///////////////////////////////////////////////////////////////////////////
 //  Util.gs
