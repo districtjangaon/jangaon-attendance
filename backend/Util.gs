@@ -22,6 +22,64 @@ const TZ = 'Asia/Kolkata';
 const PROPS = PropertiesService.getScriptProperties();
 const CACHE = CacheService.getScriptCache();
 
+/**
+ * Chunked cache read/write.
+ *
+ * CacheService rejects any single value over 100 KB with "Argument too
+ * large: value". On 2026-09-15 the Leaves table crossed that line, so every
+ * caller of getLeavesAll_() threw on the CACHE.put — including summaryTick,
+ * which stopped publishing for eleven hours while marking carried on fine.
+ *
+ * These two spread a large payload over numbered keys, and treat ANY cache
+ * failure as a plain miss. A cache is an optimisation; it must never be able
+ * to fail the request it was meant to speed up.
+ *
+ * 30 000 characters per chunk, not 100 000: the limit is on bytes, and a
+ * leave reason typed in Telugu costs three bytes per character.
+ */
+const CACHE_CHUNK_CHARS = 30000;
+const CACHE_MAX_CHUNKS = 40;
+
+function cachePutBig_(key, str, ttl) {
+  try {
+    const n = Math.ceil(str.length / CACHE_CHUNK_CHARS);
+    if (n > CACHE_MAX_CHUNKS) {
+      CACHE.remove(key); // too big to cache: leave no stale chunk count behind
+      console.warn('cache skipped for ' + key + ': ' + str.length + ' chars');
+      return;
+    }
+    const parts = {};
+    for (let i = 0; i < n; i++) {
+      parts[key + '~' + i] =
+        str.substring(i * CACHE_CHUNK_CHARS, (i + 1) * CACHE_CHUNK_CHARS);
+    }
+    parts[key] = 'chunks:' + n;
+    CACHE.putAll(parts, ttl);
+  } catch (err) {
+    console.warn('cache write skipped for ' + key + ': ' + err);
+  }
+}
+
+function cacheGetBig_(key) {
+  try {
+    const head = CACHE.get(key);
+    if (!head) return null;
+    if (head.slice(0, 7) !== 'chunks:') return head; // value written whole
+    const n = Number(head.slice(7));
+    const keys = [];
+    for (let i = 0; i < n; i++) keys.push(key + '~' + i);
+    const got = CACHE.getAll(keys);
+    let s = '';
+    for (let i = 0; i < n; i++) {
+      if (got[keys[i]] == null) return null; // one chunk gone: treat as a miss
+      s += got[keys[i]];
+    }
+    return s;
+  } catch (err) {
+    return null;
+  }
+}
+
 // ---- sheet schemas (column order is the contract; never reorder) ----
 // can_approve_leave is APPENDED (column order is the contract). Blank means
 // "use the role default", so every existing row keeps working untouched; '0'

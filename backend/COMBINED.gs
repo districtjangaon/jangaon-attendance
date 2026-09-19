@@ -4,8 +4,8 @@
  * Paste this whole file into Code.gs, and backend/appsscript.json
  * into the manifest (Project Settings -> show manifest).
  */
-const BACKEND_BUILD = '7ebeb7e0dc48';
-const APP_BUILD_SHIPPED = '20260901-2034';
+const BACKEND_BUILD = '153193892034';
+const APP_BUILD_SHIPPED = '20260901-2047';
 
 ///////////////////////////////////////////////////////////////////////////
 //  Util.gs
@@ -34,6 +34,64 @@ const APP_BUILD_SHIPPED = '20260901-2034';
 const TZ = 'Asia/Kolkata';
 const PROPS = PropertiesService.getScriptProperties();
 const CACHE = CacheService.getScriptCache();
+
+/**
+ * Chunked cache read/write.
+ *
+ * CacheService rejects any single value over 100 KB with "Argument too
+ * large: value". On 2026-09-15 the Leaves table crossed that line, so every
+ * caller of getLeavesAll_() threw on the CACHE.put — including summaryTick,
+ * which stopped publishing for eleven hours while marking carried on fine.
+ *
+ * These two spread a large payload over numbered keys, and treat ANY cache
+ * failure as a plain miss. A cache is an optimisation; it must never be able
+ * to fail the request it was meant to speed up.
+ *
+ * 30 000 characters per chunk, not 100 000: the limit is on bytes, and a
+ * leave reason typed in Telugu costs three bytes per character.
+ */
+const CACHE_CHUNK_CHARS = 30000;
+const CACHE_MAX_CHUNKS = 40;
+
+function cachePutBig_(key, str, ttl) {
+  try {
+    const n = Math.ceil(str.length / CACHE_CHUNK_CHARS);
+    if (n > CACHE_MAX_CHUNKS) {
+      CACHE.remove(key); // too big to cache: leave no stale chunk count behind
+      console.warn('cache skipped for ' + key + ': ' + str.length + ' chars');
+      return;
+    }
+    const parts = {};
+    for (let i = 0; i < n; i++) {
+      parts[key + '~' + i] =
+        str.substring(i * CACHE_CHUNK_CHARS, (i + 1) * CACHE_CHUNK_CHARS);
+    }
+    parts[key] = 'chunks:' + n;
+    CACHE.putAll(parts, ttl);
+  } catch (err) {
+    console.warn('cache write skipped for ' + key + ': ' + err);
+  }
+}
+
+function cacheGetBig_(key) {
+  try {
+    const head = CACHE.get(key);
+    if (!head) return null;
+    if (head.slice(0, 7) !== 'chunks:') return head; // value written whole
+    const n = Number(head.slice(7));
+    const keys = [];
+    for (let i = 0; i < n; i++) keys.push(key + '~' + i);
+    const got = CACHE.getAll(keys);
+    let s = '';
+    for (let i = 0; i < n; i++) {
+      if (got[keys[i]] == null) return null; // one chunk gone: treat as a miss
+      s += got[keys[i]];
+    }
+    return s;
+  } catch (err) {
+    return null;
+  }
+}
 
 // ---- sheet schemas (column order is the contract; never reorder) ----
 // can_approve_leave is APPENDED (column order is the contract). Blank means
@@ -734,6 +792,34 @@ function revokeUserSessions_(userId) {
     sh.getRange(row, 6).setValue('TRUE');
     CACHE.remove('sessok_' + String(sh.getRange(row, 1).getValue()));
   });
+}
+
+/**
+ * The same thing for a list of users, in one read and one write.
+ *
+ * The per-user version costs a text search plus two cell calls for every live
+ * session it finds. Approving sixty phone requests in one go would run that
+ * sixty times while holding the script lock; this reads the sheet once and
+ * writes the revoked column back once, whatever the size of the selection.
+ */
+function revokeSessionsForUsers_(userIds) {
+  const want = {};
+  (userIds || []).forEach(function (u) { want[String(u)] = 1; });
+  if (!Object.keys(want).length) return 0;
+  const sh = masterSS_().getSheetByName('Sessions');
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  const vals = sh.getRange(2, 1, last - 1, SESS_H.length).getValues();
+  const col = vals.map(function (r) { return [r[5]]; });
+  let n = 0;
+  for (let i = 0; i < vals.length; i++) {
+    if (!want[String(vals[i][1])] || String(col[i][0]) === 'TRUE') continue;
+    col[i][0] = 'TRUE';
+    CACHE.remove('sessok_' + String(vals[i][0]));
+    n++;
+  }
+  if (n) sh.getRange(2, 6, last - 1, 1).setValues(col);
+  return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -2152,6 +2238,132 @@ function apiDeviceRequestDecide_(auth, req) {
   return { ok: true, id: id, decision: decision };
 }
 
+/** A queue longer than this is a data problem, not an afternoon's work. */
+const DEVREQ_BULK_MAX = 200;
+
+/**
+ * Decide a whole selection in one call - the way through a backlog.
+ *
+ * Every guard the single decision applies is applied here to every request in
+ * the list: console role, the requester inside the actor's scope, and the row
+ * still PENDING. The only thing taken from the client is which ids to look
+ * at. A request that fails a guard is skipped WITH ITS REASON rather than
+ * failing the call - an officer sweeping a queue needs to know which lines
+ * did not move, not to lose the fifty that did.
+ *
+ * The Sheets cost is fixed, not per request: one read and one write for the
+ * queue, one read and one write for the Users device columns, one pass over
+ * Sessions, one append to Audit. Sixty single decisions would instead hold
+ * the script lock through some three hundred Sheets calls while every phone
+ * syncing that minute waits behind it.
+ */
+function apiDeviceRequestDecideBulk_(auth, req) {
+  if (!isConsoleRole_(auth.user)) return deny_();
+  const decision = String(req.decision || '').toUpperCase();
+  if (['APPROVED', 'REJECTED'].indexOf(decision) < 0) return { ok: false, code: 'BAD_DECISION' };
+  const ids = (Array.isArray(req.ids) ? req.ids : String(req.ids || '').split(','))
+    .map(function (x) { return String(x).trim(); }).filter(Boolean);
+  if (!ids.length) return { ok: false, code: 'NOTHING_SELECTED' };
+  if (ids.length > DEVREQ_BULK_MAX) return { ok: false, code: 'TOO_MANY', max: DEVREQ_BULK_MAX };
+
+  const sh = devReqSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return { ok: false, code: 'NOT_FOUND' };
+
+  const ts = nowIso_();
+  const skipped = [];
+  const targets = [];
+  let cleared = [];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const vals = sh.getRange(2, 1, last - 1, DEVREQ_H.length).getValues();
+    // A repeat ask reuses the same req_id on the same row, so an id is one
+    // row; where an older build left a decided twin, the PENDING one wins.
+    const byId = {};
+    vals.forEach(function (v, i) {
+      const o = rowToObj_(DEVREQ_H, v);
+      o._row = i + 2;
+      const id = String(o.req_id);
+      if (!byId[id] || String(byId[id].status) !== 'PENDING') byId[id] = o;
+    });
+
+    ids.forEach(function (id) {
+      const o = byId[id];
+      if (!o) { skipped.push({ id: id, why: 'NOT_FOUND' }); return; }
+      if (String(o.status) !== 'PENDING') { skipped.push({ id: id, why: 'ALREADY_DECIDED' }); return; }
+      const t = getUserById_(String(o.user_id));
+      if (!t || !inScope_(auth.user, t)) { skipped.push({ id: id, why: 'OUT_OF_SCOPE' }); return; }
+      o._user = t;
+      targets.push(o);
+    });
+    if (!targets.length) return { ok: true, changed: 0, skipped: skipped };
+
+    const rng = sh.getRange(2, 11, last - 1, 3);
+    const block = rng.getValues();
+    targets.forEach(function (o) {
+      const i = o._row - 2;
+      block[i][0] = decision;
+      block[i][1] = String(auth.userId);
+      block[i][2] = ts;
+    });
+    rng.setValues(block);
+
+    if (decision === 'APPROVED') {
+      cleared = clearDeviceBindings_(targets.map(function (o) { return o._user; }), ts);
+      revokeSessionsForUsers_(targets.map(function (o) { return String(o.user_id); }));
+    }
+  } finally {
+    lock.releaseLock();
+  }
+
+  // One audit row per decision, naming the phone that was released - the same
+  // trail a single decision writes, written in one append.
+  const wasBound = {};
+  cleared.forEach(function (c) { wasBound[c.userId] = c.deviceId; });
+  auditMany_(targets.map(function (o) {
+    return { actor: auth.userId, action: 'DEVICE_REBIND_' + decision,
+      target: String(o.user_id),
+      oldValue: decision === 'APPROVED' ? (wasBound[String(o.user_id)] || '') : String(o.device_id),
+      newValue: '' };
+  }));
+
+  return { ok: true, changed: targets.length, skipped: skipped,
+    decision: decision, by: String(auth.userId), at: ts };
+}
+
+/**
+ * Clear the phone binding of several users in one read and one write, and
+ * report what each was bound to so the audit trail can name it.
+ *
+ * device_id, device_bound_at, created_at and updated_at are columns 15..18 of
+ * USERS_H - contiguous, so one block covers everything that has to change.
+ * created_at is read and written straight back, which is the price of the
+ * single setValues and cheaper than the two writes per user it replaces.
+ */
+function clearDeviceBindings_(users, ts) {
+  const out = [];
+  if (!users || !users.length) return out;
+  const sh = masterSS_().getSheetByName('Users');
+  const last = sh.getLastRow();
+  if (last < 2) return out;
+  const first = U_.device_id + 1;
+  const width = U_.updated_at - U_.device_id + 1;
+  const rng = sh.getRange(2, first, last - 1, width);
+  const block = rng.getValues();
+  users.forEach(function (u) {
+    const i = Number(u._row) - 2;
+    if (!(i >= 0 && i < block.length)) return;   // user row moved under us
+    out.push({ userId: String(u.user_id), deviceId: String(block[i][0] || '') });
+    block[i][0] = '';
+    block[i][1] = '';
+    block[i][width - 1] = ts;
+    CACHE.remove('uid_' + String(u.user_id));
+  });
+  rng.setValues(block);
+  return out;
+}
+
 ///////////////////////////////////////////////////////////////////////////
 //  Leaves.gs
 ///////////////////////////////////////////////////////////////////////////
@@ -2377,7 +2589,7 @@ function normaliseLeaveRow_(o) {
 }
 
 function getLeavesAll_() {
-  const c = CACHE.get('leaves');
+  const c = cacheGetBig_('leaves');
   // Normalised on BOTH paths: a payload cached by an earlier build still
   // holds raw ISO timestamps, and it stays warm for up to five minutes.
   if (c) return JSON.parse(c).map(normaliseLeaveRow_);
@@ -2389,7 +2601,7 @@ function getLeavesAll_() {
       o._row = i + 2;
       return o;
     });
-  CACHE.put('leaves', JSON.stringify(out), 300);
+  cachePutBig_('leaves', JSON.stringify(out), 300);
   return out;
 }
 
@@ -6325,6 +6537,7 @@ function doPost(e) {
       deviceUnbind: apiDeviceUnbind_,
       deviceRequests: apiDeviceRequestList_,
       deviceRequestDecide: apiDeviceRequestDecide_,
+      deviceRequestDecideBulk: apiDeviceRequestDecideBulk_,
       setAwcCoords: apiSetAwcCoords_,
       raiseIssue: apiRaiseIssue_,
       listIssues: apiListIssues_,

@@ -536,8 +536,8 @@ body.dark .head-user { color: #dfe1ea; }
 .bulk-all { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
 .bulk-all input { width: 16px; height: 16px; }
 #lv-sel-count { font-variant-numeric: tabular-nums; }
-td.lv-pick, th.lv-pick { width: 34px; text-align: center; }
-td.lv-pick input { width: 16px; height: 16px; }
+td.lv-pick, th.lv-pick, td.dr-pick, th.dr-pick { width: 34px; text-align: center; }
+td.lv-pick input, td.dr-pick input { width: 16px; height: 16px; }
 
 
 /* Over-drawn against this year's entitlement. Louder than an exhausted

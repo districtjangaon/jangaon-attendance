@@ -95,7 +95,8 @@ const ctx = {
     }
   },
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty: () => {} }) },
-  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, remove: () => {} }) },
+  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, remove: () => {},
+    putAll: () => {}, getAll: () => ({}) }) },
   SpreadsheetApp: { openById: () => { throw new Error('no live spreadsheet'); } },
   DriveApp: {}, MailApp: { sendEmail: () => {} }, ScriptApp: {}, UrlFetchApp: {}
 };

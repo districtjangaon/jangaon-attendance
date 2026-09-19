@@ -219,7 +219,7 @@ function normaliseLeaveRow_(o) {
 }
 
 function getLeavesAll_() {
-  const c = CACHE.get('leaves');
+  const c = cacheGetBig_('leaves');
   // Normalised on BOTH paths: a payload cached by an earlier build still
   // holds raw ISO timestamps, and it stays warm for up to five minutes.
   if (c) return JSON.parse(c).map(normaliseLeaveRow_);
@@ -231,7 +231,7 @@ function getLeavesAll_() {
       o._row = i + 2;
       return o;
     });
-  CACHE.put('leaves', JSON.stringify(out), 300);
+  cachePutBig_('leaves', JSON.stringify(out), 300);
   return out;
 }
 

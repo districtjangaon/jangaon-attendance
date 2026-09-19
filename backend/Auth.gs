@@ -272,6 +272,34 @@ function revokeUserSessions_(userId) {
   });
 }
 
+/**
+ * The same thing for a list of users, in one read and one write.
+ *
+ * The per-user version costs a text search plus two cell calls for every live
+ * session it finds. Approving sixty phone requests in one go would run that
+ * sixty times while holding the script lock; this reads the sheet once and
+ * writes the revoked column back once, whatever the size of the selection.
+ */
+function revokeSessionsForUsers_(userIds) {
+  const want = {};
+  (userIds || []).forEach(function (u) { want[String(u)] = 1; });
+  if (!Object.keys(want).length) return 0;
+  const sh = masterSS_().getSheetByName('Sessions');
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  const vals = sh.getRange(2, 1, last - 1, SESS_H.length).getValues();
+  const col = vals.map(function (r) { return [r[5]]; });
+  let n = 0;
+  for (let i = 0; i < vals.length; i++) {
+    if (!want[String(vals[i][1])] || String(col[i][0]) === 'TRUE') continue;
+    col[i][0] = 'TRUE';
+    CACHE.remove('sessok_' + String(vals[i][0]));
+    n++;
+  }
+  if (n) sh.getRange(2, 6, last - 1, 1).setValues(col);
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 // App-mode telemetry: is this account using the INSTALLED app or a Chrome
 // tab? The app pings once a day; one upsert row per user in 'AppModes'.

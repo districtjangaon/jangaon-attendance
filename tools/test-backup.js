@@ -67,7 +67,8 @@ const ctx = {
       setProperty: (k, v) => { PROPS[k] = v; }
     })
   },
-  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, remove: () => {} }) },
+  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, remove: () => {},
+    putAll: () => {}, getAll: () => ({}) }) },
   SpreadsheetApp: { openById: () => { throw new Error('not needed'); } },
   ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => {} }) }) }) }), deleteTrigger: () => {} },
   DriveApp: {

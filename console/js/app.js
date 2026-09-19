@@ -1528,6 +1528,9 @@ const App = (() => {
     });
   }
 
+  /** The phone queue as the table last drew it — what the tick boxes mean. */
+  let drRows = [];
+
   /** The leaves ticked right now, in the order the table drew them. */
   function lvPicked() {
     return Array.from($('leaves-table').querySelectorAll('.lv-pick-box'))
@@ -2647,6 +2650,7 @@ const App = (() => {
       list = res.requests || [];
     } catch (e) { block.hidden = true; return; }
 
+    drRows = list;
     block.hidden = !list.length;
     $('devreq-count').textContent = list.length;
     const why = {
@@ -2654,10 +2658,13 @@ const App = (() => {
       DEVICE_FULL: 'This phone already has two workers',
       DEVICE_CADRE: 'Another worker of the same cadre holds this phone'
     };
-    $('devreq-table').innerHTML = '<table><tr><th>Worker</th><th>Cadre</th><th>Centre</th>' +
+    $('devreq-table').innerHTML = '<table><tr><th class="dr-pick"></th>' +
+      '<th>Worker</th><th>Cadre</th><th>Centre</th>' +
       '<th>Why she is blocked</th><th>Who holds the phone now</th><th>Asked</th>' +
       '<th>Decision</th></tr>' +
-      list.map(r => '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.cadre) + '</td><td>' +
+      list.map((r, i) => '<tr><td class="dr-pick">' +
+        '<input type="checkbox" class="dr-pick-box" data-i="' + i + '"></td><td>' +
+        esc(r.name) + '</td><td>' + esc(r.cadre) + '</td><td>' +
         esc(r.awcId ? awcName(r.awcId) : sectorDisplay(r.sector)) + '</td><td>' +
         esc(why[r.reason] || r.reason) + '</td><td>' +
         (r.holders.length
@@ -2670,9 +2677,17 @@ const App = (() => {
           '" data-dec="REJECTED">Reject</button>' +
         '</td></tr>').join('') + '</table>';
 
+    $('devreq-table').querySelectorAll('.dr-pick-box').forEach(c => { c.onchange = drSyncBar; });
+    $('dr-chk-all').checked = false;
+    $('dr-chk-all').onchange = drToggleAll;
+    $('btn-dr-bulk-ok').onclick = () => drBulk('APPROVED');
+    $('btn-dr-bulk-no').onclick = () => drBulk('REJECTED');
+    drSyncBar();
+
     $('devreq-table').querySelectorAll('button[data-req]').forEach(b => {
       b.onclick = async () => {
         const who = list.find(r => r.id === b.dataset.req);
+        if (!who) { loadDeviceRequests(); return; }   // queue moved under us
         const ok = b.dataset.dec === 'APPROVED'
           ? confirm('Approve ' + who.name + '?\n\nHer current phone binding is cleared. ' +
               'The next phone she signs in from becomes her phone.')
@@ -2680,16 +2695,96 @@ const App = (() => {
               '?\n\nNothing changes and she stays blocked.');
         if (!ok) return;
         b.disabled = true;
-        const res = await Api.post({ action: 'deviceRequestDecide', token: token,
-          id: b.dataset.req, decision: b.dataset.dec });
-        if (res && res.ok) loadDeviceRequests();
-        else { b.disabled = false; alert('Failed: ' + ((res && res.code) || 'ERR')); }
+        // Api.post THROWS once its five attempts are spent. Without this catch
+        // the rejection was unhandled, the button stayed disabled for good and
+        // the officer was told nothing at all — a click that did nothing.
+        try {
+          const res = await Api.post({ action: 'deviceRequestDecide', token: token,
+            id: b.dataset.req, decision: b.dataset.dec });
+          if (res && res.ok) { loadDeviceRequests(); return; }
+          alert('Failed: ' + ((res && res.code) || 'ERR'));
+        } catch (e) {
+          alert('Could not reach the server — nothing was changed. Try again.');
+        }
+        b.disabled = false;
       };
     });
   }
 
+  /** The requests ticked right now, in the order the table drew them. */
+  function drPicked() {
+    return Array.from($('devreq-table').querySelectorAll('.dr-pick-box'))
+      .filter(c => c.checked)
+      .map(c => drRows[Number(c.dataset.i)])
+      .filter(Boolean);
+  }
+
+  /** Keep the count and the buttons honest about what is actually ticked. */
+  function drSyncBar() {
+    const boxes = $('devreq-table').querySelectorAll('.dr-pick-box');
+    const n = drPicked().length;
+    $('dr-sel-count').textContent = n
+      ? n + ' of ' + boxes.length + ' selected'
+      : 'Nothing selected';
+    $('btn-dr-bulk-ok').disabled = !n;
+    $('btn-dr-bulk-no').disabled = !n;
+    $('dr-chk-all').checked = !!boxes.length && n === boxes.length;
+  }
+
+  function drToggleAll() {
+    const on = $('dr-chk-all').checked;
+    $('devreq-table').querySelectorAll('.dr-pick-box').forEach(c => { c.checked = on; });
+    drSyncBar();
+  }
+
+  /**
+   * Decide the whole selection in one call — select all, approve, done.
+   *
+   * The server re-checks the role, the sector scope and the PENDING state of
+   * every request in the list, so this is a convenience for the officer, not
+   * a shortcut around authorisation. It reports what it SKIPPED as well as
+   * what it changed: a request another officer decided a minute ago is left
+   * alone, and whoever pressed the button has to be told that.
+   */
+  async function drBulk(decision) {
+    const picked = drPicked();
+    if (!picked.length) return;
+    const who = picked.slice(0, 8).map(r => r.name).join(', ') +
+      (picked.length > 8 ? ', and ' + (picked.length - 8) + ' more' : '');
+    const n = picked.length + ' request' + (picked.length === 1 ? '' : 's');
+    const ok = decision === 'APPROVED'
+      ? confirm('Approve ' + n + '?\n\n' + who +
+          '\n\nEach binding is cleared. The next phone each of them signs in from becomes hers.')
+      : confirm('Reject ' + n + '?\n\n' + who + '\n\nNothing changes and they stay blocked.');
+    if (!ok) return;
+    const btns = [$('btn-dr-bulk-ok'), $('btn-dr-bulk-no')];
+    btns.forEach(b => { b.disabled = true; });
+    try {
+      const res = await Api.post({ action: 'deviceRequestDecideBulk', token: token,
+        ids: picked.map(r => r.id), decision: decision });
+      if (!res || !res.ok) alert('Failed: ' + ((res && res.code) || 'ERR'));
+      else {
+        const skipped = (res.skipped || []).length;
+        alert(res.changed + ' request' + (res.changed === 1 ? '' : 's') +
+          (decision === 'APPROVED' ? ' approved.' : ' rejected.') +
+          (skipped ? '\n\n' + skipped + ' skipped — already decided by someone else, ' +
+            'or outside your sector.' : ''));
+      }
+    } catch (e) {
+      alert('Could not reach the server — nothing was changed. Try again.');
+    } finally {
+      btns.forEach(b => { b.disabled = false; });
+      loadDeviceRequests();
+    }
+  }
+
   function renderAdmin() {
-    loadDeviceRequests();   // fire-and-forget: the user table does not wait on it
+    // The approval queue is NOT reloaded here. renderAdmin runs on every
+    // keystroke in the search box, and reloading the queue from there posted
+    // a request per keystroke and rebuilt the table under the officer's
+    // pointer — a click landing in that window hit a button that no longer
+    // existed and did nothing at all. The queue is loaded when the tab opens
+    // and after every decision, which is when it actually changes.
     if (!names) return;
     const q = $('admin-search').value.trim().toLowerCase();
     const lf = $('admin-filter').value; // '' | 'REG' | 'NOT'
@@ -2732,7 +2827,11 @@ const App = (() => {
       }).join('') + '</table>';
 
     $('admin-table').querySelectorAll('button[data-do]').forEach(b => {
-      b.onclick = () => adminAction(b.dataset.do, b.dataset.uid);
+      // adminAction awaits Api.post, which throws when the server cannot be
+      // reached. Unhandled, that rejection made Reset PIN / Unbind / Activate
+      // silently do nothing at all.
+      b.onclick = () => adminAction(b.dataset.do, b.dataset.uid)
+        .catch(() => alert('Could not reach the server — nothing was changed. Try again.'));
     });
   }
 
@@ -3039,7 +3138,7 @@ const App = (() => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
-    if (name === 'admin') renderAdmin();
+    if (name === 'admin') { renderAdmin(); loadDeviceRequests(); }
     if (name === 'leaves') renderLeaves();
     // The register is a full-year pull; fetch it on first open, then let the
     // Reload button decide — switching tabs must not re-hit the backend.

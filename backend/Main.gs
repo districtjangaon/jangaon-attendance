@@ -64,6 +64,7 @@ function doPost(e) {
       deviceUnbind: apiDeviceUnbind_,
       deviceRequests: apiDeviceRequestList_,
       deviceRequestDecide: apiDeviceRequestDecide_,
+      deviceRequestDecideBulk: apiDeviceRequestDecideBulk_,
       setAwcCoords: apiSetAwcCoords_,
       raiseIssue: apiRaiseIssue_,
       listIssues: apiListIssues_,

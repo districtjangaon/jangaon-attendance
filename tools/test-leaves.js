@@ -104,7 +104,8 @@ const ctx = {
   // Util.gs builds PROPS and CACHE from these itself, so they are stubbed at
   // the service level rather than replaced afterwards.
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty: () => {} }) },
-  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, remove: () => {} }) },
+  CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, remove: () => {},
+    putAll: () => {}, getAll: () => ({}) }) },
   SpreadsheetApp: { openById: () => { throw new Error('no live spreadsheet in this harness'); } },
   DriveApp: {},
   Session: { getScriptTimeZone: () => 'Asia/Kolkata' },
