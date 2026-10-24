@@ -191,6 +191,24 @@ check('a centre where only one of two marked is partial', d.centres.partial === 
 check('an inactive person does not hold her centre open',
   d.centres.full === 2, 'A1 and A2. ' + JSON.stringify(d.centres));
 
+console.log('\nSince go-live');
+check('operating days are the days the district marked, holidays excluded',
+  t.opDays === 2, 'expected 26 and 27 August, got ' + t.opDays);
+check('a person who marked before but not recently is not "stopped" within the window',
+  by('U6').stopped === false && by('U6').first === '2026-08-26' && by('U6').last === '2026-08-26',
+  JSON.stringify(by('U6')));
+check('days marked and attendance % are per operating day',
+  by('U1').daysMarked === 1 && by('U1').cumPct === 50, JSON.stringify(by('U1')));
+check('someone who never marked has no first or last mark',
+  by('U7').first === '' && by('U7').daysMarked === 0 && by('U7').stopped === false,
+  JSON.stringify(by('U7')));
+check('the cumulative % and stopped count reach the totals',
+  t.stopped === 0 && t.cumDays === 6 && t.cumPct === '37.5%',
+  JSON.stringify({ stopped: t.stopped, cumDays: t.cumDays, cumPct: t.cumPct }));
+check('sector groups carry the cumulative figures',
+  sec('Sector One').cumDays === 4 && sec('Sector One').opDays === 2 && sec('Sector One').stopped === 0,
+  JSON.stringify(sec('Sector One')));
+
 console.log('\nSending rules');
 check('a Sunday or holiday is not sent unless forced',
   /holiday && !isTest/.test(fs.readFileSync(path.join(ROOT, 'backend', 'DailyEmail.gs'), 'utf8')),
@@ -207,6 +225,8 @@ check('the body names the people who did not mark',
   html.indexOf('F Helper') >= 0 && html.indexOf('G Never') >= 0);
 check('it does not name the person on sanctioned leave in that list',
   html.split('4. Not marked today')[1].split('5. Never marked')[0].indexOf('E Teacher') < 0);
+check('it carries the since-go-live line and the stopped-marking section',
+  html.indexOf('Since go-live') >= 0 && html.indexOf('6. Stopped marking') >= 0);
 check('it stays well inside the Gmail clip threshold for this fixture',
   html.length < 102400, Math.round(html.length / 1024) + ' KB');
 

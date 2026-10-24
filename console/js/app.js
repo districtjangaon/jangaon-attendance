@@ -2289,6 +2289,290 @@ const App = (() => {
       [reportHead].concat(reportRows));
   }
 
+  // ---------------- All-time report (Excel) ----------------
+  // Same rules as tools/all-time-report.py, computed in the browser from the
+  // published month files (summary/month for the current month, summary/
+  // archive/<ym> for earlier ones) and the live name map. A working day only
+  // counts against a person when the district was operating: at least 10% of
+  // the rolls marked. That drops rollout days and district-wide breaks that are
+  // not in the Holidays sheet, so nobody reads as absent for a Dasara week.
+  const ALLTIME_GO_LIVE = '2026-08-08';
+  const ALLTIME_OP_SHARE = 0.10;
+  const ALLTIME_STOPPED_OPDAYS = 10;
+
+  function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+      if (window.XLSX) { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Could not load ' + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function buildAllTime() {
+    const btn = $('btn-report-alltime');
+    const note = $('report-alltime-note');
+    const say = msg => { note.hidden = false; note.textContent = msg; };
+    btn.disabled = true;
+    try {
+      say('Loading month files…');
+      await loadScriptOnce('vendor/xlsx.mini.min.js');
+
+      const cur = (meta && meta.month) || new Date().toISOString().slice(0, 7);
+      const months = [];
+      for (let y = Number(ALLTIME_GO_LIVE.slice(0, 4)), m = Number(ALLTIME_GO_LIVE.slice(5, 7)); ;) {
+        const ym = y + '-' + String(m).padStart(2, '0');
+        if (ym > cur) break;
+        months.push(ym);
+        if (++m === 13) { m = 1; y++; }
+      }
+      const secs = (names.sectors || []).map(s => s.code);
+
+      // ---- gather every mark, leave and holiday ----
+      const marks = {}, leaves = {}, hols = {}, sources = {};
+      let endDate = '';
+      for (const ym of months) {
+        const path = sc => ym === cur ? 'summary/month/' + sc + '.json' : 'summary/archive/' + ym + '/' + sc + '.json';
+        const docs = await Promise.all(secs.map(sc => Api.fetchJson(path(sc))));
+        let n = 0;
+        docs.forEach(f => {
+          if (!f || f.ym !== ym) return;   // stale files for retired sector codes carry another month
+          n++;
+          if (f.generatedAt && String(f.generatedAt).slice(0, 10) > endDate) endDate = String(f.generatedAt).slice(0, 10);
+          Object.assign(hols[ym] = hols[ym] || {}, f.holidays || {});
+          Object.keys(f.users || {}).forEach(uid => {
+            Object.keys(f.users[uid]).forEach(dd => { (marks[uid] = marks[uid] || {})[ym + '-' + dd] = f.users[uid][dd]; });
+          });
+          Object.keys(f.leaves || {}).forEach(uid => {
+            Object.keys(f.leaves[uid]).forEach(dd => { (leaves[uid] = leaves[uid] || {})[ym + '-' + dd] = f.leaves[uid][dd]; });
+          });
+        });
+        sources[ym] = n ? n + ' sector files' : 'no data published';
+      }
+      if (!endDate) { say('No month files are published yet.'); return; }
+      // The month files are rebuilt nightly; the period ends on the last day they
+      // cover, so a half-day of marks never reads as absence.
+      const lastYm = endDate.slice(0, 7);
+      if (lastYm < cur) endDate = new Date(Number(lastYm.slice(0, 4)), Number(lastYm.slice(5, 7)), 0).toISOString().slice(0, 10);
+
+      // ---- rolls: active field staff and supervisors from the live name map ----
+      const awcName = a => (names.awcs[a] && names.awcs[a].n) || a || '';
+      const projName = {};
+      (names.projects || []).forEach(p => { projName[p.code] = p.name; });
+      const secLabel = sc => String(sc || '').split(',').filter(Boolean).map(sectorName).join(', ');
+      const roster = Object.keys(names.users).filter(id => {
+        const u = names.users[id];
+        return (u.r === 'FIELD' || u.r === 'SUPERVISOR') && u.s === 'ACTIVE';
+      }).map(id => Object.assign({ id }, names.users[id]));
+      roster.sort((a, b) => {
+        const ka = [a.pj || 'zz', a.sc || 'zz', awcName(a.a) || 'zz', a.n], kb = [b.pj || 'zz', b.sc || 'zz', awcName(b.a) || 'zz', b.n];
+        for (let i = 0; i < 4; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
+        return 0;
+      });
+      const onRolls = {};
+      roster.forEach(u => { onRolls[u.id] = 1; });
+
+      // ---- calendar: working days and operating days ----
+      const days = [];
+      for (let d = new Date(ALLTIME_GO_LIVE + 'T12:00:00'); d.toISOString().slice(0, 10) <= endDate; d.setDate(d.getDate() + 1)) {
+        days.push(d.toISOString().slice(0, 10));
+      }
+      const holidayName = ds => {
+        const h = hols[ds.slice(0, 7)] || {};
+        if (h[ds.slice(8)]) return h[ds.slice(8)];
+        return new Date(ds + 'T12:00:00').getDay() === 0 ? 'Sunday' : '';
+      };
+      const perDay = {};
+      Object.keys(marks).forEach(uid => {
+        if (!onRolls[uid]) return;
+        Object.keys(marks[uid]).forEach(ds => {
+          const r = marks[uid][ds];
+          if ((r.IN && r.IN.x !== 'REJ') || (r.OUT && r.OUT.x !== 'REJ')) perDay[ds] = (perDay[ds] || 0) + 1;
+        });
+      });
+      const minMarks = Math.max(1, Math.round(roster.length * ALLTIME_OP_SHARE));
+      const working = days.filter(ds => !holidayName(ds));
+      const operating = working.filter(ds => (perDay[ds] || 0) >= minMarks);
+      const opSet = {}, recentOps = {};
+      operating.forEach(ds => { opSet[ds] = 1; });
+      operating.slice(-ALLTIME_STOPPED_OPDAYS).forEach(ds => { recentOps[ds] = 1; });
+      const nonOp = working.filter(ds => !opSet[ds]);
+
+      // ---- per person ----
+      const stats = {};
+      roster.forEach(u => {
+        const m = marks[u.id] || {};
+        const s = { first: '', last: '', any: 0, op: 0, inD: 0, outD: 0, both: 0, late: 0, outside: 0,
+          unver: 0, flagged: 0, leave: Object.keys(leaves[u.id] || {}).length, recent: false, perMonth: {} };
+        const lateAt = lateAfterFor(u.id);
+        Object.keys(m).sort().forEach(ds => {
+          const i = m[ds].IN && m[ds].IN.x !== 'REJ' ? m[ds].IN : null;
+          const o = m[ds].OUT && m[ds].OUT.x !== 'REJ' ? m[ds].OUT : null;
+          if (!i && !o) return;
+          s.any++;
+          s.perMonth[ds.slice(0, 7)] = (s.perMonth[ds.slice(0, 7)] || 0) + 1;
+          if (opSet[ds]) s.op++;
+          if (recentOps[ds]) s.recent = true;
+          s.first = s.first || ds;
+          s.last = ds;
+          if (i) {
+            s.inD++;
+            if (i.t && i.t > lateAt) s.late++;
+            if (i.gf === 'OUTSIDE') s.outside++;
+            if (i.gf === 'UNVERIFIED') s.unver++;
+          }
+          if (o) s.outD++;
+          if (i && o) s.both++;
+          [i, o].forEach(r => { if (r && (r.fl || r.gf === 'OUTSIDE')) s.flagged++; });
+        });
+        s.status = !s.any ? 'Never marked' : (s.recent ? 'Active' : 'Stopped marking');
+        s.pct = operating.length ? Math.round(1000 * s.op / operating.length) / 10 : 0;
+        stats[u.id] = s;
+      });
+
+      say('Building workbook…');
+      const nOp = operating.length;
+      const cadre = u => u.r === 'SUPERVISOR' ? 'SUP' : u.c;
+      const wb = XLSX.utils.book_new();
+      const addSheet = (name, aoa, widths, filter) => {
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        if (widths) ws['!cols'] = widths.map(w => ({ wch: w }));
+        if (filter && aoa.length > 1) {
+          ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: aoa[0].length - 1 } }) };
+        }
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      };
+
+      // Summary
+      const never = roster.filter(u => stats[u.id].status === 'Never marked');
+      const stopped = roster.filter(u => stats[u.id].status === 'Stopped marking');
+      const personDays = roster.reduce((a, u) => a + stats[u.id].op, 0);
+      const sum = key => roster.reduce((a, u) => a + stats[u.id][key], 0);
+      addSheet('Summary', [
+        ['Jangaon District - Sisu Mahila Samridhi attendance: all-time report'],
+        ['Period', ALLTIME_GO_LIVE + ' (go-live) to ' + endDate + ' (last nightly summary)'],
+        ['Generated', new Date().toLocaleString('en-IN')],
+        [],
+        ['Staff on rolls (active field staff + supervisors)', roster.length],
+        ['  of which AWT', roster.filter(u => cadre(u) === 'AWT').length],
+        ['  of which AWH', roster.filter(u => cadre(u) === 'AWH').length],
+        ['  of which Supervisors', roster.filter(u => cadre(u) === 'SUP').length],
+        ['NEVER marked attendance since go-live', never.length],
+        ['Marked at least once', roster.length - never.length],
+        ['Stopped marking (marked before, but on none of the last ' + ALLTIME_STOPPED_OPDAYS + ' operating days)', stopped.length],
+        ['Active', roster.length - never.length - stopped.length],
+        [],
+        ['Working days since go-live (holidays and Sundays excluded)', working.length],
+        ['Operating days (working days with at least ' + minMarks + ' marks district-wide)', nOp],
+        ['Working days when the district was not operating (excluded from every rate)', nonOp.join(', ')],
+        ['Person-days marked on operating days', personDays],
+        ['District attendance % since go-live', nOp ? Math.round(1000 * personDays / (roster.length * nOp)) / 10 : 0],
+        ['Late IN marks (after the schedule)', sum('late')],
+        ['IN marks outside the centre geofence', sum('outside')],
+        ['IN marks with unverifiable location', sum('unver')],
+        ['Flagged marks', sum('flagged')],
+        ['Leave days recorded', sum('leave')],
+        [],
+        ['Data sources'].concat(months.map(ym => ym + ': ' + sources[ym])),
+        ['Rules', 'Late = IN after the schedule late-after time. OUTSIDE = beyond the geofence with usable GPS accuracy; UNVERIFIED is never counted as outside. Days when fewer than ' + Math.round(ALLTIME_OP_SHARE * 100) + '% of the rolls marked (rollout days, district-wide breaks) do not count against anyone.']
+      ], [70, 110]);
+
+      // Never marked
+      const personRow = (u, i) => [i + 1, u.id, u.n, cadre(u), u.p, projName[u.pj] || u.pj || '', secLabel(u.sc), awcName(u.a) || (u.r === 'SUPERVISOR' ? 'All sector centres' : '')];
+      addSheet('Never Marked', [['S.No', 'User ID', 'Name', 'Cadre', 'Phone', 'Project', 'Sector', 'Centre', 'Registered (first login done)', 'Leave days recorded']]
+        .concat(never.map((u, i) => personRow(u, i).concat([u.pn ? 'Yes' : 'No', stats[u.id].leave]))),
+        [6, 9, 28, 7, 12, 13, 18, 26, 12, 10], true);
+
+      // Stopped marking
+      addSheet('Stopped Marking', [['S.No', 'User ID', 'Name', 'Cadre', 'Phone', 'Project', 'Sector', 'Centre', 'First mark', 'Last mark', 'Days marked']]
+        .concat(stopped.map((u, i) => personRow(u, i).concat([stats[u.id].first, stats[u.id].last, stats[u.id].any]))),
+        [6, 9, 28, 7, 12, 13, 18, 26, 11, 11, 10], true);
+
+      // Staff summary
+      addSheet('Staff Summary', [['S.No', 'User ID', 'Name', 'Cadre', 'Phone', 'Project', 'Sector', 'Centre', 'Status', 'First mark', 'Last mark',
+        'Operating days', 'Days marked on operating days', 'Attendance %', 'Days IN', 'Days OUT', 'Days IN+OUT', 'Late IN',
+        'IN outside geofence', 'IN unverified', 'Flagged marks', 'Leave days'].concat(months.map(ym => 'Days marked ' + ym)).concat(['Days marked total (any day)'])]
+        .concat(roster.map((u, i) => {
+          const s = stats[u.id];
+          return personRow(u, i).concat([s.status, s.first, s.last, nOp, s.op, s.pct, s.inD, s.outD, s.both, s.late, s.outside, s.unver, s.flagged, s.leave])
+            .concat(months.map(ym => s.perMonth[ym] || 0)).concat([s.any]);
+        })), [6, 9, 28, 7, 12, 13, 18, 26, 16, 11, 11, 9, 10, 9, 8, 8, 9, 8, 10, 10, 9, 8].concat(months.map(() => 11)).concat([12]), true);
+
+      // Daily trend
+      addSheet('Daily Trend', [['Date', 'Day', 'Holiday', 'Operating day', 'Staff on rolls', 'Marked (IN or OUT)', 'IN', 'OUT', 'IN+OUT', 'Late IN', 'IN outside geofence', 'IN unverified', 'On leave', 'Marked %']]
+        .concat(days.map(ds => {
+          const c = { m: 0, i: 0, o: 0, b: 0, l: 0, out: 0, un: 0, lv: 0 };
+          roster.forEach(u => {
+            const r = (marks[u.id] || {})[ds] || {};
+            const i = r.IN && r.IN.x !== 'REJ' ? r.IN : null, o = r.OUT && r.OUT.x !== 'REJ' ? r.OUT : null;
+            if ((leaves[u.id] || {})[ds]) c.lv++;
+            if (i || o) c.m++;
+            if (i) { c.i++; if (i.t && i.t > lateAfterFor(u.id)) c.l++; if (i.gf === 'OUTSIDE') c.out++; if (i.gf === 'UNVERIFIED') c.un++; }
+            if (o) c.o++;
+            if (i && o) c.b++;
+          });
+          return [ds, ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(ds + 'T12:00:00').getDay()], holidayName(ds),
+            opSet[ds] ? 'Yes' : 'No', roster.length, c.m, c.i, c.o, c.b, c.l, c.out, c.un, c.lv,
+            Math.round(1000 * c.m / (roster.length || 1)) / 10];
+        })), [12, 6, 26, 10, 10, 12, 8, 8, 9, 9, 12, 11, 9, 10], true);
+
+      // Sector summary
+      addSheet('Sector Summary', [['Project', 'Sector code', 'Sector', 'Staff on rolls', 'Never marked', 'Stopped marking', 'Active',
+        'Person-days marked', 'Possible person-days', 'Attendance %', 'Late IN', 'IN outside geofence', 'Flagged marks', 'Leave days']]
+        .concat((names.sectors || []).map(s => {
+          const mine = roster.filter(u => String(u.sc || '').split(',')[0] === s.code);
+          const t = key => mine.reduce((a, u) => a + stats[u.id][key], 0);
+          const pd = t('op');
+          return [projName[s.project] || s.project, s.code, s.name, mine.length,
+            mine.filter(u => stats[u.id].status === 'Never marked').length,
+            mine.filter(u => stats[u.id].status === 'Stopped marking').length,
+            mine.filter(u => stats[u.id].status === 'Active').length,
+            pd, mine.length * nOp, mine.length && nOp ? Math.round(1000 * pd / (mine.length * nOp)) / 10 : 0,
+            t('late'), t('outside'), t('flagged'), t('leave')];
+        })), [13, 8, 18, 9, 9, 9, 8, 11, 11, 10, 8, 10, 9, 9], true);
+
+      // Register per month
+      months.forEach(ym => {
+        const y = Number(ym.slice(0, 4)), mo = Number(ym.slice(5, 7));
+        const dim = new Date(y, mo, 0).getDate();
+        const dds = [];
+        for (let d = 1; d <= dim; d++) dds.push(String(d).padStart(2, '0'));
+        const header = ['S.No', 'User ID', 'Name', 'Cadre', 'Sector', 'Centre'].concat(dds.map(d => String(Number(d)))).concat(['Present (P+I+O)', 'Absent (A)', 'Leave (L)']);
+        const rows = roster.map((u, i) => {
+          let p = 0, a = 0, l = 0;
+          const cells = dds.map(dd => {
+            const ds = ym + '-' + dd;
+            if (ds < ALLTIME_GO_LIVE || ds > endDate) return '';
+            const r = (marks[u.id] || {})[ds] || {};
+            const hasI = r.IN && r.IN.x !== 'REJ', hasO = r.OUT && r.OUT.x !== 'REJ';
+            if (hasI && hasO) { p++; return 'P'; }
+            if (hasI) { p++; return 'I'; }
+            if (hasO) { p++; return 'O'; }
+            if ((leaves[u.id] || {})[ds]) { l++; return 'L'; }
+            if (holidayName(ds)) return 'H';
+            if (!opSet[ds]) return '-';
+            a++;
+            return 'A';
+          });
+          return [i + 1, u.id, u.n, cadre(u), secLabel(u.sc), awcName(u.a)].concat(cells).concat([p, a, l]);
+        });
+        addSheet('Register ' + ym, [
+          ['P = IN and OUT, I = IN only, O = OUT only, L = on leave, H = holiday, A = not marked, - = district not operating (not counted), blank = before go-live / after ' + endDate],
+          header].concat(rows), [5, 8, 26, 6, 16, 22].concat(dds.map(() => 3.2)).concat([9, 8, 8]), false);
+      });
+
+      XLSX.writeFile(wb, 'Jangaon-attendance-all-time-' + ALLTIME_GO_LIVE + '-to-' + endDate + '.xlsx');
+      say('Downloaded: ' + roster.length + ' on rolls, ' + never.length + ' never marked, ' + stopped.length +
+        ' stopped marking, ' + nOp + ' operating days up to ' + endDate + '.');
+    } catch (err) {
+      say('Could not build the all-time report: ' + (err && err.message || err));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // ---------------- Analytics ----------------
   const anCache = {}; // ym|scope -> sector files
 
@@ -3227,6 +3511,7 @@ const App = (() => {
     $('btn-month-csv').onclick = monthCsv;
     $('btn-report-load').onclick = buildReport;
     $('btn-report-csv').onclick = reportCsv;
+    $('btn-report-alltime').onclick = buildAllTime;
     $('admin-search').oninput = renderAdmin;
     $('admin-filter').onchange = renderAdmin;
     $('btn-awc-capture').onclick = captureAwc;

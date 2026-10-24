@@ -4,7 +4,7 @@
  * Paste this whole file into Code.gs, and backend/appsscript.json
  * into the manifest (Project Settings -> show manifest).
  */
-const BACKEND_BUILD = '153193892034';
+const BACKEND_BUILD = 'e64ecca1e4ab';
 const APP_BUILD_SHIPPED = '20260901-2047';
 
 ///////////////////////////////////////////////////////////////////////////
@@ -4947,6 +4947,15 @@ const DAILY_EMAIL_SUBJECT_PREFIX = 'Jangaon attendance';
 // never-marked list sits at the end. Names are dropped from the body beyond
 // this count; the spreadsheet always carries everyone.
 const DAILY_EMAIL_MAX_NAMES = 700;
+// Since-go-live figures. The first marks were made on this date; a working
+// day only counts against a person when the district was actually operating
+// (at least this share of the rolls marked district-wide), which drops the
+// rollout days and de-facto breaks that are not in the Holidays sheet (the
+// Dasara break of 10-21 Oct 2026 had under 80 marks a day). Someone who has
+// marked before but on none of the last N operational days has stopped.
+const DAILY_EMAIL_GO_LIVE = '2026-08-08';
+const DAILY_EMAIL_OP_SHARE = 0.10;
+const DAILY_EMAIL_STOPPED_OPDAYS = 10;
 
 /** Run once from the editor. Replaces any existing trigger for this function. */
 function installDailyEmailTrigger() {
@@ -5069,9 +5078,13 @@ function dailyAttendanceData_(dateStr) {
     awcs[String(a.awc_id)] = String(a.name);
   });
 
-  // ---- marks for the day, and whether the person has ever marked ----
-  const today = {};          // uid -> { IN: {...}, OUT: {...} }
+  // ---- every mark since go-live: first/last/days per person, operating days ----
+  const cum = marksSinceGoLive_(dateStr, users.length);
   const everMarked = {};     // uid -> true
+  Object.keys(cum.perUid).forEach(function (uid) { everMarked[uid] = true; });
+
+  // ---- marks for the day ----
+  const today = {};          // uid -> { IN: {...}, OUT: {...} }
   const reportedBy = {};     // uid -> filed the daily beneficiary return
   const ss = getMonthSS_(ym, false);
   if (ss) {
@@ -5082,7 +5095,6 @@ function dailyAttendanceData_(dateStr) {
         const o = rowToObj_(MARKS_H, v);
         const p = String(o.key).split('_');
         if (p.length !== 3) return;
-        everMarked[String(o.user_id)] = true;
         if (p[1] !== compact) return;
         (today[String(o.user_id)] = today[String(o.user_id)] || {})[p[2]] = {
           time: String(o.client_ts).slice(11, 16),
@@ -5116,7 +5128,19 @@ function dailyAttendanceData_(dateStr) {
     const uid = String(u.user_id);
     const m = today[uid] || {};
     const leave = onLeave[uid] || '';
+    const c = cum.perUid[uid];
+    let daysMarked = 0, recent = false;
+    if (c) {
+      Object.keys(c.days).forEach(function (ds) {
+        if (cum.opSet[ds]) daysMarked++;
+        if (cum.recentOps[ds]) recent = true;
+      });
+    }
     return {
+      first: c ? c.first : '', last: c ? c.last : '',
+      daysMarked: daysMarked, opDays: cum.ops.length,
+      cumPct: cum.ops.length ? Math.round(daysMarked / cum.ops.length * 1000) / 10 : 0,
+      stopped: !!c && !recent,
       id: uid, name: String(u.name), cadre: String(u.cadre), role: String(u.role),
       project: String(u.project_code), sectorCode: String(u.sector_code),
       sector: sectors[String(u.sector_code)] || String(u.sector_code),
@@ -5141,9 +5165,13 @@ function dailyAttendanceData_(dateStr) {
     reported: rows.filter(function (r) { return r.reported === 'Yes'; }).length,
     notMarked: rows.filter(function (r) { return !has(r, 'inTime') && !has(r, 'outTime') && !r.leave; }).length,
     never: rows.filter(function (r) { return !r.ever; }).length,
+    stopped: rows.filter(function (r) { return r.stopped; }).length,
+    opDays: cum.ops.length,
+    cumDays: rows.reduce(function (a, r) { return a + r.daysMarked; }, 0),
     insideIn: rows.filter(function (r) { return r.inFence === 'Yes'; }).length,
     outsideIn: rows.filter(function (r) { return r.inFence === 'No'; }).length
   };
+  totals.cumPct = pct_(totals.cumDays, totals.roll * totals.opDays);
 
   return { rows: rows, totals: totals,
     byCadre: groupCounts_(rows, function (r) {
@@ -5151,6 +5179,60 @@ function dailyAttendanceData_(dateStr) {
     }),
     bySector: groupCounts_(rows, function (r) { return r.sector; }),
     centres: centreCounts_(rows) };
+}
+
+/**
+ * Every attendance mark since go-live, read as cheaply as the sheets allow:
+ * the key column alone (uid_yyyymmdd_type) from each month's Marks tab, less
+ * anything the district rejected in Corrections. Returns, per person, the
+ * first and last day marked and the set of days; and the list of operational
+ * days (working days on which at least DAILY_EMAIL_OP_SHARE of the rolls
+ * marked), with the most recent DAILY_EMAIL_STOPPED_OPDAYS of them as a set.
+ */
+function marksSinceGoLive_(dateStr, rollSize) {
+  const perUid = {}, perDay = {};
+  let y = Number(DAILY_EMAIL_GO_LIVE.slice(0, 4)), m = Number(DAILY_EMAIL_GO_LIVE.slice(5, 7));
+  const endYm = dateStr.slice(0, 7);
+  for (;;) {
+    const ym = y + '-' + pad_(m, 2);
+    if (ym > endYm) break;
+    const ss = getMonthSS_(ym, true);
+    if (ss) {
+      const rejected = {};
+      const cs = ss.getSheetByName('Corrections');
+      if (cs && cs.getLastRow() >= 2) {
+        cs.getRange(2, 1, cs.getLastRow() - 1, CORR_H.length).getValues().forEach(function (v) {
+          if (String(v[3]) === 'REJECT_MARK') rejected[String(v[1])] = true;
+        });
+      }
+      const sh = marksSheet_(ss);
+      const last = sh.getLastRow();
+      if (last >= 2) {
+        sh.getRange(2, 1, last - 1, 1).getValues().forEach(function (v) {
+          const key = String(v[0]);
+          if (rejected[key]) return;
+          const p = key.split('_');
+          if (p.length !== 3 || (p[2] !== 'IN' && p[2] !== 'OUT') || p[1].length !== 8) return;
+          const ds = p[1].slice(0, 4) + '-' + p[1].slice(4, 6) + '-' + p[1].slice(6, 8);
+          if (ds < DAILY_EMAIL_GO_LIVE || ds > dateStr) return;
+          const u = perUid[p[0]] || (perUid[p[0]] = { first: ds, last: ds, days: {} });
+          if (!u.days[ds]) { u.days[ds] = 1; perDay[ds] = (perDay[ds] || 0) + 1; }
+          if (ds < u.first) u.first = ds;
+          if (ds > u.last) u.last = ds;
+        });
+      }
+    }
+    m++;
+    if (m === 13) { m = 1; y++; }
+  }
+  const min = Math.max(1, Math.round(rollSize * DAILY_EMAIL_OP_SHARE));
+  const ops = Object.keys(perDay).filter(function (ds) {
+    return perDay[ds] >= min && !holidayFor_(ds);
+  }).sort();
+  const opSet = {}, recentOps = {};
+  ops.forEach(function (ds) { opSet[ds] = 1; });
+  ops.slice(-DAILY_EMAIL_STOPPED_OPDAYS).forEach(function (ds) { recentOps[ds] = 1; });
+  return { perUid: perUid, ops: ops, opSet: opSet, recentOps: recentOps };
 }
 
 function fenceWord_(gf) {
@@ -5171,7 +5253,11 @@ function groupCounts_(rows, keyFn) {
   const out = {};
   rows.forEach(function (r) {
     const k = keyFn(r);
-    const g = out[k] || (out[k] = { key: k, roll: 0, in: 0, out: 0, leave: 0, notMarked: 0, never: 0 });
+    const g = out[k] || (out[k] = { key: k, roll: 0, in: 0, out: 0, leave: 0, notMarked: 0, never: 0,
+      stopped: 0, cumDays: 0, opDays: 0 });
+    if (r.stopped) g.stopped++;
+    g.cumDays += r.daysMarked;
+    g.opDays = r.opDays;
     g.roll++;
     if (r.inTime) g.in++;
     if (r.outTime) g.out++;
@@ -5248,6 +5334,7 @@ function dailyAttendanceHtml_(dateStr, d, holiday, isTest) {
     return !r.inTime && !r.outTime && !r.leave;
   });
   const never = d.rows.filter(function (r) { return !r.ever; });
+  const stopped = d.rows.filter(function (r) { return r.stopped; });
 
   const cadreOrder = ['AWT', 'AWH', 'Supervisor'];
   const cadreRows = d.byCadre.sort(function (a, b) {
@@ -5269,6 +5356,8 @@ function dailyAttendanceHtml_(dateStr, d, holiday, isTest) {
       '<td ' + TDR + '>' + g.roll + '</td><td ' + TDR + '>' + g.in + '</td>' +
       '<td ' + TDR + '>' + g.out + '</td><td ' + TDR + '>' + g.leave + '</td>' +
       '<td ' + TDR + '>' + g.notMarked + '</td><td ' + TDR + '>' + g.never + '</td>' +
+      '<td ' + TDR + '>' + g.stopped + '</td>' +
+      '<td ' + TDR + '>' + pct_(g.cumDays, g.roll * g.opDays) + '</td>' +
       '<td ' + TDR + '><b style="color:' + (p < 50 ? '#a41e17' : '#14603a') + '">' +
       pct_(g.in, g.roll) + '</b></td></tr>';
   }).join('');
@@ -5297,12 +5386,20 @@ function dailyAttendanceHtml_(dateStr, d, holiday, isTest) {
     tile(t.onLeave, 'On sanctioned leave', '#0b5c4f') +
     tile(t.notMarked, 'Not marked', '#a41e17') +
     tile(t.never, 'Never marked', '#8a5200') +
+    tile(t.stopped, 'Stopped marking', '#8a5200') +
     '</tr></table>' +
-    '<p style="font-size:12px;color:#525a66;margin:8px 0 18px">' +
+    '<p style="font-size:12px;color:#525a66;margin:8px 0 6px">' +
     pct_(t.markedIn, t.roll) + ' of the establishment marked arrival. ' +
     'Of those arrivals, <b>' + t.insideIn + '</b> were inside the centre boundary and <b>' +
     t.outsideIn + '</b> outside it. ' + t.reported +
     ' persons filed the daily beneficiary return.</p>' +
+    '<p style="font-size:12px;color:#525a66;margin:0 0 18px"><b>Since go-live (' +
+    prettyDay_(DAILY_EMAIL_GO_LIVE) + '):</b> ' + t.opDays + ' operating days, attendance <b>' +
+    t.cumPct + '</b> of possible person-days; <b>' + t.never + '</b> persons have never marked ' +
+    'and <b>' + t.stopped + '</b> marked before but on none of the last ' +
+    DAILY_EMAIL_STOPPED_OPDAYS + ' operating days. An operating day is a working day on which ' +
+    'at least ' + Math.round(DAILY_EMAIL_OP_SHARE * 100) + '% of the rolls marked; rollout days ' +
+    'and district-wide breaks are not held against anyone.</p>' +
 
     '<h3 style="font-size:14px;margin:20px 0 6px;color:#0b5c4f">1. Attendance by cadre</h3>' +
     '<table style="width:100%;border-collapse:collapse"><tr>' +
@@ -5336,10 +5433,12 @@ function dailyAttendanceHtml_(dateStr, d, holiday, isTest) {
     '<th ' + TH + '>Sector</th><th ' + TH + ' align="right">On rolls</th>' +
     '<th ' + TH + ' align="right">Marked IN</th><th ' + TH + ' align="right">Marked OUT</th>' +
     '<th ' + TH + ' align="right">On leave</th><th ' + TH + ' align="right">Not marked</th>' +
-    '<th ' + TH + ' align="right">Never marked</th><th ' + TH + ' align="right">Marked %</th>' +
+    '<th ' + TH + ' align="right">Never marked</th><th ' + TH + ' align="right">Stopped</th>' +
+    '<th ' + TH + ' align="right">Since go-live %</th><th ' + TH + ' align="right">Marked %</th>' +
     '</tr>' + sectorRows + '</table>' +
-    '<p style="font-size:11.5px;color:#7b8494;margin:6px 0 0">Ordered by marking rate, ' +
-    'weakest first.</p>' +
+    '<p style="font-size:11.5px;color:#7b8494;margin:6px 0 0">Ordered by today\'s marking ' +
+    'rate, weakest first. "Since go-live %" is person-days marked over possible person-days ' +
+    'on operating days.</p>' +
 
     '<h3 style="font-size:14px;margin:22px 0 6px;color:#a41e17">4. Not marked today &mdash; ' +
     notMarked.length + ' persons</h3>' +
@@ -5356,6 +5455,15 @@ function dailyAttendanceHtml_(dateStr, d, holiday, isTest) {
     'time. These need onboarding or an explanation, not a day\'s follow-up.</p>' +
     (never.length <= DAILY_EMAIL_MAX_NAMES ? nameBlock(never) :
       '<p style="font-size:12.5px">' + never.length + ' persons; see the attached ' +
+      'spreadsheet.</p>') +
+
+    '<h3 style="font-size:14px;margin:24px 0 6px;color:#8a5200">6. Stopped marking &mdash; ' +
+    stopped.length + ' persons</h3>' +
+    '<p style="font-size:12px;color:#525a66;margin:0 0 8px">Marked at some time since ' +
+    'go-live, but on none of the last ' + DAILY_EMAIL_STOPPED_OPDAYS + ' operating days. ' +
+    'The "Since go-live" sheet in the attachment gives each person\'s first and last mark.</p>' +
+    (stopped.length <= DAILY_EMAIL_MAX_NAMES ? nameBlock(stopped) :
+      '<p style="font-size:12.5px">' + stopped.length + ' persons; see the attached ' +
       'spreadsheet.</p>') +
 
     '<div style="margin-top:26px;padding-top:14px;border-top:2px solid #0b5c4f;' +
@@ -5408,6 +5516,30 @@ function dailyAttendanceXlsx_(dateStr, d) {
     sh.autoResizeColumns(1, header.length);
     // A filter makes this usable for a supervisor who only wants her sector.
     sh.getRange(1, 1, body.length + 1, header.length).createFilter();
+
+    // Second sheet: everyone's record since go-live, so "never marked" and
+    // "stopped marking" can be followed up from the same attachment.
+    const cumHeader = ['S.No', 'User ID', 'Name', 'Cadre', 'Project', 'Sector', 'Centre',
+      'Status since go-live', 'First mark', 'Last mark', 'Operating days since go-live',
+      'Days marked on operating days', 'Attendance %'];
+    const cumBody = d.rows.slice().sort(function (a, b) {
+      const ra = a.ever ? (a.stopped ? 1 : 2) : 0, rb = b.ever ? (b.stopped ? 1 : 2) : 0;
+      if (ra !== rb) return ra - rb;
+      if (a.sector !== b.sector) return a.sector < b.sector ? -1 : 1;
+      return a.name < b.name ? -1 : 1;
+    }).map(function (r, i) {
+      return [i + 1, r.id, r.name, r.role === 'SUPERVISOR' ? 'Supervisor' : r.cadre,
+        r.project, r.sector, r.awc,
+        !r.ever ? 'Never marked' : r.stopped ? 'Stopped marking' : 'Active',
+        r.first || '', r.last || '', r.opDays, r.daysMarked, r.cumPct];
+    });
+    const sh2 = temp.insertSheet('Since go-live');
+    sh2.getRange(1, 1, 1, cumHeader.length).setValues([cumHeader])
+      .setFontWeight('bold').setBackground('#0b5c4f').setFontColor('#ffffff');
+    if (cumBody.length) sh2.getRange(2, 1, cumBody.length, cumHeader.length).setValues(cumBody);
+    sh2.setFrozenRows(1);
+    sh2.autoResizeColumns(1, cumHeader.length);
+    sh2.getRange(1, 1, cumBody.length + 1, cumHeader.length).createFilter();
     SpreadsheetApp.flush();
 
     const url = 'https://docs.google.com/spreadsheets/d/' + temp.getId() + '/export?format=xlsx';

@@ -249,9 +249,14 @@
         <select id="report-scope"></select>
         <button id="btn-report-load" class="btn btn-plain btn-inline">Build report</button>
         <button id="btn-report-csv" class="btn btn-plain btn-inline">Export CSV</button>
+        <button id="btn-report-alltime" class="btn btn-primary btn-inline">All-time report (Excel)</button>
       </div>
+      <p id="report-alltime-note" class="info" hidden></p>
       <div id="report-table" class="tablewrap"><p class="info">Pick a month and scope, then Build report.
-        Working days exclude Sundays and state holidays; leave days are counted separately.</p></div>
+        Working days exclude Sundays and state holidays; leave days are counted separately.
+        <b>All-time report</b> downloads one Excel workbook covering every month since go-live:
+        who has never marked, who has stopped, per-person and per-sector attendance, daily trend,
+        and a day-by-day register for each month.</p></div>
     </section>
 
 
@@ -456,7 +461,7 @@
     <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
   </div>
 
-  <footer class="build-tag">BUILD: v4.28-20260919-1008</footer>
+  <footer class="build-tag">BUILD: v4.29-20261024-1053</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
