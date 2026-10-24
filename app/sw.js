@@ -11,15 +11,13 @@
 // The shell is served cache-first and the browser only re-installs this worker
 // when its BYTES change, so a build that leaves this name alone never reaches
 // a phone that already has the old one. tools/test-build.js enforces the match.
-const CACHE = 'attendance-v5.27-20260901-2047';
-const FONT_CACHE = 'attendance-fonts-v1';
-const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
+const CACHE = 'attendance-v6.0-20261024-1601';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/config.js', './js/db.js', './js/api.js', './js/geo.js',
   './js/camera.js', './js/sync.js', './js/app.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.svg',
-  './img/welcome.jpg', './img/login-bg.jpg'
+  './img/welcome.jpg'
 ];
 
 self.addEventListener('install', e => {
@@ -37,7 +35,7 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
-        keys.filter(k => k !== CACHE && k !== FONT_CACHE).map(k => caches.delete(k))))
+        keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
       // Tell open pages a new version just took over, so the app can reload
       // itself — otherwise users keep the stale shell until a manual restart.
@@ -49,20 +47,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const origin = new URL(e.request.url).origin;
-  // Web fonts: cache-first with runtime fill, so typography survives offline
-  // after the first online load. First-ever offline run falls back to the
-  // system font stack declared in CSS — never blocks the app.
-  if (FONT_ORIGINS.includes(origin)) {
-    e.respondWith(
-      caches.open(FONT_CACHE).then(c =>
-        c.match(e.request).then(hit => hit || fetch(e.request).then(res => {
-          if (res.ok) c.put(e.request, res.clone());
-          return res;
-        }))
-      )
-    );
-    return;
-  }
+  // System fonts only (v6): nothing is fetched from a font CDN, so the shell
+  // opens identically with and without signal.
   if (origin !== location.origin) return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(hit => hit || fetch(e.request))

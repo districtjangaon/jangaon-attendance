@@ -382,11 +382,12 @@ const App = (() => {
     // Geofence verification and status donuts fill the remaining grid cells.
     const gf = { INSIDE: 0, OUTSIDE: 0, UNVERIFIED: 0 };
     rows.forEach(e => { if (e.gf && gf[e.gf] != null) gf[e.gf]++; });
-    $('chart-verify').innerHTML = Charts.donut([
+    $('chart-verify').innerHTML = Charts.stack([
       { label: 'Inside fence', value: gf.INSIDE, color: Charts.STATUS.ok },
       { label: 'Outside fence', value: gf.OUTSIDE, color: Charts.STATUS.warn },
       { label: 'GPS unverified', value: gf.UNVERIFIED, color: Charts.STATUS.idle }
-    ], { centerLabel: 'marked', emptyMsg: 'No marks yet today.' });
+    ], { center: gf.INSIDE + gf.OUTSIDE + gf.UNVERIFIED, centerLabel: 'marked',
+      emptyMsg: 'No marks yet today.' });
 
     const st = { PRESENT: 0, LATE: 0, ON_LEAVE: 0, NOT_MARKED: 0 };
     rows.forEach(e => { if (!e.x && st[e.st] != null) st[e.st]++; });
@@ -2532,13 +2533,13 @@ const App = (() => {
         { name: 'Outside fence', color: Charts.PAL[4], values: workDds.map(dd => perDay[dd].outside) }
       ]) + '</div>' +
       '<div class="chartbox"><h3>Month composition (person-days)</h3>' +
-      Charts.donut([
+      Charts.stack([
         { label: 'Present', value: totPresent, color: Charts.STATUS.ok },
         { label: 'On leave', value: totLeave, color: Charts.STATUS.idle },
         { label: 'Absent', value: totAbsent, color: Charts.STATUS.bad }
       ], { center: attPct + '%', centerLabel: 'attendance' }) + '</div>' +
       '<div class="chartbox"><h3>GPS verification (IN marks)</h3>' +
-      Charts.donut([
+      Charts.stack([
         { label: 'Inside fence', value: Math.max(0, totPresent - totOutside - totUnv), color: Charts.STATUS.ok },
         { label: 'Outside fence', value: totOutside, color: Charts.STATUS.warn },
         { label: 'Unverified', value: totUnv, color: Charts.STATUS.idle }
@@ -3172,6 +3173,14 @@ const App = (() => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
+    // The top bar names the view; the phone bar and the drawer follow.
+    const lbl = $('tab-' + name).querySelector('.lbl');
+    $('top-title').textContent = lbl ? lbl.textContent : name;
+    document.querySelectorAll('#bottomnav [data-go]').forEach(b => {
+      if (b.getAttribute('data-go') === name) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
+    document.body.classList.remove('navopen');
     if (name === 'admin') { renderAdmin(); loadDeviceRequests(); }
     if (name === 'leaves') renderLeaves();
     // The register is a full-year pull; fetch it on first open, then let the
@@ -3207,6 +3216,19 @@ const App = (() => {
       $('btn-theme').textContent = dark ? '☀️' : '🌙';
     };
     if (document.body.classList.contains('dark')) $('btn-theme').textContent = '☀️';
+    // Dense is the default (it is in the markup, so a page whose script never
+    // ran still renders dense); the choice is kept per browser.
+    $('btn-density').onclick = () => {
+      const dense = document.body.classList.toggle('dense');
+      $('btn-density').setAttribute('aria-pressed', dense ? 'true' : 'false');
+      localStorage.setItem('consoleDensity', dense ? 'dense' : 'comfortable');
+    };
+    // Below 760px the rail is a drawer opened from More on the phone bar.
+    document.querySelectorAll('#bottomnav [data-go]').forEach(b => {
+      b.onclick = () => switchTab(b.getAttribute('data-go'));
+    });
+    $('btn-more').onclick = () => document.body.classList.toggle('navopen');
+    $('navscrim').onclick = () => document.body.classList.remove('navopen');
     $('tab-exceptions').onclick = () => { switchTab('exceptions'); markExcSeen(); };
     // The archive is fetched on first open, not at boot: six month files is
     // not something to pull for every console login.
@@ -3271,6 +3293,10 @@ const App = (() => {
 
   async function init() {
     if (localStorage.getItem('consoleTheme') === 'dark') document.body.classList.add('dark');
+    if (localStorage.getItem('consoleDensity') === 'comfortable') {
+      document.body.classList.remove('dense');
+      $('btn-density').setAttribute('aria-pressed', 'false');
+    }
     bind();
     if (token && me) {
       try { await boot(); return; } catch (e) { /* fall through to login */ }

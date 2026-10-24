@@ -3,36 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#87ceeb">
+  <meta name="theme-color" content="#EEF1F7">
   <title>Sisu&amp;MahilaSamridhi — Monitoring Console</title>
   <link rel="icon" href="../app/icons/icon-192.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="vendor/leaflet.css">
   <link rel="stylesheet" href="css/console.css">
 </head>
-<body>
-  <header class="gov-header">
-    <div class="head-brand">
-      <img src="../app/icons/emblem.svg" alt="Emblem of Telangana" class="gov-emblem">
-      <div>
-        <div class="gov-line">Government of Telangana &middot; WD&amp;CW Jangaon District</div>
-        <div class="app-title">Sisu Mahila Samridhi Console</div>
-      </div>
-    </div>
-    <div class="head-right">
-      <span id="head-user" class="head-user"></span>
-      <button id="btn-theme" class="btn btn-plain btn-inline" title="Light / dark">🌙</button>
-      <button id="btn-logout" class="btn btn-plain btn-inline" hidden>Logout</button>
-    </div>
-  </header>
-
-  <div id="stale-banner" class="banner" hidden></div>
-
+<body class="dense">
   <!-- ============ LOGIN ============ -->
-  <section id="screen-login" class="screen login-card">
-    <h2>Sign in</h2>
+  <section id="screen-login" class="gate">
+    <div class="card">
+    <img src="../app/icons/emblem.svg" alt="Emblem of Telangana">
+    <p class="eyebrow">Government of Telangana &middot; WD&amp;CW Jangaon</p>
+    <h1>Sisu Mahila Samridhi<br>Monitoring Console</h1>
     <p class="info">For the district admin team and the Collector. Field users mark attendance in the phone app.</p>
     <label for="in-phone">Mobile number</label>
     <input id="in-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number">
@@ -51,26 +34,44 @@
       <label for="in-newpin2">Repeat new PIN</label>
       <input id="in-newpin2" type="password" inputmode="numeric" maxlength="4">
     </div>
-    <button id="btn-login" class="btn btn-primary">SIGN IN</button>
+    <button id="btn-login" class="btn btn-primary">Sign in</button>
     <p id="login-msg" class="msg"></p>
+    </div>
   </section>
 
-  <!-- ============ MAIN ============ -->
-  <main id="main" hidden>
-    <nav class="tabs">
-      <button id="tab-today" class="tab sel">Dashboard</button>
-      <button id="tab-analytics" class="tab">Analytics</button>
-      <button id="tab-exceptions" class="tab">Flagged <span id="exc-count" class="pill" hidden></span></button>
-      <button id="tab-rpts" class="tab">Daily Reports <span id="rpts-count" class="pill" hidden></span></button>
-      <button id="tab-monthly" class="tab">Monthly</button>
-      <button id="tab-reports" class="tab">Reports</button>
-      <button id="tab-leaves" class="tab">Leaves <span id="leaves-count" class="pill" hidden></span></button>
-      <button id="tab-register" class="tab">Leave Register</button>
-      <button id="tab-map" class="tab">Map</button>
-      <button id="tab-verify" class="tab">Verification <span id="vfy-count" class="pill" hidden></span></button>
-      <button id="tab-admin" class="tab" hidden>Users &amp; Admin</button>
-      <button id="tab-perf" class="tab" hidden>Performance</button>
-    </nav>
+  <!-- ============ MAIN: a rail of destinations beside the content ============ -->
+  <main id="main" class="shell" hidden>
+    <aside class="rail">
+      <div class="brand">
+        <img src="../app/icons/emblem.svg" alt="">
+        <div><b>Sisu Mahila Samridhi</b><span>WD&amp;CW &middot; Jangaon District</span></div>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button id="tab-today" class="tab sel" data-v="today"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg><span class="lbl">Dashboard</span></button>
+        <button id="tab-analytics" class="tab" data-v="analytics"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 15l4-5 4 3 5-7"/></svg><span class="lbl">Analytics</span></button>
+        <button id="tab-exceptions" class="tab" data-v="exceptions"><svg viewBox="0 0 24 24"><path d="M6 21V4h10l-2 4 2 4H6"/></svg><span class="lbl">Flagged</span> <span id="exc-count" class="pill" hidden></span></button>
+        <button id="tab-rpts" class="tab" data-v="rpts"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7zM14 3v4h4M9.5 12h5m-5 4h5"/></svg><span class="lbl">Daily Reports</span> <span id="rpts-count" class="pill" hidden></span></button>
+        <button id="tab-monthly" class="tab" data-v="monthly"><svg viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 3v4m8-4v4"/></svg><span class="lbl">Monthly</span></button>
+        <button id="tab-reports" class="tab" data-v="reports"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg><span class="lbl">Reports</span></button>
+        <button id="tab-leaves" class="tab" data-v="leaves"><svg viewBox="0 0 24 24"><path d="M5 12h14M5 12l4-4m-4 4 4 4"/></svg><span class="lbl">Leaves</span> <span id="leaves-count" class="pill" hidden></span></button>
+        <button id="tab-register" class="tab" data-v="register"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 9h8M8 13h8M8 17h5"/></svg><span class="lbl">Leave Register</span></button>
+        <button id="tab-map" class="tab" data-v="map"><svg viewBox="0 0 24 24"><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11zm0-8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg><span class="lbl">Map</span></button>
+        <button id="tab-verify" class="tab" data-v="verify"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zm-3 9 2 2 4-4"/></svg><span class="lbl">Verification</span> <span id="vfy-count" class="pill" hidden></span></button>
+        <button id="tab-admin" class="tab" data-v="admin" hidden><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 8c0-3.5 3-6 7-6s7 2.5 7 6"/></svg><span class="lbl">Users &amp; Admin</span></button>
+        <button id="tab-perf" class="tab" data-v="perf" hidden><svg viewBox="0 0 24 24"><path d="M4 14a8 8 0 0 1 16 0M12 14l4-5"/></svg><span class="lbl">Performance</span></button>
+      </nav>
+      <div class="railfoot">Government of Telangana<br>Women Development &amp; Child Welfare</div>
+    </aside>
+    <div class="navscrim" id="navscrim"></div>
+    <div class="content">
+    <div class="top">
+      <div><h1 id="top-title">Dashboard</h1><div id="stale-banner" class="banner" hidden></div></div>
+      <span class="sp"></span>
+      <span id="head-user" class="head-user"></span>
+      <button id="btn-density" class="tbtn" title="Dense / comfortable" aria-pressed="true">Dense</button>
+      <button id="btn-theme" class="tbtn" title="Light / dark">🌙</button>
+      <button id="btn-logout" class="tbtn" hidden>Logout</button>
+    </div>
 
     <!-- Today / Dashboard -->
     <section id="view-today" class="view">
@@ -453,22 +454,28 @@
       </div>
       <div id="perf-content"><p class="info">Open this tab to run live checks.</p></div>
     </section>
+    <footer class="build-tag">BUILD: v5.0-20261024-1601</footer>
+    </div>
+    <nav class="bottomnav" id="bottomnav">
+      <button data-go="today" aria-current="page"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg>Dashboard</button>
+      <button data-go="exceptions"><svg viewBox="0 0 24 24"><path d="M6 21V4h10l-2 4 2 4H6"/></svg>Flagged</button>
+      <button data-go="leaves"><svg viewBox="0 0 24 24"><path d="M5 12h14M5 12l4-4m-4 4 4 4"/></svg>Leaves</button>
+      <button data-go="map"><svg viewBox="0 0 24 24"><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11zm0-8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>Map</button>
+      <button id="btn-more"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>More</button>
+    </nav>
   </main>
 
   <!-- photo lightbox -->
   <div id="lightbox" class="lightbox" hidden>
     <img id="lightbox-img" alt="attendance photo">
-    <button id="lightbox-close" class="btn btn-plain btn-inline">Close</button>
+    <button id="lightbox-close" class="tbtn">Close</button>
   </div>
-
-  <footer class="build-tag">BUILD: v4.30-20261024-1128</footer>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/charts.js"></script>
   <script src="vendor/leaflet.js"></script>
   <script src="js/map.js"></script>
-  <script src="js/norms.js"></script>
   <script src="js/norms.js"></script>
   <script src="js/app.js"></script>
 </body>

@@ -2,106 +2,131 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#87ceeb">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#F3F4F9">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Samridhi">
+  <meta name="format-detection" content="telephone=no">
   <title>Sisu&amp;MahilaSamridhi</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+  <!-- Display preferences are applied before the first paint so a Sunlight
+       or Large-text phone never flashes the default look. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('prefs') || '{}');
+      document.documentElement.setAttribute('data-sun', p.sun ? '1' : '0');
+      document.documentElement.setAttribute('data-big', p.big ? '1' : '0');
+    } catch (e) { /* storage blocked: defaults */ }
+  </script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header class="gov-header">
-    <img src="icons/emblem.svg" alt="Emblem of Telangana" class="gov-emblem">
-    <div class="gov-line">Government of Telangana &middot; WD&amp;CW Jangaon</div>
-    <div class="app-title">Sisu Mahila Samridhi</div>
-    <button id="btn-refresh-app" class="menu-btn refresh-btn" title="Refresh app">&#8635;</button>
-    <button id="btn-menu" class="menu-btn" hidden>&#9776;</button>
+  <header class="nav" id="topnav">
+    <span class="side"><button id="btn-refresh-app" class="refresh-btn" title="Refresh app" aria-label="Refresh app">&#8635;</button></span>
+    <h1 class="grad">Sisu Mahila Samridhi</h1>
+    <span class="side r"><button id="btn-menu" hidden aria-label="Menu">&#9776;</button></span>
   </header>
 
-  <div id="offline-banner" class="banner banner-offline" hidden>
-    You are offline — your attendance will be saved on this phone and sent automatically.
+  <div id="offline-banner" class="offbar" hidden>
+    No network &mdash; attendance is kept on this phone and sent when signal returns.
   </div>
 
   <!-- ============ LOGIN ============ -->
-  <section id="screen-login" class="screen">
-    <button id="btn-install" class="btn btn-primary install-btn" hidden>&#11015; Install this app on the phone</button>
-    <h2>Login</h2>
-
-    <!-- Colleagues at this centre, offered by NAME when someone is already
-         signed in on this phone. Half the Helpers in the district are
-         registered on their own mobile, so asking for the centre's number
-         never finds them. Asking for a name always does. -->
-    <div id="centre-block" hidden>
-      <p class="info">Others at your centre &mdash; tap your name to sign in on this phone:</p>
-      <div id="centre-list" class="whoami-list"></div>
-      <p class="centre-or">or sign in with a mobile number</p>
+  <section id="screen-login" class="screen login-screen">
+    <div class="brandband">
+      <img class="mark" src="icons/emblem.svg" alt="Emblem of Telangana">
+      <p class="eyebrow">Government of Telangana &middot; WD&amp;CW Jangaon</p>
+      <h1>Sisu Mahila Samridhi</h1>
+      <p class="sub">Attendance and the daily centre report for Anganwadi staff of Jangaon district. Works without signal.</p>
     </div>
+    <div class="siwrap">
+      <button id="btn-install" class="btn install-btn" hidden>&#11015; Install this app on the phone</button>
 
-    <label for="in-phone">Mobile number</label>
-    <input id="in-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="tel">
+      <!-- Colleagues at this centre, offered by NAME when someone is already
+           signed in on this phone. Half the Helpers in the district are
+           registered on their own mobile, so asking for the centre's number
+           never finds them. Asking for a name always does. -->
+      <div id="centre-block" hidden>
+        <p class="hdr2">Others at your centre</p>
+        <div id="centre-list" class="whoami-list"></div>
+        <p class="centre-or">or sign in with a mobile number</p>
+      </div>
 
-    <!-- Shown when this number belongs to more than one worker (AWT + AWH
-         sharing the centre phone). Tap your own name. -->
-    <div id="whoami-block" hidden>
-      <p class="info">This number is used by more than one worker. Tap your name:</p>
-      <div id="whoami-list" class="whoami-list"></div>
-    </div>
+      <p class="hdr2">Sign in</p>
+      <div class="card">
+        <div class="field">
+          <label for="in-phone">Mobile number</label>
+          <input id="in-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="tel">
+        </div>
+        <!-- Hidden until the server actually asks for a PIN: first-time users
+             set their PIN on the next step and must not be asked for one here. -->
+        <div id="pin-block" class="field" hidden>
+          <label for="in-pin">PIN</label>
+          <input id="in-pin" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit PIN">
+        </div>
+      </div>
 
-    <!-- Hidden until the server actually asks for a PIN: first-time users
-         set their PIN on the next step and must not be asked for one here. -->
-    <div id="pin-block" hidden>
-      <label for="in-pin">PIN</label>
-      <input id="in-pin" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit PIN">
+      <!-- Shown when this number belongs to more than one worker (AWT + AWH
+           sharing the centre phone). Tap your own name. -->
+      <div id="whoami-block" hidden>
+        <p class="info">This number is used by more than one worker. Tap your name:</p>
+        <div id="whoami-list" class="whoami-list"></div>
+      </div>
+
+      <div id="newpin-block" hidden>
+        <p class="info">First login &mdash; choose your own 4-digit PIN. You will use it every time.</p>
+        <div class="card">
+          <div class="field">
+            <label for="in-newpin">New PIN</label>
+            <input id="in-newpin" type="password" inputmode="numeric" maxlength="4" placeholder="Choose 4-digit PIN">
+          </div>
+          <div class="field">
+            <label for="in-newpin2">Repeat new PIN</label>
+            <input id="in-newpin2" type="password" inputmode="numeric" maxlength="4" placeholder="Repeat PIN">
+          </div>
+        </div>
+        <p class="privacy-note">This app records your attendance photo, location and time,
+          and shows them to the district officers of the Women Development &amp; Child
+          Welfare department. Photos are deleted after 45 days. Attendance records are
+          kept for official use. By setting a PIN you agree to this.</p>
+      </div>
+      <button id="btn-login" class="btn btn-primary">Sign in</button>
+      <p id="login-msg" class="msg"></p>
+      <!-- Appears only when the phone itself is what refused her. -->
+      <button id="btn-devreq" class="btn btn-plain" hidden>Ask the district office to approve this phone</button>
+      <div class="role-note"><b>Helper (AWH) without her own phone?</b> Mark your attendance
+        on the Teacher's (AWT) phone: after the AWT logs in, open
+        <b>Users &rarr; + Add another user</b> and login with your own number and PIN.</div>
+      <p class="hint">Forgot PIN? Call the district office to reset it, then login again and set a new PIN.</p>
     </div>
-    <div id="newpin-block" hidden>
-      <p class="info">First login — choose your own 4-digit PIN. You will use it every time.</p>
-      <label for="in-newpin">New PIN</label>
-      <input id="in-newpin" type="password" inputmode="numeric" maxlength="4" placeholder="Choose 4-digit PIN">
-      <label for="in-newpin2">Repeat new PIN</label>
-      <input id="in-newpin2" type="password" inputmode="numeric" maxlength="4" placeholder="Repeat PIN">
-      <p class="privacy-note">This app records your attendance photo, location and time,
-        and shows them to the district officers of the Women Development &amp; Child
-        Welfare department. Photos are deleted after 45 days. Attendance records are
-        kept for official use. By setting a PIN you agree to this.</p>
-    </div>
-    <button id="btn-login" class="btn btn-primary">LOGIN</button>
-    <p id="login-msg" class="msg"></p>
-    <!-- Appears only when the phone itself is what refused her. Until now that
-         message ended at "contact the district office", with nothing to press. -->
-    <button id="btn-devreq" class="btn btn-plain" hidden>Ask the district office to approve this phone</button>
-    <div class="role-note"><b>Helper (AWH) without her own phone?</b> Mark your attendance
-      on the Teacher's (AWT) phone: after the AWT logs in, open
-      <b>Switch user &rarr; + Add another user</b> and login with your own number and PIN.</div>
-    <p class="hint">Forgot PIN? Call the district office to reset it, then login again and set a new PIN.</p>
   </section>
 
   <!-- ============ WELCOME (10 s post-login landing; tap to skip) ============ -->
   <section id="screen-welcome" class="screen welcome-screen" hidden>
     <img src="img/welcome.jpg" alt="Jangaon Collectorate" class="welcome-img">
     <div id="welcome-greet" class="welcome-greet"></div>
-    <p class="welcome-text">Every mark, every meal, every child counted —
+    <p class="welcome-text">Every mark, every meal, every child counted &mdash;
       together we build a healthier Jangaon.</p>
-    <div class="welcome-sign">WD&amp;CW · DISTRICT ADMINISTRATION, JANGAON</div>
+    <div class="welcome-sign">WD&amp;CW &middot; DISTRICT ADMINISTRATION, JANGAON</div>
     <div class="welcome-bar"><i></i></div>
     <div class="welcome-hint">Tap anywhere to continue</div>
   </section>
 
   <!-- ============ HOME ============ -->
   <section id="screen-home" class="screen home-screen" hidden>
-    <div class="hero">
-      <div id="home-avatar" class="avatar">–</div>
-      <div class="hero-text">
-        <div id="home-greet" class="greet"></div>
-        <div id="home-name" class="user-name"></div>
-        <div id="home-awc" class="user-awc"></div>
-      </div>
+    <div class="masthead">
+      <p class="eyebrow">Sisu Mahila Samridhi</p>
+      <h2 id="home-greet">Good morning</h2>
+      <p><b id="home-name"></b> <span id="home-awc" class="user-awc"></span></p>
+      <div id="home-avatar" class="avatar">&ndash;</div>
     </div>
 
-    <div class="punch-card">
+    <!-- The Today card: indigo while IN is owed, amber while OUT is owed,
+         green once both are held (class set by goHome). -->
+    <div id="punch-card" class="tcard due">
       <div id="home-clock" class="clock">--:--</div>
       <div id="home-date" class="today-date"></div>
 
@@ -117,22 +142,22 @@
       </div>
 
       <div class="times-row">
-        <div class="time-chip"><span>IN</span><b id="tt-in">–</b></div>
-        <div class="time-chip"><span>OUT</span><b id="tt-out">–</b></div>
-        <div class="time-chip"><span>Hours</span><b id="tt-hrs">–</b></div>
+        <div class="time-chip"><span>IN</span><b id="tt-in">&ndash;</b></div>
+        <div class="time-chip"><span>OUT</span><b id="tt-out">&ndash;</b></div>
+        <div class="time-chip"><span>Hours</span><b id="tt-hrs">&ndash;</b></div>
       </div>
     </div>
 
     <button id="report-chip" class="report-chip" hidden>
-      <span id="report-chip-text">Daily report — pending</span><span class="rc-arrow">&rsaquo;</span>
+      <span id="report-chip-text">Daily report &mdash; pending</span><span class="rc-arrow">&rsaquo;</span>
     </button>
 
     <div id="issues-card" hidden></div>
 
     <div class="stats-row">
-      <div class="stat"><b id="stat-streak">–</b><span>day streak</span></div>
-      <div class="stat"><b id="stat-month">–</b><span>this month</span></div>
-      <div class="stat"><b id="stat-avgin">–</b><span>avg IN, 7d</span></div>
+      <div class="stat"><b id="stat-streak">&ndash;</b><span>day streak</span></div>
+      <div class="stat"><b id="stat-month">&ndash;</b><span>this month</span></div>
+      <div class="stat"><b id="stat-avgin">&ndash;</b><span>avg IN, 7d</span></div>
     </div>
 
     <div class="week-card">
@@ -208,7 +233,7 @@
     </div>
     <div id="lv-med-block" hidden>
       <p class="info">Medical leave has <b>no limit on the number of days in a year</b>,
-        but <b>not more than 15 days may be taken in one application</b> — for a longer
+        but <b>not more than 15 days may be taken in one application</b> &mdash; for a longer
         illness, apply again for the remaining days. It is accepted <b>only</b> against a
         medical certificate issued by a <b>Government</b> hospital / PHC / CHC / Area
         Hospital. All three below are compulsory.</p>
@@ -221,7 +246,7 @@
     <label for="lv-reason">Reason <span class="req-mark">* required</span></label>
     <input id="lv-reason" type="text" maxlength="200" required
            placeholder="Why you need the leave - e.g. fever, family function">
-    <button id="btn-leave-submit" class="btn btn-primary">SUBMIT LEAVE</button>
+    <button id="btn-leave-submit" class="btn btn-primary">Submit leave</button>
     <p id="leave-msg" class="msg"></p>
     <h2>My leaves</h2>
     <ul id="leave-list" class="history-list"><li>Loading&hellip;</li></ul>
@@ -231,7 +256,7 @@
   <!-- ============ DAILY REPORT ============ -->
   <section id="screen-report" class="screen" hidden>
     <h2>Daily Report</h2>
-    <p id="rpt-note" class="info">Today's centre report — filled once per centre per day.
+    <p id="rpt-note" class="info">Today's centre report &mdash; filled once per centre per day.
       <b>All fields and all four photos are compulsory.</b> Required before marking OUT.</p>
 
     <label for="rp-children">Children present today</label>
@@ -264,7 +289,7 @@
       </table>
     </div>
 
-    <button id="btn-rp-submit" class="btn btn-primary">SUBMIT REPORT</button>
+    <button id="btn-rp-submit" class="btn btn-primary">Submit report</button>
     <p id="rpt-msg" class="msg"></p>
     <button id="btn-rp-back" class="btn btn-plain">Back</button>
   </section>
@@ -288,6 +313,19 @@
     <h2>Menu</h2>
     <div id="menu-user" class="info"></div>
     <div id="menu-version" class="info"></div>
+    <div class="group">
+      <div class="hdr">Display</div>
+      <div class="card">
+        <div class="row">
+          <span class="lbl"><b>Sunlight</b><span>Flat white, darker lines, for use outdoors</span></span>
+          <span class="sw" role="switch" tabindex="0" aria-checked="false" id="pref-sun" aria-label="Sunlight mode"></span>
+        </div>
+        <div class="row">
+          <span class="lbl"><b>Larger text</b></span>
+          <span class="sw" role="switch" tabindex="0" aria-checked="false" id="pref-big" aria-label="Larger text"></span>
+        </div>
+      </div>
+    </div>
     <button id="btn-leave" class="btn btn-primary">Apply for leave</button>
     <button id="btn-test-reset" class="btn btn-plain" hidden>Reset my marks for today (admin test)</button>
     <button id="btn-logout" class="btn btn-danger">Logout this user</button>
@@ -295,15 +333,15 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v5.27-20260901-2047</footer>
+  <footer class="build-tag">BUILD: v6.0-20261024-1601</footer>
 
-  <nav id="bottom-nav" class="bottom-nav" hidden>
-    <button id="nav-home"><span>&#127968;</span>Home</button>
-    <button id="nav-report"><span>&#128221;</span>Report</button>
-    <button id="nav-history"><span>&#128337;</span>Record</button>
-    <button id="nav-users"><span>&#128101;</span>Users</button>
-    <button id="nav-dash" hidden><span>&#128202;</span>Stats</button>
-    <button id="nav-menu"><span>&#9776;</span>Menu</button>
+  <nav id="bottom-nav" class="tabs" hidden>
+    <button id="nav-home"><svg viewBox="0 0 24 24"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3z"/></svg><span>Home</span></button>
+    <button id="nav-report"><svg viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6zm7 1.8V8h4.2zM8 11h8v2H8zm0 4h8v2H8z"/></svg><span>Report</span></button>
+    <button id="nav-history"><svg viewBox="0 0 24 24"><path d="M7 2v2H5.5A2.5 2.5 0 0 0 3 6.5v13A2.5 2.5 0 0 0 5.5 22h13a2.5 2.5 0 0 0 2.5-2.5v-13A2.5 2.5 0 0 0 18.5 4H17V2h-2v2H9V2H7Zm12 8v9.5a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5V10h14Zm-8.4 7.6-3-3 1.4-1.4 1.6 1.6 4.6-4.6 1.4 1.4z"/></svg><span>Record</span></button>
+    <button id="nav-users"><svg viewBox="0 0 24 24"><path d="M9 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7m7 1a3 3 0 1 0 0-6 3 3 0 0 0 0 6M9 14c-3.3 0-7 1.7-7 4v2h14v-2c0-2.3-3.7-4-7-4m7 1c-.5 0-1 0-1.5.1 1 .8 1.5 1.8 1.5 2.9v2h6v-2c0-2-3.3-3-6-3"/></svg><span>Users</span></button>
+    <button id="nav-dash" hidden><svg viewBox="0 0 24 24"><path d="M4 20V10h4v10zm6 0V4h4v16zm6 0v-7h4v7z"/></svg><span>Stats</span></button>
+    <button id="nav-menu"><svg viewBox="0 0 24 24"><path d="M4 6h16v2.4H4zm0 4.8h16v2.4H4zm0 4.8h16V18H4z"/></svg><span>Menu</span></button>
   </nav>
 
   <script src="js/config.js"></script>

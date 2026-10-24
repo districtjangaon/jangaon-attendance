@@ -56,6 +56,9 @@ const App = (() => {
   function show(id) {
     screens.forEach(s => { $(s).hidden = (s !== id); });
     $('btn-menu').hidden = (id === 'screen-login');
+    // The sticky nav goes static over the camera: a frozen header above the
+    // capture flow caused real trouble in the field.
+    document.body.classList.toggle('cam', id === 'screen-camera');
     // Bottom nav: hidden on login/welcome and during full-attention flows
     // (camera, success); Report is the Teacher's duty, Stats is admin-only.
     const acc = active();
@@ -289,7 +292,30 @@ const App = (() => {
     }
   }
 
+  /** Sunlight / Larger text switches on the Menu. The <html> attribute is
+   *  what the stylesheet reads; the head script applies the saved choice
+   *  before first paint so the preference never flashes. */
+  function bindPrefs() {
+    ['sun', 'big'].forEach(k => {
+      const el = $('pref-' + k);
+      const root = document.documentElement;
+      el.setAttribute('aria-checked', root.getAttribute('data-' + k) === '1' ? 'true' : 'false');
+      const flip = () => {
+        const on = el.getAttribute('aria-checked') !== 'true';
+        el.setAttribute('aria-checked', on ? 'true' : 'false');
+        root.setAttribute('data-' + k, on ? '1' : '0');
+        let p = {};
+        try { p = JSON.parse(localStorage.getItem('prefs') || '{}'); } catch (e) { /* fresh */ }
+        p[k] = on;
+        try { localStorage.setItem('prefs', JSON.stringify(p)); } catch (e) { /* lasts this session only */ }
+      };
+      el.onclick = flip;
+      el.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); } };
+    });
+  }
+
   function bindEvents() {
+    bindPrefs();
     $('btn-login').onclick = doLogin;
     ['in-phone', 'in-pin', 'in-newpin2'].forEach(id => {
       $(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -1088,6 +1114,9 @@ const App = (() => {
       chip.hidden = true;
     }
     const next = await nextAction();
+    // The card's colour is the day's state and nothing else: indigo while IN
+    // is owed, amber while the day is open, green once both marks are held.
+    $('punch-card').className = 'tcard ' + (next === 'IN' ? 'due' : next === 'OUT' ? 'open' : 'done');
     if (next) {
       $('btn-mark').hidden = false;
       $('mark-done').hidden = true;
