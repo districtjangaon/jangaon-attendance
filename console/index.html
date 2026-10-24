@@ -439,6 +439,34 @@
         </div>
         <p id="nu-msg" class="msg"></p>
       </div>
+      <!-- Postings (ADMIN): who serves where. Queue, dry-run, apply; the audit log is the history. -->
+      <div id="admin-postings" class="admin-block" hidden>
+        <h3>Postings</h3>
+        <p class="info">Move a worker to another centre, a supervisor to another sector (or add
+          and drop an additional charge), a CDPO to another project. Queue the changes, run them
+          dry to read every change against the prior posting, then apply. Each change is written to
+          the audit log with what it replaced.</p>
+        <div class="toolbar">
+          <input id="po-search" type="search" placeholder="Find the person: name / phone / ID…">
+          <select id="po-user"><option value="">Type to search</option></select>
+          <select id="po-act">
+            <option value="MOVE">Move to</option>
+            <option value="ADD">Add charge of</option>
+            <option value="DROP">Drop charge of</option>
+          </select>
+          <select id="po-dest"></select>
+          <button id="btn-po-add" class="btn btn-plain btn-inline">Queue</button>
+        </div>
+        <div id="po-plan" class="tablewrap"></div>
+        <div class="toolbar">
+          <button id="btn-po-dry" class="btn btn-plain btn-inline" disabled>Dry run</button>
+          <button id="btn-po-apply" class="btn btn-primary btn-inline" disabled>Apply</button>
+          <button id="btn-po-clear" class="btn btn-plain btn-inline" disabled>Clear</button>
+          <span id="po-msg" class="msg"></span>
+        </div>
+        <p class="info" id="po-hist-h">Recent postings, off the audit log.</p>
+        <div id="po-history" class="tablewrap"></div>
+      </div>
       <div id="admin-awc" class="admin-block">
         <h3>Fix an AWC's geofence</h3>
         <p class="info">Stand at the centre, pick it, press capture. Fixes the coordinates that were
@@ -487,7 +515,7 @@
       </div>
       <div id="perf-content"><p class="info">Open this tab to run live checks.</p></div>
     </section>
-    <footer class="build-tag">BUILD: v5.3-20261024-1640</footer>
+    <footer class="build-tag">BUILD: v5.4-20261024-1653</footer>
     </div>
     <nav class="bottomnav" id="bottomnav">
       <button data-go="today" aria-current="page"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg>Dashboard</button>

@@ -502,6 +502,10 @@ td.reg-over{background:var(--red-2);color:var(--pill-bad-ink);font-weight:600}
 #devreq-block{border-radius:var(--r);padding:12px 14px;margin-bottom:16px;background:var(--panel);box-shadow:var(--nm-out),0 0 0 2px var(--st-warn)}
 .devreq-h{margin:0 0 6px;font-size:15px;display:flex;align-items:center;gap:8px}
 .admin-block{border-top:1px solid var(--line);margin-top:18px;padding-top:6px}
+/* postings: the queue reads its dry-run verdict in the last column */
+#po-plan td.po-ok{color:var(--st-ok)}
+#po-plan td.po-no{color:var(--st-warn)}
+#po-plan .po-arrow{color:var(--tx-3);padding:0 4px}
 
 /* ---------- map ---------- */
 .mapwrap{height:62vh;min-height:380px;border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--nm-in-sm);position:relative;z-index:0} /* its own stacking context: Leaflet's z-1000 controls must not float over the drawer */

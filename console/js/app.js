@@ -154,6 +154,7 @@ const App = (() => {
     fillRptControls();
     fillVerifyControls();
     initNewUserForm();
+    initPostings();
     fillAnalyticsControls();
     fillAwcPicker();
     await refreshAll();
@@ -3330,6 +3331,196 @@ const App = (() => {
       } else msg.textContent = 'Failed: ' + res.code;
     }, () => { msg.textContent = 'Could not get GPS. Allow location access and retry.'; },
     { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }
+
+  // ---------------- Postings (ADMIN; ported from the SJGP register) ----------------
+  /**
+   * The queue is the officer's; the plan is the server's answer to exactly
+   * that queue. Any edit to the queue drops the plan, and Apply is offered
+   * only once a dry run of the current queue has at least one row that will
+   * change. The server runs the same checks again on apply.
+   */
+  let poQueue = [];      // [{uid, act, dest}]
+  let poPlan = null;     // dry-run plan for poQueue as it stands, else null
+  let poPlanKey = '';
+
+  function poKey() { return JSON.stringify(poQueue); }
+  function poDestLabel(role, dest) {
+    if (role === 'FIELD') return awcName(dest) + ' (' + dest + ')';
+    if (role === 'SUPERVISOR') return sectorDisplay(dest);
+    if (role === 'CDPO') {
+      const p = (names.projects || []).find(x => x.code === dest);
+      return p ? p.name + ' (' + p.code + ')' : dest;
+    }
+    return dest;
+  }
+  function poNowLabel(u) {
+    if (u.r === 'FIELD') return (u.a ? awcName(u.a) + ' (' + u.a + ')' : 'no centre') + (u.sc ? ' · ' + u.sc : '');
+    if (u.r === 'SUPERVISOR') return u.sc ? 'sector ' + u.sc.split(',').map(s => s.trim()).join(' + ') : 'no sector';
+    if (u.r === 'CDPO') return u.pj ? 'project ' + u.pj : 'no project';
+    return '—';
+  }
+
+  function initPostings() {
+    const block = $('admin-postings');
+    if (!block) return;
+    const isAdmin = me.role === 'ADMIN';
+    block.hidden = !isAdmin;
+    if (!isAdmin) return;
+    $('po-search').oninput = poFillUsers;
+    $('po-user').onchange = poSyncDest;
+    $('po-act').onchange = poSyncDest;
+    $('btn-po-add').onclick = poQueueAdd;
+    $('btn-po-dry').onclick = () => poRun(true);
+    $('btn-po-apply').onclick = () => poRun(false);
+    $('btn-po-clear').onclick = () => { poQueue = []; poPlan = null; renderPoQueue(); $('po-msg').textContent = ''; };
+    poSyncDest();
+    renderPoQueue();
+    loadPostingHistory();
+  }
+
+  /** The people matching the search box: never the district accounts, at most 40. */
+  function poFillUsers() {
+    const q = $('po-search').value.trim().toLowerCase();
+    const sel = $('po-user');
+    if (!q) { sel.innerHTML = '<option value="">Type to search</option>'; poSyncDest(); return; }
+    const hits = Object.keys(names.users).filter(uid => {
+      const u = names.users[uid];
+      if (u.r === 'ADMIN') return false;
+      return u.n.toLowerCase().includes(q) || String(u.p).includes(q) || uid.toLowerCase() === q;
+    }).sort((a, b) => names.users[a].n < names.users[b].n ? -1 : 1).slice(0, 40);
+    sel.innerHTML = hits.length
+      ? hits.map(uid => { const u = names.users[uid]; return '<option value="' + esc(uid) + '">' + esc(u.n) + ' · ' + esc(u.r === 'FIELD' ? u.c : u.r) + ' · ' + esc(poNowLabel(u)) + '</option>'; }).join('')
+      : '<option value="">No one matches</option>';
+    poSyncDest();
+  }
+
+  /** The act and the destination list follow the chosen person's role. */
+  function poSyncDest() {
+    const uid = $('po-user').value;
+    const u = uid ? names.users[uid] : null;
+    const act = $('po-act');
+    const dest = $('po-dest');
+    const addDrop = !!u && u.r === 'SUPERVISOR';
+    Array.from(act.options).forEach(o => { if (o.value !== 'MOVE') o.disabled = !addDrop; });
+    if (!addDrop) act.value = 'MOVE';
+    if (!u) { dest.innerHTML = '<option value="">Pick a person first</option>'; return; }
+    if (u.r === 'FIELD') {
+      const bySector = {};
+      Object.keys(names.awcs || {}).forEach(id => { (bySector[names.awcs[id].sc] = bySector[names.awcs[id].sc] || []).push(id); });
+      dest.innerHTML = Object.keys(bySector).sort().map(sc =>
+        '<optgroup label="' + esc(sectorDisplay(sc)) + '">' +
+        bySector[sc].sort((a, b) => names.awcs[a].n < names.awcs[b].n ? -1 : 1).map(id =>
+          '<option value="' + esc(id) + '"' + (id === u.a ? ' disabled' : '') + '>' + esc(names.awcs[id].n) + ' (' + esc(id) + ')' + (id === u.a ? ' — now' : '') + '</option>').join('') +
+        '</optgroup>').join('');
+    } else if (u.r === 'SUPERVISOR') {
+      const held = u.sc.split(',').map(s => s.trim()).filter(Boolean);
+      const drop = act.value === 'DROP';
+      dest.innerHTML = (names.sectors || []).filter(s => drop ? held.includes(s.code) : true).map(s =>
+        '<option value="' + esc(s.code) + '"' + (act.value === 'ADD' && held.includes(s.code) ? ' disabled' : '') + '>' +
+        esc(s.name) + ' (' + esc(s.code) + ')' + (held.includes(s.code) ? ' — held' : '') + '</option>').join('') ||
+        '<option value="">No sector to drop</option>';
+    } else if (u.r === 'CDPO') {
+      dest.innerHTML = (names.projects || []).map(p =>
+        '<option value="' + esc(p.code) + '"' + (p.code === u.pj ? ' disabled' : '') + '>' + esc(p.name) + ' (' + esc(p.code) + ')' + (p.code === u.pj ? ' — now' : '') + '</option>').join('');
+    } else dest.innerHTML = '<option value="">No posting for this role</option>';
+  }
+
+  function poQueueAdd() {
+    const uid = $('po-user').value, act = $('po-act').value, dest = $('po-dest').value;
+    const msg = $('po-msg');
+    if (!uid) { msg.textContent = 'Pick a person.'; return; }
+    if (!dest) { msg.textContent = 'Pick a destination.'; return; }
+    if (poQueue.some(r => r.uid === uid)) { msg.textContent = names.users[uid].n + ' is already queued — one change per person per order.'; return; }
+    if (poQueue.length >= 50) { msg.textContent = 'An order carries at most 50 changes. Apply this one first.'; return; }
+    poQueue.push({ uid: uid, act: act, dest: dest });
+    poPlan = null;
+    msg.textContent = '';
+    renderPoQueue();
+  }
+
+  function renderPoQueue() {
+    const box = $('po-plan');
+    const planOk = poPlan && poPlanKey === poKey() ? poPlan : null;
+    $('btn-po-dry').disabled = !poQueue.length;
+    $('btn-po-clear').disabled = !poQueue.length;
+    $('btn-po-apply').disabled = !(planOk && planOk.some(p => p.ok));
+    if (!poQueue.length) { box.innerHTML = '<p class="info">Nothing queued.</p>'; return; }
+    const actWord = { MOVE: 'Move to', ADD: 'Add charge of', DROP: 'Drop charge of' };
+    box.innerHTML = '<table><tr><th>Person</th><th>Now</th><th>Change</th><th>Dry run</th><th></th></tr>' +
+      poQueue.map((r, i) => {
+        const u = names.users[r.uid] || { n: r.uid, r: '', c: '', a: '', sc: '', pj: '' };
+        const p = planOk ? planOk[i] : null;
+        return '<tr><td>' + esc(u.n) + ' <span class="muted">' + esc(u.r === 'FIELD' ? u.c : u.r) + '</span></td><td>' +
+          esc(poNowLabel(u)) + '</td><td>' + esc(actWord[r.act] || r.act) + ' ' + esc(poDestLabel(u.r, r.dest)) + '</td>' +
+          (!p ? '<td class="muted">not run</td>'
+            : p.ok ? '<td class="po-ok">' + esc(p.from) + '<span class="po-arrow">\u2192</span>' + esc(p.to) + (p.note ? ' <span class="muted">(' + esc(p.note) + ')</span>' : '') + '</td>'
+            : '<td class="po-no">refused: ' + esc(p.why) + '</td>') +
+          '<td><button class="btn btn-plain btn-inline" data-po-rm="' + i + '">Remove</button></td></tr>';
+      }).join('') + '</table>';
+    box.querySelectorAll('button[data-po-rm]').forEach(b => {
+      b.onclick = () => { poQueue.splice(Number(b.dataset.poRm), 1); poPlan = null; renderPoQueue(); };
+    });
+  }
+
+  async function poRun(dry) {
+    const msg = $('po-msg');
+    if (!poQueue.length) return;
+    if (!dry) {
+      const n = (poPlan || []).filter(p => p.ok).length;
+      if (!confirm('Apply ' + n + ' posting change' + (n === 1 ? '' : 's') + '?\n\nEach is written to the audit log with the prior posting. Refused rows are skipped.')) return;
+    }
+    [$('btn-po-dry'), $('btn-po-apply'), $('btn-po-clear')].forEach(b => { b.disabled = true; });
+    msg.textContent = dry ? 'Running dry\u2026' : 'Applying\u2026';
+    try {
+      const res = await Api.post({ action: 'postingUpdate', token: token, rows: poQueue, dry: dry ? '1' : '0' });
+      if (!res || !res.ok) { msg.textContent = 'Failed: ' + ((res && res.code) || 'ERR'); return; }
+      if (dry) {
+        poPlan = res.plan || [];
+        poPlanKey = poKey();
+        const ok = poPlan.filter(p => p.ok).length;
+        msg.textContent = ok + ' of ' + poPlan.length + ' would change' + (ok < poPlan.length ? '; the rest are refused and would be skipped.' : '.') + ' Nothing was written.';
+      } else {
+        msg.textContent = res.applied + ' applied' + (res.skipped ? ', ' + res.skipped + ' skipped' : '') + '. The roll above is refreshed.';
+        poQueue = []; poPlan = null;
+        await refreshNames();
+        renderAdmin();
+        loadPostingHistory();
+      }
+    } catch (e) {
+      msg.textContent = 'Could not reach the server \u2014 nothing was changed. Try again.';
+    } finally {
+      renderPoQueue();
+    }
+  }
+
+  function poSideLabel(role, p) {
+    if (!p) return '\u2014';
+    if (role === 'FIELD') return (p.awc_id ? awcName(p.awc_id) + ' (' + p.awc_id + ')' : 'no centre') + (p.sector_code ? ' \u00b7 ' + p.sector_code : '');
+    if (role === 'SUPERVISOR') return p.sector_code ? 'sector ' + String(p.sector_code).split(',').map(s => s.trim()).join(' + ') : 'no sector';
+    if (role === 'CDPO') return p.project_code ? 'project ' + p.project_code : 'no project';
+    return [p.project_code, p.sector_code, p.awc_id].filter(Boolean).join(' \u00b7 ') || '\u2014';
+  }
+
+  async function loadPostingHistory() {
+    const box = $('po-history');
+    if (!box) return;
+    box.innerHTML = '<p class="info">Reading\u2026</p>';
+    let rows = [];
+    try {
+      const res = await Api.post({ action: 'postings', token: token });
+      if (!res || !res.ok) { box.innerHTML = '<p class="info">Could not read the history (' + esc((res && res.code) || 'ERR') + ').</p>'; return; }
+      rows = res.rows || [];
+    } catch (e) { box.innerHTML = '<p class="info">Could not reach the server.</p>'; return; }
+    if (!rows.length) { box.innerHTML = '<p class="info">No posting has been changed through the console yet.</p>'; return; }
+    box.innerHTML = '<table><tr><th>When</th><th>Person</th><th>Act</th><th>From</th><th>To</th><th>By</th></tr>' +
+      rows.map(r => {
+        const u = names.users[r.uid];
+        const role = u ? u.r : '';
+        return '<tr><td>' + esc(String(r.at).slice(0, 16).replace('T', ' ')) + '</td><td>' + esc(u ? u.n : r.uid) +
+          ' <span class="muted">' + esc(u ? (u.r === 'FIELD' ? u.c : u.r) : '') + '</span></td><td>' + esc(r.act) + '</td><td>' +
+          esc(poSideLabel(role, r.before)) + '</td><td>' + esc(poSideLabel(role, r.after)) + '</td><td>' + esc(userName(r.by)) + '</td></tr>';
+      }).join('') + '</table>';
   }
 
   // ---------------- Performance / SLA (district admin only) ----------------
