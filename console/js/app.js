@@ -2086,6 +2086,7 @@ const App = (() => {
       $('reg-table').innerHTML = '<p class="info">No staff match these filters.</p>';
       $('reg-apps-head').hidden = true;
       $('reg-apps').innerHTML = '';
+      $('reg-heat').innerHTML = '';
       return;
     }
 
@@ -2111,6 +2112,7 @@ const App = (() => {
     $('reg-table').innerHTML = head + body + '</table>';
 
     renderRegisterApps();
+    renderRegisterHeat();
   }
 
   function registerApps() {
@@ -2323,6 +2325,320 @@ const App = (() => {
     } finally {
       btn.disabled = false;
     }
+  }
+
+  // ---------------- Heat maps (ported from the SJGP register, 16.10.2026) ----------------
+  // Every map here is read off the month files the summariser already
+  // publishes, so the district pays nothing new for them. An archived month
+  // never changes and is kept for the session; the running month is re-read
+  // after two minutes.
+  const mfCache = {};
+  function monthFile(ym, sc) {
+    const cur = (meta && meta.month) || new Date().toISOString().slice(0, 7);
+    const path = ym === cur ? 'summary/month/' + sc + '.json' : 'summary/archive/' + ym + '/' + sc + '.json';
+    const hit = mfCache[path];
+    if (hit && (ym !== cur || Date.now() - hit.at < 120000)) return hit.p;
+    const p = Api.fetchJson(path).catch(() => null);
+    mfCache[path] = { at: Date.now(), p: p };
+    return p;
+  }
+  const hmIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dm = key => Number(key.slice(8, 10)) + ' ' + MON3[Number(key.slice(5, 7)) - 1];
+  const hmPanel = (title, sub, body) => '<div class="hmpanel"><div class="chartbox"><h3>' + esc(title) +
+    (sub ? ' <span class="mut" style="font-weight:500;font-size:12px">' + esc(sub) + '</span>' : '') + '</h3>' + body + '</div></div>';
+  /** FIELD staff of the chosen scope, by sector. */
+  function scopeStaff(scope) {
+    const secList = scope === 'ALL' ? (names.sectors || []).map(s => s.code) : [scope];
+    const by = {};
+    secList.forEach(sc => { by[sc] = []; });
+    Object.keys(names.users || {}).forEach(uid => {
+      const u = names.users[uid];
+      if (u.r === 'FIELD' && by[u.sc] && (!u.s || u.s === 'ACTIVE')) by[u.sc].push(uid);
+    });
+    return { secList: secList, by: by, n: secList.reduce((s, sc) => s + by[sc].length, 0) };
+  }
+  /** One day's figures across the scope's files: who marked, late, outside, on leave. */
+  function dayFigures(files, staff, ym, dd) {
+    const f = { present: 0, late: 0, outside: 0, full: 0, leave: 0 };
+    staff.secList.forEach(sc => {
+      const file = files[ym + '|' + sc];
+      if (!file) return;
+      staff.by[sc].forEach(uid => {
+        const c = ((file.users || {})[uid] || {})[dd];
+        const lv = ((file.leaves || {})[uid] || {})[dd];
+        if (c && c.IN && c.IN.x !== 'REJ') {
+          f.present++;
+          if (c.IN.t && c.IN.t > lateAfterFor(uid)) f.late++;
+          if (c.IN.gf === 'OUTSIDE') f.outside++;
+          if (c.OUT && c.OUT.x !== 'REJ') f.full++;
+        } else if (lv) f.leave++;
+      });
+    });
+    return f;
+  }
+  async function scopeFiles(scope, yms, status) {
+    const staff = scopeStaff(scope);
+    const want = [];
+    yms.forEach(ym => staff.secList.forEach(sc => want.push([ym, sc])));
+    if (status) status.textContent = 'Reading ' + want.length + ' month file(s)…';
+    const got = await Promise.all(want.map(([ym, sc]) => monthFile(ym, sc)));
+    const files = {};
+    got.forEach((f, i) => { if (f) files[want[i][0] + '|' + want[i][1]] = f; });
+    if (status) status.textContent = '';
+    return { staff: staff, files: files };
+  }
+
+  // THE FORTNIGHT IS A HEAT MAP WITH THE FIGURES ON IT. Six columns of
+  // figures read one at a time; a tint under each lets the eye find the heavy
+  // days of a column at once while the figure is still there to be read. EACH
+  // COLUMN IS SCALED TO ITS OWN FORTNIGHT HIGH, because 900 present and 12
+  // outside the fence are not on one scale, and darker is simply MORE: the
+  // map does not say whether more is good. A Sunday or holiday is off and
+  // carries no not-marked figure; a nought is left blank.
+  async function loadFortnight() {
+    const scope = $('an-scope').value;
+    if (!scope || !names) return;
+    const el = $('an-fortnight');
+    el.innerHTML = '<p class="info">Reading the last fortnight…</p>';
+    const now = new Date(), days = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      days.push(hmIso(d));
+    }
+    const yms = Array.from(new Set(days.map(k => k.slice(0, 7))));
+    const { staff, files } = await scopeFiles(scope, yms, null);
+    if (!Object.keys(files).length) {
+      el.innerHTML = '<p class="info">No published month file for this scope yet. The fortnight appears after the first nightly run.</p>';
+      return;
+    }
+    const rows = days.map(key => {
+      const ym = key.slice(0, 7), dd = key.slice(8, 10);
+      const anyF = staff.secList.map(sc => files[ym + '|' + sc]).filter(Boolean)[0] || {};
+      const off = (anyF.holidays && anyF.holidays[dd]) || (new Date(key + 'T12:00:00').getDay() === 0 ? 'Sunday' : '');
+      const f = dayFigures(files, staff, ym, dd);
+      f.absent = off ? null : Math.max(0, staff.n - f.present - f.leave);
+      return Object.assign({ key: key, off: off }, f);
+    });
+    const cols = [['present', 'Present'], ['full', 'IN and OUT'], ['late', 'Late'], ['outside', 'Outside fence'], ['leave', 'On leave'], ['absent', 'Not marked']];
+    const hi = {};
+    cols.forEach(([k]) => { hi[k] = Math.max(0, ...rows.map(r => r[k] || 0)); });
+    const bin = (v, k) => { if (!(v > 0) || !(hi[k] > 0)) return ''; const q = v / hi[k]; return q <= .2 ? 'k1' : q <= .4 ? 'k2' : q <= .6 ? 'k3' : q <= .8 ? 'k4' : 'k5'; };
+    const today = hmIso(now);
+    let t = '<div class="tablewrap"><table class="dayhm"><thead><tr><th>Day</th>' + cols.map(c => '<th>' + c[1] + '</th>').join('') + '</tr></thead><tbody>';
+    rows.forEach(r => {
+      t += '<tr><td class="d' + (r.off ? ' off' : '') + '">' + esc(dm(r.key)) + (r.key === today ? ' <span class="mut">today</span>' : r.off ? ' <span class="mut">' + esc(r.off) + '</span>' : '') + '</td>' +
+        cols.map(([k]) => {
+          const v = r[k];
+          const off = r.off && k === 'absent';
+          const txt = off ? '—' : (v == null || v === 0 ? '—' : String(v));
+          return '<td class="c ' + (off ? 'off' : bin(v, k)) + '"' + (v > 0 && !off ? ' title="' + esc(v + ' ' + (k === 'absent' ? 'not marked' : k === 'full' ? 'with both marks' : k)) + '"' : '') + '>' + txt + '</td>';
+        }).join('') + '</tr>';
+    });
+    t += '</tbody></table></div>';
+    t += '<div class="hmleg"><span>Darker is more, column by column; each is scaled to its own fortnight high:</span>' +
+      [1, 2, 3, 4, 5].map(i => '<span><i style="background:var(--hm' + i + ')"></i></span>').join('') +
+      '<span><i style="background:var(--well)"></i>Sunday or holiday: nobody is due</span><span>A blank is a nought. More is not better on every column; read the heading.</span></div>';
+    el.innerHTML = hmPanel('Day by day · the last fortnight', staff.n + ' field staff in scope', t);
+  }
+
+  // ATTENDANCE, DAY BY DAY, FOR A YEAR. Weeks across, Monday to Sunday down;
+  // a cell is the staff who marked that day, or by the switch those who came
+  // late, those on sanctioned leave, or on the working days already past,
+  // those who did neither. Due is TODAY'S roll and the screen says so: on a
+  // day months ago "not marked" is an upper figure. Sundays and holidays are
+  // grey and never counted as unmarked.
+  const ATC_MEASURES = { marked: 'Marked', notmarked: 'Not marked', late: 'Marked late', leave: 'On leave' };
+  let atcYear = String(new Date().getFullYear()), atcMeasure = 'marked', atcData = null;
+  async function loadYearCal(force) {
+    const scope = $('an-scope').value;
+    if (!scope || !names) return;
+    const el = $('an-year');
+    const key = scope + '|' + atcYear;
+    if (!force && atcData && atcData.key === key) { renderYearCal(); return; }
+    el.innerHTML = '<p class="info">Reading the year off the published month files (the first time takes a few seconds)…</p>';
+    const now = new Date(), y = Number(atcYear);
+    const lastM = y < now.getFullYear() ? 12 : y > now.getFullYear() ? 0 : now.getMonth() + 1;
+    const yms = [];
+    for (let m = 1; m <= lastM; m++) yms.push(y + '-' + String(m).padStart(2, '0'));
+    const { staff, files } = await scopeFiles(scope, yms, null);
+    const cal = {}, off = {};
+    const today = hmIso(now);
+    const T = { workingDays: 0, workingDaysPast: 0, marks: 0, late: 0, leaveDays: 0 };
+    for (let t = Date.UTC(y, 0, 1); t <= Date.UTC(y, 11, 31); t += 86400000) {
+      const d = new Date(t), k = d.toISOString().slice(0, 10), ym = k.slice(0, 7), dd = k.slice(8, 10);
+      const anyF = staff.secList.map(sc => files[ym + '|' + sc]).filter(Boolean)[0];
+      const o = d.getUTCDay() === 0 ? 'Sunday' : (anyF && anyF.holidays && anyF.holidays[dd]) || '';
+      if (o) { off[k] = o; } else { T.workingDays++; if (k <= today) T.workingDaysPast++; }
+      if (!anyF || k > today) continue;
+      const f = dayFigures(files, staff, ym, dd);
+      cal[k] = { marked: f.present, late: f.late, leave: f.leave };
+      T.marks += f.present; T.late += f.late; T.leaveDays += f.leave;
+    }
+    atcData = { key: key, year: y, due: staff.n, cal: cal, off: off, today: today, totals: T, months: Object.keys(files).length };
+    renderYearCal();
+  }
+  function atcValue(key, c, o) {
+    if (atcMeasure === 'marked') return c ? c.marked : 0;
+    if (atcMeasure === 'late') return c ? c.late : 0;
+    if (atcMeasure === 'leave') return c ? c.leave : 0;
+    if (o || key > atcData.today || !c) return 0;
+    return Math.max(0, atcData.due - c.marked - c.leave);
+  }
+  function renderYearCal() {
+    const A = atcData, el = $('an-year');
+    const y = A.year, today = A.today;
+    const jan1 = Date.UTC(y, 0, 1), dec31 = Date.UTC(y, 11, 31), dow0 = (new Date(jan1).getUTCDay() + 6) % 7, start = jan1 - dow0 * 86400000;
+    const weeks = [];
+    let hi = 0;
+    for (let t = start; t <= dec31; t += 7 * 86400000) {
+      const w = { from: new Date(t).toISOString().slice(0, 10), days: [], total: 0, wd: 0 };
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(t + d * 86400000), key = dt.toISOString().slice(0, 10), inYear = dt.getUTCFullYear() === y;
+        const o = inYear ? A.off[key] : '', n = inYear ? atcValue(key, A.cal[key], o) : 0;
+        w.days.push({ key: key, n: n, inYear: inYear, off: o, future: key > today }); w.total += n;
+        if (inYear && !o && key <= today) w.wd++;
+        if (n > hi) hi = n;
+      }
+      weeks.push(w);
+    }
+    // marked is a share of those due; the rest are scaled to the year's high
+    const bin = v => {
+      if (v <= 0) return '';
+      if (atcMeasure === 'marked') { const s = A.due ? v / A.due : 0; return s < .5 ? 'k1' : s < .7 ? 'k2' : s < .85 ? 'k3' : s < .95 ? 'k4' : 'k5'; }
+      const q = hi ? v / hi : 0; return q <= .2 ? 'k1' : q <= .4 ? 'k2' : q <= .6 ? 'k3' : q <= .8 ? 'k4' : 'k5';
+    };
+    const total = weeks.reduce((s, w) => s + w.total, 0);
+    const monthOf = w => { const d = new Date(w.from + 'T00:00:00Z'); return d.getUTCDate() <= 7 ? MON3[d.getUTCMonth()] : ''; };
+    const word = ATC_MEASURES[atcMeasure].toLowerCase();
+    const years = [];
+    for (let v = new Date().getFullYear(); v >= 2026; v--) years.push(v);
+    let h = '<div class="hmbar"><div class="segtabs" role="tablist" id="atc-measure">' +
+      Object.keys(ATC_MEASURES).map(k => '<button type="button" role="tab" data-atc="' + k + '" aria-selected="' + (atcMeasure === k) + '">' + ATC_MEASURES[k] + '</button>').join('') + '</div>' +
+      '<label>Year<select id="atc-year">' + years.map(v => '<option value="' + v + '"' + (String(v) === atcYear ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label></div>';
+    if (!A.months) {
+      h += '<p class="info">No published month file for ' + y + ' in this scope.</p>';
+    } else {
+      h += '<div class="hmwrap" style="max-height:none;padding:8px 6px"><table class="lvcal"><thead><tr><th class="d"></th>' + weeks.map(w => '<th>' + monthOf(w) + '</th>').join('') + '</tr></thead><tbody>';
+      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((dn, d) => {
+        h += '<tr><th class="d">' + dn + '</th>';
+        weeks.forEach(w => {
+          const x = w.days[d];
+          const cls = 'c ' + (!x.inYear || x.future ? 'off' : x.off ? (x.n ? bin(x.n) : 'off') : bin(x.n)) + (x.key === today ? ' today' : '');
+          const tip = !x.inYear ? '' : x.future ? dm(x.key) + ': not yet' :
+            dm(x.key) + (x.off ? ', ' + x.off : '') + ': ' + (x.n ? x.n + ' ' + word : (x.off && atcMeasure === 'notmarked' ? 'off day, nobody is due' : 'none ' + word)) +
+            (atcMeasure === 'marked' && A.due && !x.off ? ' of ' + A.due + ' due' : '');
+          h += '<td class="' + cls + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '></td>';
+        });
+        h += '</tr>';
+      });
+      h += '<tr><td class="wl">Week total</td>' + weeks.map(w => '<td class="w" title="' + esc('week of ' + dm(w.from) + ': ' + w.total + ' ' + word + (w.wd ? ' over ' + w.wd + ' working day' + (w.wd === 1 ? '' : 's') : '')) + '">' + (w.total || '') + '</td>').join('') + '</tr>';
+      h += '</tbody></table></div>';
+      const leg = atcMeasure === 'marked' ? ['none', 'under 50%', '50–69%', '70–84%', '85–94%', '95% and over'] : ['none', 'lowest fifth', '', 'middle', '', 'the year\'s high'];
+      h += '<div class="hmleg"><span>' + (atcMeasure === 'marked' ? 'Marked, as a share of the ' + A.due + ' due:' : 'Staff on the day, scaled to the year\'s high:') + '</span>' +
+        leg.map((l, i) => '<span><i style="' + (i ? 'background:var(--hm' + i + ')' : 'background:var(--panel);box-shadow:inset 0 0 0 1px var(--line)') + '"></i>' + l + '</span>').join('') +
+        '<span><i style="background:var(--well)"></i>Sunday, holiday or not yet</span><span><i style="box-shadow:inset 0 0 0 2px var(--st-warn);background:var(--panel)"></i>today</span></div>';
+      const T = A.totals, avg = T.workingDaysPast ? Math.round(T.marks / T.workingDaysPast) : 0;
+      h += '<p class="hmnote"><b>' + T.marks.toLocaleString('en-IN') + ' marks</b> over ' + T.workingDaysPast + ' working day' + (T.workingDaysPast === 1 ? '' : 's') + ' of ' + y + ' so far, about ' + avg + ' a day against ' + A.due + ' due today' +
+        (T.late ? '; ' + T.late.toLocaleString('en-IN') + ' of them late' : '') + (T.leaveDays ? '; ' + T.leaveDays.toLocaleString('en-IN') + ' staff-days of sanctioned leave' : '') + '. ' +
+        'One person counts once a day. <b>Due is today\'s roll</b>, so on a day months ago "not marked" is an upper figure: someone who joined since was not due then. Sundays and holidays are never counted as unmarked. ' +
+        'This is a picture of the year and not a charge.</p>';
+    }
+    el.innerHTML = hmPanel('Attendance, week by week · ' + y, ATC_MEASURES[atcMeasure] + ' · ' + A.due + ' due · ' + (total ? total.toLocaleString('en-IN') + ' in all' : 'nothing yet'), h);
+    el.querySelectorAll('[data-atc]').forEach(b => { b.onclick = () => { atcMeasure = b.dataset.atc; renderYearCal(); }; });
+    $('atc-year').onchange = e => { atcYear = e.target.value; loadYearCal(); };
+  }
+
+  // THE LEAVE REGISTER'S TWO MAPS. The district week by week: fifty-three
+  // columns of weeks, seven rows of days, a cell is the staff on sanctioned
+  // leave that day under the filters chosen, and a row of week totals. Then
+  // when the leave fell: one row an officer, one column a month, a cell the
+  // days taken in that month (a spell split across the months it falls in),
+  // an outlined cell an application still awaiting the decision.
+  const lvBin = v => v <= 0 ? '' : v < 2 ? 'k1' : v < 4 ? 'k2' : v < 6 ? 'k3' : v < 10 ? 'k4' : 'k5';
+  const lvCalBin = v => v <= 0 ? '' : v < 2 ? 'k1' : v < 4 ? 'k2' : v < 7 ? 'k3' : v < 13 ? 'k4' : 'k5';
+  function renderRegisterHeat() {
+    const el = $('reg-heat');
+    if (!regData) { el.innerHTML = ''; return; }
+    const y = Number(regData.year), apps = registerApps();
+    const today = hmIso(new Date());
+    const y0 = Date.UTC(y, 0, 1), y1 = Date.UTC(y, 11, 31);
+    // every calendar day of each spell inside the year, by officer and by day
+    const perDay = {}, officers = {};
+    apps.forEach(a => {
+      if (a.status !== 'APPROVED' && a.status !== 'PENDING') return;
+      const f = Date.parse(a.from + 'T00:00:00Z'), t = Date.parse((a.to || a.from) + 'T00:00:00Z');
+      if (isNaN(f) || isNaN(t)) return;
+      const o = officers[a.u] = officers[a.u] || { u: a.u, m: new Array(12).fill(0), am: new Array(12).fill(0), v: 0, a: 0 };
+      for (let d = Math.max(f, y0); d <= Math.min(t, y1); d += 86400000) {
+        const k = new Date(d).toISOString().slice(0, 10), mi = new Date(d).getUTCMonth();
+        if (a.status === 'APPROVED') { perDay[k] = (perDay[k] || 0) + 1; o.m[mi]++; o.v++; }
+        else { o.am[mi]++; o.a++; }
+      }
+    });
+    // ---- the district, week by week ----
+    const dow0 = (new Date(y0).getUTCDay() + 6) % 7, start = y0 - dow0 * 86400000;
+    const weeks = [];
+    for (let t = start; t <= y1; t += 7 * 86400000) {
+      const w = { from: new Date(t).toISOString().slice(0, 10), days: [], total: 0 };
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(t + d * 86400000), key = dt.toISOString().slice(0, 10), inYear = dt.getUTCFullYear() === y;
+        const n = inYear ? (perDay[key] || 0) : 0;
+        w.days.push({ key: key, n: n, inYear: inYear }); w.total += n;
+      }
+      weeks.push(w);
+    }
+    const total = weeks.reduce((s, w) => s + w.total, 0);
+    const monthOf = w => { const d = new Date(w.from + 'T00:00:00Z'); return d.getUTCDate() <= 7 ? MON3[d.getUTCMonth()] : ''; };
+    let cal;
+    if (!total) cal = '<p class="info">Nobody on sanctioned leave in ' + y + ' under these filters.</p>';
+    else {
+      const peak = weeks.reduce((b, w) => w.total > b.total ? w : b, weeks[0]);
+      const peakDay = weeks.flatMap(w => w.days).reduce((b, d) => d.n > b.n ? d : b, { n: 0 });
+      cal = '<div class="hmwrap" style="max-height:none;padding:8px 6px"><table class="lvcal"><thead><tr><th class="d"></th>' + weeks.map(w => '<th>' + monthOf(w) + '</th>').join('') + '</tr></thead><tbody>';
+      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((dn, d) => {
+        cal += '<tr><th class="d">' + dn + '</th>';
+        weeks.forEach(w => {
+          const x = w.days[d];
+          const cls = 'c ' + (x.inYear ? lvCalBin(x.n) : 'off') + (x.key === today ? ' today' : '');
+          const tip = x.inYear ? dm(x.key) + ': ' + (x.n ? x.n + ' on sanctioned leave' : 'nobody on leave') : '';
+          cal += '<td class="' + cls + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '></td>';
+        });
+        cal += '</tr>';
+      });
+      cal += '<tr><td class="wl">Week total</td>' + weeks.map(w => '<td class="w' + (w.total && w === peak ? ' hi' : '') + '" title="' + esc('week of ' + dm(w.from) + ': ' + w.total + ' staff-day' + (w.total === 1 ? '' : 's')) + '">' + (w.total || '') + '</td>').join('') + '</tr>';
+      cal += '</tbody></table></div>';
+      cal += '<div class="hmleg"><span>Staff away on the day:</span><span><i style="background:var(--panel);box-shadow:inset 0 0 0 1px var(--line)"></i>none</span><span><i style="background:var(--hm1)"></i>1</span><span><i style="background:var(--hm2)"></i>2–3</span><span><i style="background:var(--hm3)"></i>4–6</span><span><i style="background:var(--hm4)"></i>7–12</span><span><i style="background:var(--hm5)"></i>13+</span><span><i style="box-shadow:inset 0 0 0 2px var(--st-warn);background:var(--panel)"></i>today</span></div>';
+      cal += '<p class="hmnote"><b>' + total.toLocaleString('en-IN') + ' staff-days</b> of sanctioned leave in ' + y + '. The busiest week began on <b>' + esc(dm(peak.from)) + '</b> with ' + peak.total + ' staff-day' + (peak.total === 1 ? '' : 's') +
+        (peakDay.n ? '; the busiest day was <b>' + esc(dm(peakDay.key)) + '</b> with ' + peakDay.n + ' away' : '') + '. A cell counts the staff whose sanctioned leave covers that day; Sundays and holidays inside a spell are counted as the spell covers them. Nothing awaiting a decision is on this map.</p>';
+    }
+    // ---- when the leave fell ----
+    const rows = Object.keys(officers).map(k => officers[k]).filter(o => o.v > 0 || o.a > 0)
+      .sort((a, b) => b.v - a.v || b.a - a.a || userName(a.u).localeCompare(userName(b.u)));
+    const curM = String(y) === today.slice(0, 4) ? Number(today.slice(5, 7)) - 1 : 12;
+    let heat;
+    if (!rows.length) heat = '<p class="info">Nothing taken in ' + y + ' under these filters.</p>';
+    else {
+      heat = '<div class="hmwrap"><table class="hm"><thead><tr><th class="who">Staff</th>' + MON3.map((m, i) => '<th' + (i === curM ? ' style="color:var(--tx)"' : '') + '>' + m + '</th>').join('') + '<th>Year</th></tr></thead><tbody>';
+      rows.slice(0, 400).forEach(o => {
+        const u = names.users[o.u] || {};
+        heat += '<tr><td class="who" title="' + esc(userName(o.u)) + '">' + esc(userName(o.u)) + '<small>' + esc((u.c || '') + ' · ' + sectorName(u.sc || '')) + '</small></td>';
+        for (let i = 0; i < 12; i++) {
+          const v = o.m[i], a = o.am[i];
+          const tip = userName(o.u) + ', ' + MON3[i] + ' ' + y + ': ' + (v > 0 ? v + ' day' + (v === 1 ? '' : 's') + ' taken' : 'nothing taken') + (a > 0 ? '; ' + a + ' awaiting decision' : '');
+          heat += '<td class="c ' + lvBin(v) + (a > 0 && v <= 0 ? ' w' : '') + '" title="' + esc(tip) + '">' + (v > 0 ? v : (a > 0 ? '<span style="font-size:10px">' + a + '?</span>' : '')) + '</td>';
+        }
+        heat += '<td class="t">' + o.v + (o.a > 0 ? ' <small style="color:var(--st-warn)">+' + o.a + '</small>' : '') + '</td></tr>';
+      });
+      heat += '</tbody></table></div>';
+      heat += '<div class="hmleg"><span>Days in the month:</span><span><i style="background:var(--panel);box-shadow:inset 0 0 0 1px var(--line)"></i>none</span><span><i style="background:var(--hm1)"></i>1</span><span><i style="background:var(--hm2)"></i>2–3</span><span><i style="background:var(--hm3)"></i>4–5</span><span><i style="background:var(--hm4)"></i>6–9</span><span><i style="background:var(--hm5)"></i>10+</span><span><i class="w"></i>awaiting decision, not debited</span>' +
+        (rows.length > 400 ? '<span class="mut">· the first 400 of ' + rows.length + ' lines; the CSV carries all</span>' : '') + '</div>';
+      heat += '<p class="hmnote">A cell is the days taken in that month, a spell split across the months it falls in, so a row adds up to the officer\'s year. An outlined cell is an application awaiting the decision: it is not debited until it is passed.</p>';
+    }
+    const typeWord = $('reg-type').value ? (LEAVE_LABEL[$('reg-type').value] || '').toLowerCase() : 'every kind of leave';
+    const scopeWord = $('reg-sector').value === 'ALL' ? 'whole scope' : sectorName($('reg-sector').value);
+    el.innerHTML = hmPanel('The district, week by week · ' + y, scopeWord + ' · ' + typeWord, cal) +
+      hmPanel('When the leave fell · ' + y, rows.length + ' staff · ' + typeWord, heat);
   }
 
   // ---------------- Analytics ----------------
@@ -3288,6 +3604,7 @@ const App = (() => {
     if (name === 'perf') renderPerf();
     if (name === 'health') renderHealth();
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
+    if (name === 'analytics') { if (!$('an-fortnight').innerHTML) loadFortnight(); if (!$('an-year').innerHTML) loadYearCal(); }
   }
 
   function bind() {
@@ -3302,6 +3619,7 @@ const App = (() => {
     $('today-filter').onchange = renderToday;
     $('tab-today').onclick = () => switchTab('today');
     $('tab-analytics').onclick = () => switchTab('analytics');
+    $('an-scope').addEventListener('change', () => { loadFortnight(); loadYearCal(); });
     $('btn-an-load').onclick = runAnalytics;
     $('an-week').onchange = runAnalytics;
     $('btn-an-timeline').onclick = loadTimeline;

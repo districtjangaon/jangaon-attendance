@@ -388,6 +388,16 @@ svg{display:block;max-width:100%}
 .dayhm td.c.off{background:var(--well);box-shadow:none}
 .dayhm tr:hover td{filter:brightness(.97)}
 
+.segtabs{display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:var(--well);box-shadow:var(--nm-in-sm)}
+.segtabs button{border:0;background:none;color:var(--tx-2);font:inherit;font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;cursor:pointer}
+.segtabs button[aria-selected="true"]{background:var(--panel);color:var(--tx);box-shadow:var(--nm-out-sm)}
+.hmbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--tx-2)}
+.hmbar select{margin-left:6px}
+.hmnote{font-size:12px;color:var(--tx-2);margin-top:10px;line-height:1.5}
+.hmpanel{margin-bottom:var(--sp3)}
+.hmpanel .chartbox{padding-bottom:var(--sp2)}
+.hmpanel .chartbox>div,.hmpanel .chartbox>p{padding:0 var(--sp2)}
+
 /* ---------- tables ---------- */
 .tablewrap{overflow:auto;border-radius:14px;box-shadow:var(--nm-in-sm);background:var(--well)}
 .tablewrap:empty{box-shadow:none;background:none}
