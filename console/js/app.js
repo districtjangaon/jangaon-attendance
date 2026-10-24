@@ -2348,6 +2348,7 @@ const App = (() => {
   }
   const hmIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const WD3 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dm = key => Number(key.slice(8, 10)) + ' ' + MON3[Number(key.slice(5, 7)) - 1];
   const hmPanel = (title, sub, body) => '<div class="hmpanel"><div class="chartbox"><h3>' + esc(title) +
     (sub ? ' <span class="mut" style="font-weight:500;font-size:12px">' + esc(sub) + '</span>' : '') + '</h3>' + body + '</div></div>';
@@ -2429,20 +2430,23 @@ const App = (() => {
     cols.forEach(([k]) => { hi[k] = Math.max(0, ...rows.map(r => r[k] || 0)); });
     const bin = (v, k) => { if (!(v > 0) || !(hi[k] > 0)) return ''; const q = v / hi[k]; return q <= .2 ? 'k1' : q <= .4 ? 'k2' : q <= .6 ? 'k3' : q <= .8 ? 'k4' : 'k5'; };
     const today = hmIso(now);
-    let t = '<div class="tablewrap"><table class="dayhm"><thead><tr><th>Day</th>' + cols.map(c => '<th>' + c[1] + '</th>').join('') + '</tr></thead><tbody>';
-    rows.forEach(r => {
-      t += '<tr><td class="d' + (r.off ? ' off' : '') + '">' + esc(dm(r.key)) + (r.key === today ? ' <span class="mut">today</span>' : r.off ? ' <span class="mut">' + esc(r.off) + '</span>' : '') + '</td>' +
-        cols.map(([k]) => {
+    const across = rows.slice().reverse();   // oldest on the left, today on the right
+    const dayHead = r => '<th class="' + (r.key === today ? 'today' : r.off ? 'off' : '') + '"' + (r.off ? ' title="' + esc(r.off) + '"' : '') + '>' +
+      esc(dm(r.key)) + '<small>' + (r.key === today ? 'today' : r.off ? esc(r.off.length > 8 ? 'holiday' : r.off) : WD3[new Date(r.key + 'T12:00:00').getDay()]) + '</small></th>';
+    let t = '<div class="tablewrap"><table class="dayhm"><thead><tr><th></th>' + across.map(dayHead).join('') + '</tr></thead><tbody>';
+    cols.forEach(([k, label]) => {
+      t += '<tr><td class="d">' + label + '</td>' +
+        across.map(r => {
           const v = r[k];
           const off = r.off && k === 'absent';
           const txt = off ? '—' : (v == null || v === 0 ? '—' : String(v));
-          return '<td class="c ' + (off ? 'off' : bin(v, k)) + '"' + (v > 0 && !off ? ' title="' + esc(v + ' ' + (k === 'absent' ? 'not marked' : k === 'full' ? 'with both marks' : k)) + '"' : '') + '>' + txt + '</td>';
+          return '<td class="c ' + (off ? 'off' : bin(v, k)) + '"' + (v > 0 && !off ? ' title="' + esc(dm(r.key) + ': ' + v + ' ' + (k === 'absent' ? 'not marked' : k === 'full' ? 'with both marks' : k)) + '"' : '') + '>' + txt + '</td>';
         }).join('') + '</tr>';
     });
     t += '</tbody></table></div>';
-    t += '<div class="hmleg"><span>Darker is more, column by column; each is scaled to its own fortnight high:</span>' +
+    t += '<div class="hmleg"><span>Darker is more, row by row; each measure is scaled to its own fortnight high:</span>' +
       [1, 2, 3, 4, 5].map(i => '<span><i style="background:var(--hm' + i + ')"></i></span>').join('') +
-      '<span><i style="background:var(--well)"></i>Sunday or holiday: nobody is due</span><span>A blank is a nought. More is not better on every column; read the heading.</span></div>';
+      '<span><i style="background:var(--well)"></i>Sunday or holiday: nobody is due</span><span>A dash is a nought. More is not better on every row; read the label.</span></div>';
     el.innerHTML = hmPanel('Day by day · the last fortnight', staff.n + ' field staff in scope', t);
   }
 
