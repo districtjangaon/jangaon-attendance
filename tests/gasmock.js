@@ -399,7 +399,7 @@ function load(opts) {
     ].concat(extra || []));
     env.mkSheet('Schedules', ['project_code', 'cadre', 'in_start', 'in_end', 'late_after', 'out_start', 'out_end'],
       [{ project_code: 'ALL', cadre: 'ALL', in_start: '08:30', in_end: '10:00', late_after: '09:30', out_start: '16:00', out_end: '18:00' }]);
-    env.mkSheet('Holidays', ['date', 'name'], [{ date: '2026-10-20', name: 'Deepavali' }]);
+    env.mkSheet('Holidays', ['date', 'name'], [{ date: '2026-10-02', name: 'Gandhi Jayanti' }, { date: '2026-10-20', name: 'Deepavali' }]);
     env.mkSheet('Leaves', env.eval('LEAVE_H'), []);
     env.mkSheet('Audit', env.eval('AUD_H'), []);
     env.mkSheet('Sessions', env.eval('SESS_H'), []);

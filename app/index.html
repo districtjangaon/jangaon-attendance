@@ -156,6 +156,8 @@
 
     <!-- The standing advisory, pinned until she acknowledges it (renderAdvisory). -->
     <div id="adv-card" class="adv" hidden></div>
+    <!-- A reminder from the notice ladder, when the district has it switched on (renderNotices). -->
+    <div id="ntc-card" class="adv ntc" hidden></div>
 
     <!-- Her own last fortnight (myDays) and the sky over her sector (weather).
          Drawn by renderDays / renderWeather; hidden until there is something to draw. -->
@@ -340,7 +342,19 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v6.2-20261024-1640</footer>
+  <!-- A served show-cause notice locks the app until it is acknowledged here.
+       Marking attendance is the cure and is never blocked: the button below
+       goes straight to the camera. -->
+  <div id="ntc-gate" class="ntc-gate" hidden>
+    <div class="ntc-sheet">
+      <p class="eyebrow">Show cause notice</p>
+      <p id="ntc-gate-sub" class="ntc-sub"></p>
+      <div id="ntc-gate-list"></div>
+      <button type="button" id="btn-ntc-mark" class="btn btn-primary">Mark attendance now</button>
+    </div>
+  </div>
+
+  <footer class="build-tag">BUILD: v6.3-20261024-1715</footer>
 
   <nav id="bottom-nav" class="tabs" hidden>
     <button id="nav-home"><svg viewBox="0 0 24 24"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3z"/></svg><span>Home</span></button>

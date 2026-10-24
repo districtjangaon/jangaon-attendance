@@ -8,9 +8,10 @@ module.exports = {
     const env = load();
     env.seed();
     const rep = env.ctx.featureReport_();
-    const modules = env.eval('FEATURE_MODULES');
-    t.eq(rep.live.map(f => f.name), modules, 'every module in FEATURE_MODULES is live');
-    t.eq(rep.skipped, [], 'nothing is skipped on a clean load');
+    const modules = env.eval('FEATURE_MODULES'), defOff = env.eval('FEATURE_DEFAULT_OFF');
+    t.eq(rep.live.map(f => f.name), modules.filter(m => defOff.indexOf(m) < 0), 'every module in FEATURE_MODULES is live, except the default-off ones');
+    t.eq(rep.skipped.map(s => s.name), defOff, 'the default-off ones are skipped on a clean load');
+    t.ok(rep.skipped.every(s => /FEATURE_ON=/.test(s.why)), 'and each names the switch that carries it');
 
     const core = env.ctx.coreActions_();
     t.ok(core.sync && core.login && core.nameMap && core.userUpsert, 'the core actions are read off doPost itself', JSON.stringify(Object.keys(core)));
@@ -25,7 +26,7 @@ module.exports = {
     // FEATURE_OFF
     env.props.FEATURE_OFF = 'weather, mockloc';
     const off = env.ctx.featureReport_();
-    t.eq(off.skipped.map(s => s.name), ['weather', 'mockloc'], 'FEATURE_OFF takes modules out');
+    t.eq(off.skipped.map(s => s.name).filter(n => defOff.indexOf(n) < 0), ['weather', 'mockloc'], 'FEATURE_OFF takes modules out');
     t.contains(off.skipped[0].why, 'FEATURE_OFF', 'and says why');
     t.eq(env.ctx.featurePost_(env.auth('U2000'), { action: 'weather' }), null, 'a switched-off module answers nothing');
     delete env.props.FEATURE_OFF;

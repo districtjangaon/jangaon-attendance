@@ -44,7 +44,12 @@
 
 // The modules this register carries, in the order they are offered a request.
 // ADD A FEATURE BY ADDING ITS FILE AND ITS NAME HERE, and change nothing else.
-var FEATURE_MODULES = ['health', 'mydays', 'weather', 'advisory', 'posting', 'mockloc'];
+var FEATURE_MODULES = ['health', 'mydays', 'weather', 'advisory', 'posting', 'mockloc', 'notices'];
+
+// Modules the register carries in its files but does NOT run until the
+// district says so: the script property FEATURE_ON names the ones switched
+// on. A sanction (the notice ladder) is an order, not a deploy.
+var FEATURE_DEFAULT_OFF = ['notices'];
 
 /**
  * The core's own actions, READ OFF THE RUNNING CODE and never a list typed
@@ -65,14 +70,21 @@ function coreActions_() {
   return out;
 }
 
-/** Names the district has switched off by hand, without waiting for a deploy. */
+/** Names the district has switched off by hand (FEATURE_OFF), and the
+ *  default-off ones it has not yet switched on (FEATURE_ON). The value is the
+ *  reason, so the Health screen can say which switch is which. */
 function featuresOff_() {
   const out = {};
-  try {
-    String(PROPS.getProperty('FEATURE_OFF') || '').split(/[,\s]+/).forEach(function (n) {
-      if (n) out[n.trim()] = true;
-    });
-  } catch (err) { /* no properties: nothing is off */ }
+  const list = function (prop) {
+    const o = {};
+    try {
+      String(PROPS.getProperty(prop) || '').split(/[,\s]+/).forEach(function (n) { if (n) o[n.trim()] = true; });
+    } catch (err) { /* no properties: nothing is listed */ }
+    return o;
+  };
+  const off = list('FEATURE_OFF'), on = list('FEATURE_ON');
+  FEATURE_DEFAULT_OFF.forEach(function (n) { if (!on[n]) out[n] = 'off by default: set the script property FEATURE_ON=' + n + ' to carry it'; });
+  Object.keys(off).forEach(function (n) { out[n] = 'switched off by FEATURE_OFF'; });
   return out;
 }
 
@@ -86,7 +98,7 @@ function featureLoad_() {
   const live = [], skipped = [];
   const seen = {};
   FEATURE_MODULES.forEach(function (name) {
-    if (off[name]) { skipped.push({ name: name, why: 'switched off by FEATURE_OFF' }); return; }
+    if (off[name]) { skipped.push({ name: name, why: off[name] }); return; }
     let def = null;
     try {
       const g = (typeof globalThis !== 'undefined') ? globalThis : this;

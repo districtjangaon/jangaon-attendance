@@ -148,6 +148,7 @@ const App = (() => {
     $('tab-perf').hidden = !(me.role === 'ADMIN' || window.CONSOLE_CONFIG.DEMO);
     $('tab-health').hidden = me.role !== 'ADMIN';
     $('tab-mockloc').hidden = me.role !== 'ADMIN';
+    $('tab-notices').hidden = !(me.role === 'ADMIN' || me.role === 'CDPO');
     $('tab-advisory').hidden = !(me.role === 'ADMIN' || me.role === 'CDPO');
     fillMonthControls();
     fillReportControls();
@@ -3524,6 +3525,97 @@ const App = (() => {
       }).join('') + '</table>';
   }
 
+  // ---------------- Notices (the ladder's register; ported from the SJGP register) ----------------
+  let NTC = null;
+
+  async function loadNotices() {
+    const box = $('ntc-content'), msg = $('ntc-msg');
+    msg.textContent = '';
+    box.innerHTML = '<p class="info">Reading\u2026</p>';
+    try {
+      const res = await Api.post({ action: 'notices', token: token });
+      if (!res || !res.ok) {
+        box.innerHTML = '';
+        msg.textContent = res && res.code === 'NO_ACTION'
+          ? 'The notice ladder is off. It is carried in the backend but runs only once the district sets the script property FEATURE_ON=notices (Health shows the switch).'
+          : 'Failed: ' + ((res && res.code) || 'ERR');
+        return;
+      }
+      NTC = res;
+      renderNotices();
+    } catch (e) { box.innerHTML = ''; msg.textContent = 'Could not reach the server \u2014 try again.'; }
+  }
+
+  function ntcWho(r) { return esc(r.name) + ' <span class="muted">' + esc(r.cadre) + (r.awc ? ' \u00b7 ' + esc(r.awc) : '') + (r.sector ? ' \u00b7 ' + esc(r.sector) : '') + '</span>'; }
+  function ntcDmy(d) { return esc(String(d || '').split('-').reverse().join('.')); }
+  function ntcPicked() { return Array.from(document.querySelectorAll('#ntc-content .ntc-pick:checked')).map(c => c.value); }
+  function ntcSyncBar() {
+    const n = ntcPicked().length, admin = me.role === 'ADMIN';
+    $('btn-ntc-serve').disabled = !admin || !n;
+    $('btn-ntc-drop').disabled = !admin || !n;
+  }
+
+  function renderNotices() {
+    const r = NTC, box = $('ntc-content');
+    $('ntc-when').textContent = 'Read ' + String(r.at).slice(0, 16).replace('T', ' ');
+    const pill = $('ntc-count');
+    pill.textContent = r.proposed.length; pill.hidden = !r.proposed.length;
+    let html = '<div class="bigcards">' +
+      bigcard(r.proposed.length ? 'bc-red' : 'bc-olive', 'proposed', r.proposed.length, 'waiting for the district') +
+      bigcard(r.served.length ? 'bc-maroon' : 'bc-olive', 'served', r.served.length, 'awaiting acknowledgement') +
+      bigcard('bc-teal', 'acknowledged', r.acked.length, 'on file') +
+      bigcard('bc-grey', 'reminders', r.remindersWeek, 'in the last 7 days') +
+      bigcard('bc-grey', 'dropped', r.dropped, 'proposed and not served') + '</div>';
+    const admin = me.role === 'ADMIN';
+    html += '<h3>Proposed</h3><p class="info">The ' + r.scnFrom + 'rd unmarked working day of the month, or beyond. ' +
+      (admin ? 'Tick, then Serve or Drop. Attendance is read again when you serve.' : 'Served by the district\u2019s ADMIN.') + '</p>';
+    html += r.proposed.length
+      ? '<div class="tablewrap"><table><tr>' + (admin ? '<th><input type="checkbox" id="ntc-all"></th>' : '') + '<th>Person</th><th>Day</th><th>Unmarked this month</th><th>Proposed</th></tr>' +
+        r.proposed.map(n => '<tr>' + (admin ? '<td><input type="checkbox" class="ntc-pick" value="' + esc(n.id) + '"></td>' : '') + '<td>' + ntcWho(n) + '</td><td>' + ntcDmy(n.date) +
+          '</td><td><b>' + n.seq + '</b></td><td>' + esc(String(n.issuedAt).slice(0, 16).replace('T', ' ')) + '</td></tr>').join('') + '</table></div>'
+      : '<p class="info">Nothing is waiting.</p>';
+    html += '<h3>Served, awaiting acknowledgement</h3>';
+    html += r.served.length
+      ? '<div class="tablewrap"><table><tr><th>Notice</th><th>Person</th><th>Day</th><th>Served</th><th>By</th></tr>' +
+        r.served.map(n => '<tr><td style="font-family:var(--mono)">' + esc(n.no) + '</td><td>' + ntcWho(n) + '</td><td>' + ntcDmy(n.date) + '</td><td>' +
+          esc(String(n.servedAt).slice(0, 16).replace('T', ' ')) + '</td><td>' + esc(n.servedBy) + '</td></tr>').join('') + '</table></div>'
+      : '<p class="info">None.</p>';
+    html += '<h3>Acknowledged</h3>';
+    html += r.acked.length
+      ? '<div class="tablewrap"><table><tr><th>Notice</th><th>Person</th><th>Day</th><th>Acknowledged</th><th>Explanation</th></tr>' +
+        r.acked.map(n => '<tr><td style="font-family:var(--mono)">' + esc(n.no) + '</td><td>' + ntcWho(n) + '</td><td>' + ntcDmy(n.date) + '</td><td>' +
+          esc(String(n.ackAt).slice(0, 16).replace('T', ' ')) + '</td><td>' + esc(n.ackNote || '\u2014') + '</td></tr>').join('') + '</table></div>'
+      : '<p class="info">None.</p>';
+    box.innerHTML = html;
+    box.querySelectorAll('.ntc-pick').forEach(c => { c.onchange = ntcSyncBar; });
+    const all = $('ntc-all');
+    if (all) all.onchange = () => { box.querySelectorAll('.ntc-pick').forEach(c => { c.checked = all.checked; }); ntcSyncBar(); };
+    ntcSyncBar();
+  }
+
+  async function ntcDecide(what) {
+    const ids = ntcPicked();
+    if (!ids.length) return;
+    const n = ids.length + ' notice' + (ids.length === 1 ? '' : 's');
+    const ok = what === 'serve'
+      ? confirm('Serve ' + n + '?\n\nEach is numbered and locks her app until she acknowledges it. Attendance for the day is read again first: anyone who marked meanwhile is dropped, not served. No leave is debited.')
+      : confirm('Drop ' + n + '?\n\nNothing is served and nothing is on her file.');
+    if (!ok) return;
+    const msg = $('ntc-msg');
+    [$('btn-ntc-serve'), $('btn-ntc-drop')].forEach(b => { b.disabled = true; });
+    try {
+      const req = { action: 'noticeDecide', token: token };
+      req[what] = ids;
+      const res = await Api.post(req);
+      if (!res || !res.ok) { msg.textContent = 'Failed: ' + ((res && res.code) || 'ERR'); return; }
+      msg.textContent = (res.served || []).length + ' served, ' + (res.dropped || []).length + ' dropped' +
+        ((res.skipped || []).length ? ', ' + res.skipped.length + ' skipped (already decided)' : '') + '.';
+      await loadNotices();
+    } catch (e) {
+      msg.textContent = 'Could not reach the server \u2014 nothing was changed. Try again.';
+    } finally { ntcSyncBar(); }
+  }
+
   // ---------------- Mock GPS (ADMIN; ported from the SJGP register) ----------------
   let ML = null;   // the last reading
 
@@ -4004,7 +4096,7 @@ const App = (() => {
   // ---------------- tabs & events ----------------
   function switchTab(name) {
     ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'register',
-      'map', 'verify', 'admin', 'perf', 'health', 'advisory', 'mockloc'].forEach(t => {
+      'map', 'verify', 'admin', 'perf', 'health', 'advisory', 'mockloc', 'notices'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
@@ -4029,6 +4121,7 @@ const App = (() => {
     if (name === 'perf') renderPerf();
     if (name === 'health') renderHealth();
     if (name === 'mockloc' && !ML) loadMockloc(false);
+    if (name === 'notices' && !NTC) loadNotices();
     if (name === 'advisory' && !ADV) loadAdvisory('');
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
     if (name === 'analytics') { if (!$('an-fortnight').innerHTML) loadFortnight(); if (!$('an-year').innerHTML) loadYearCal(); }
@@ -4120,6 +4213,10 @@ const App = (() => {
     $('tab-perf').onclick = () => switchTab('perf');
     $('tab-health').onclick = () => switchTab('health');
     $('tab-mockloc').onclick = () => switchTab('mockloc');
+    $('tab-notices').onclick = () => switchTab('notices');
+    $('btn-ntc-reload').onclick = loadNotices;
+    $('btn-ntc-serve').onclick = () => ntcDecide('serve');
+    $('btn-ntc-drop').onclick = () => ntcDecide('drop');
     $('btn-ml-run').onclick = () => loadMockloc(true);
     $('btn-ml-csv').onclick = mocklocCsv;
     $('tab-advisory').onclick = () => switchTab('advisory');

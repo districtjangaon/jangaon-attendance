@@ -59,6 +59,9 @@ const App = (() => {
     // The sticky nav goes static over the camera: a frozen header above the
     // capture flow caused real trouble in the field.
     document.body.classList.toggle('cam', id === 'screen-camera');
+    // the notice gate stands over every screen but the camera and the success
+    // card: marking attendance is the cure and is never blocked
+    if (ntcGateOpen) $('ntc-gate').hidden = ['screen-camera', 'screen-success', 'screen-login'].indexOf(id) >= 0;
     // Bottom nav: hidden on login/welcome and during full-attention flows
     // (camera, success); Report is the Teacher's duty, Stats is admin-only.
     const acc = active();
@@ -328,6 +331,7 @@ const App = (() => {
       $(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
     });
     $('btn-mark').onclick = () => startMark();
+    $('btn-ntc-mark').onclick = () => { $('ntc-gate').hidden = true; startMark(); };
     $('btn-capture').onclick = doCapture;
     $('btn-cam-cancel').onclick = () => {
       Camera.stop();
@@ -1141,9 +1145,11 @@ const App = (() => {
     }
     await renderHomeExtras(acc, rptDone);
     await renderAdvisory(acc);
+    await renderNotices(acc);
     refreshDays(false);
     refreshWeather();
     refreshAdvisory();
+    refreshNotices();
     renderMyIssues(acc); // fire-and-forget: renders when the server answers
     renderStatus();
   }
@@ -1258,6 +1264,90 @@ const App = (() => {
   function onSynced() {
     if (!$('screen-home').hidden) refreshDays(true);
     flushAdvQueue();
+    flushNtcQueue();
+  }
+
+  // ---------- the notice ladder (action notices / noticeAck) ----------
+  // Off unless the district has switched it on; a backend without it answers
+  // NO_ACTION and the phone shows nothing. A reminder is a card and no more.
+  // A SERVED notice puts up the gate: everything waits except marking
+  // attendance, which is the cure. The acknowledgement is written on the
+  // phone first and travels when the signal returns, exactly as a mark does.
+  async function ntcState(acc) {
+    const st = await DB.kvGet('ntc_' + acc.user.id);
+    return st && typeof st === 'object' ? st : null;
+  }
+  async function refreshNotices() {
+    const acc = active();
+    if (!acc || !navigator.onLine || window.APP_CONFIG.DEMO) return;
+    const st = await ntcState(acc);
+    if (st && Date.now() - (st.at || 0) < 5 * 60000) return;
+    try {
+      const r = await Api.post({ action: 'notices', token: acc.token });
+      if (!r || !r.ok) return;
+      await DB.kvSet('ntc_' + acc.user.id, { reminders: r.reminders || [], notices: r.notices || [], at: Date.now() });
+      if (!$('screen-home').hidden && active() === acc) await renderNotices(acc);
+      flushNtcQueue();
+    } catch (e) { /* offline, or a backend without the module */ }
+  }
+  async function pendingNotices(acc) {
+    const st = await ntcState(acc);
+    const done = (await DB.kvGet('ntcDone_' + acc.user.id)) || {};
+    return ((st && st.notices) || []).filter(n => n.status === 'SERVED' && !done[n.id]);
+  }
+  async function renderNotices(acc) {
+    const card = $('ntc-card');
+    const st = await ntcState(acc);
+    const rem = st && st.reminders && st.reminders[0];
+    const recent = rem && (Date.now() - new Date(rem.date + 'T12:00:00+05:30').getTime()) < 7 * 86400000;
+    if (recent) {
+      card.innerHTML = '<div class="k">Reminder</div><div class="t">Attendance was not marked on ' + escH(rem.date.split('-').reverse().join('.')) + '</div>' +
+        '<div class="s">This is a reminder, not a notice. Attendance is due every working day from the centre, with your photograph. Please see that it is marked.</div>';
+      card.hidden = false;
+    } else card.hidden = true;
+    const pend = await pendingNotices(acc);
+    ntcGateOpen = pend.length > 0;
+    if (ntcGateOpen) renderNtcGate(acc, pend);
+    $('ntc-gate').hidden = !ntcGateOpen || $('screen-camera').hidden === false || $('screen-success').hidden === false;
+  }
+  let ntcGateOpen = false;
+  function renderNtcGate(acc, list) {
+    $('ntc-gate-sub').textContent = (list.length === 1 ? 'One notice stands' : list.length + ' notices stand') +
+      ' against unmarked attendance. The app stays locked until each is acknowledged below. Acknowledgement records receipt; your explanation travels with it to the district.';
+    $('ntc-gate-list').innerHTML = list.map(n =>
+      '<div class="scn"><div class="no">' + escH(n.no || n.id) + ' \u00b7 for ' + escH(n.date.split('-').reverse().join('.')) + '</div>' +
+      '<pre>' + escH(n.text || '') + '</pre>' +
+      '<textarea id="ntc-note-' + escH(n.id) + '" placeholder="Your explanation (optional here; it travels to the district with the acknowledgement)"></textarea>' +
+      '<button type="button" class="btn gold" data-ntc-ack="' + escH(n.id) + '">I acknowledge receipt of this notice</button></div>').join('');
+    $('ntc-gate-list').querySelectorAll('button[data-ntc-ack]').forEach(b => {
+      b.onclick = () => { b.disabled = true; const ta = $('ntc-note-' + b.dataset.ntcAck); ackNotice(acc, b.dataset.ntcAck, ta ? ta.value : ''); };
+    });
+  }
+  async function ackNotice(acc, id, note) {
+    const at = new Date().toISOString();
+    const done = (await DB.kvGet('ntcDone_' + acc.user.id)) || {};
+    done[id] = at;
+    await DB.kvSet('ntcDone_' + acc.user.id, done);
+    const q = (await DB.kvGet('ntcQ_' + acc.user.id)) || [];
+    if (!q.some(x => x.id === id)) q.push({ id: id, at: at, note: String(note || '').slice(0, 1000) });
+    await DB.kvSet('ntcQ_' + acc.user.id, q);
+    await renderNotices(acc);
+    flushNtcQueue();
+  }
+  /** Acknowledgements not yet received by the district go up whenever there is signal; a re-send is the same receipt. */
+  async function flushNtcQueue() {
+    const acc = active();
+    if (!acc || !navigator.onLine || window.APP_CONFIG.DEMO) return;
+    const q = (await DB.kvGet('ntcQ_' + acc.user.id)) || [];
+    if (!q.length) return;
+    try {
+      const r = await Api.post({ action: 'noticeAck', token: acc.token, acks: q });
+      if (r && r.ok) {
+        const st = await ntcState(acc);
+        if (st) { st.notices = (st.notices || []).map(n => q.some(x => x.id === n.id) ? Object.assign({}, n, { status: 'ACK' }) : n); await DB.kvSet('ntc_' + acc.user.id, st); }
+        await DB.kvSet('ntcQ_' + acc.user.id, []);
+      }
+    } catch (e) { /* next time */ }
   }
 
   // ---------- advisories (action advisory / advAck) ----------

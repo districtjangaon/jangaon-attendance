@@ -27,14 +27,17 @@ jobs:
           python tools/build-combined.py
           node -e "new Function(require('fs').readFileSync('backend/COMBINED.gs','utf8'))"
 
-      # This repository is public. A deployment URL, a script id or an
-      # instance config must never be committed; the tracked tree is checked,
-      # not the working copy, so a gitignored config.js cannot trip it.
-      - name: No deployment secrets in the tracked tree
+      # This repository is public. The clasp working copy (script id, a
+      # generated Code.gs that may name real mobile numbers), the real
+      # district register and the importer's output must never be tracked.
+      # app/js/config.js and console/js/config.js ARE tracked on purpose:
+      # GitHub Pages serves them, and the deployment URL they carry is what
+      # every phone fetches anyway; a script id or spreadsheet id is not.
+      - name: No secrets or personal data in the tracked tree
         run: |
           set -e
-          if git ls-files | grep -E '^(app|console)/js/config\.js$|^\.clasp\.json$|^backend/clasp/'; then
-            echo 'an instance config is tracked'; exit 1; fi
-          if git grep -n -E 'script\.google\.com/macros/s/AKfycb' -- . ':!tools/deploy-backend.py' ; then
-            echo 'a deployment URL is tracked'; exit 1; fi
+          if git ls-files | grep -E '^\.clasp\.json$|^backend/clasp/|^master-data/|^input/.*\.xlsx$|^Play/|^request/'; then
+            echo 'a secret or a real-data file is tracked'; exit 1; fi
+          if git grep -n -E '"scriptId"\s*:' -- . ':!tools/' ':!docs/' ':!tests/' ':!.github/' ; then
+            echo 'a script id is tracked'; exit 1; fi
           echo 'clean'

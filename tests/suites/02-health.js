@@ -19,7 +19,7 @@ module.exports = {
     t.contains(h.backup.why, 'folder', 'and the reason names the folder');
     t.eq(h.roll.active, 7, 'the roll counts the active accounts');
     t.eq(h.roll.field, 4, 'and the field staff among them');
-    t.eq(h.calendar.holidays, 1, 'the calendar counts this year\'s holidays');
+    t.eq(h.calendar.holidays, 2, 'the calendar counts this year\'s holidays');
     t.eq(h.summary.ageMin, 10, 'the summary age is read off LAST_GEN');
     t.eq(h.summary.ok, true, 'and ten minutes is fine');
     t.eq(h.allWell, false, 'allWell is false while anything is missing');
