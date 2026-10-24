@@ -374,6 +374,24 @@ def main():
     finish(ws, [6, 9, 28, 7, 12, 13, 18, 22, 26, 10, 24])
     NEVER_COUNT = n
 
+    # ========================================================== Stopped Marking
+    ws = wb.create_sheet('Stopped Marking', 1)
+    ws.append(['S.No', 'User ID', 'Name', 'Cadre', 'Phone', 'Project', 'Sector', 'Supervisor', 'Centre',
+               'First mark', 'Last mark', 'Days marked (any day)', 'Operational days missed since last mark'])
+    n = 0
+    for u in roster:
+        s = stats[u['user_id']]
+        if s['status'] != 'Stopped marking':
+            continue
+        n += 1
+        ws.append([n, u['user_id'], u.get('name', ''), u.get('cadre', ''), u.get('phone', ''),
+                   proj_name.get(u.get('project_code'), u.get('project_code', '')),
+                   sector_label(u.get('sector_code', '')),
+                   sup_of_sector.get(str(u.get('sector_code', '')).split(',')[0], ''),
+                   awc_name.get(u.get('awc_id'), u.get('awc_id', '')), s['first'], s['last'], s['marked_days'],
+                   sum(1 for ds in operational if ds > s['last'])])
+    finish(ws, [6, 9, 28, 7, 12, 13, 18, 22, 26, 11, 11, 10, 12])
+
     # ============================================================= Daily Trend
     ws = wb.create_sheet('Daily Trend')
     ws.append(['Date', 'Day', 'Holiday', 'Operational day (%d+ marks)' % OPERATIONAL_MIN_MARKS,
