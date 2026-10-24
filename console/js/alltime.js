@@ -228,6 +228,7 @@ window.AllTimeReport = (() => {
     const personCols = u => [u.id, u.n, cadre(u), u.p, projName[u.pj] || u.pj || '',
       secLabel(u.sc), awcName(u.a) || (u.r === 'SUPERVISOR' ? 'All sector centres' : '')];
 
+    let ws;
     // ========================================================= Never Marked
     const never = roster.filter(u => stats[u.id].status === 'Never marked');
     ws = sheet(wb, 'Never Marked', ['S.No', 'User ID', 'Name', 'Cadre', 'Phone', 'Project', 'Sector', 'Supervisor', 'Centre',
@@ -252,7 +253,7 @@ window.AllTimeReport = (() => {
 
     // ====================================================== Staff Summary (the roll-up sheets refer to it)
     const SS = "'Staff Summary'!";
-    let ws = sheet(wb, 'Staff Summary', ['S.No', 'User ID', 'Name', 'Cadre', 'Phone', 'Project', 'Sector', 'Centre ID', 'Centre',
+    ws = sheet(wb, 'Staff Summary', ['S.No', 'User ID', 'Name', 'Cadre', 'Phone', 'Project', 'Sector', 'Centre ID', 'Centre',
       'Status', 'Ever marked', 'First mark', 'Last mark',
       'Operational days since go-live', 'Days marked on operational days (go-live)', 'Attendance % (go-live)',
       'Operational days from 22-Aug', 'Days marked on operational days (from 22-Aug)', 'Attendance % (from 22-Aug)',
