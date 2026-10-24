@@ -168,7 +168,7 @@ h3{margin:18px 0 8px;font-size:15px;font-weight:750;letter-spacing:-.01em}
 .railfoot{margin-top:auto;padding:16px 8px 0;font-size:11px;color:var(--tx-3);line-height:1.6}
 
 /* ---------- top bar ---------- */
-.content{min-width:0;padding:0 26px 44px;display:flex;flex-direction:column}
+.content{min-width:0;width:100%;max-width:1960px;margin:0 auto;padding:0 26px 44px;display:flex;flex-direction:column}
 .top{display:flex;align-items:center;gap:14px;padding:18px 0 14px;position:sticky;top:0;background:var(--bg);z-index:8;flex-wrap:wrap}
 .top>div:first-child{flex:1 1 210px;min-width:0}
 .top h1{font-size:21px;letter-spacing:-.015em;font-weight:800}
@@ -218,6 +218,7 @@ h3{margin:18px 0 8px;font-size:15px;font-weight:750;letter-spacing:-.01em}
   body.dense .content{padding:0 14px 84px}
   .top{gap:9px;padding-top:12px}
   .top .sp,.top .head-user{display:none}
+  .top>div:first-child{flex-basis:100%}
   .tbtn,.btn-inline{min-height:40px;padding:0 12px}
   /* a dense desk is not a dense handset: the sizes come back below 760 */
   body.dense{--sp1:8px; --sp2:16px; --sp3:24px; --sp4:32px; --sp5:40px; --sp6:48px}
@@ -255,6 +256,7 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--tx-3) 50%),l
 .btn-plain.btn-inline{background:var(--panel);color:var(--tx-2)}
 .btn-danger.btn-inline{background:var(--red-2);color:var(--pill-bad-ink)}
 .btn-inline{width:auto;margin:0}
+.btn.btn-inline{display:inline-flex}
 #whoami-list button{display:block;width:100%;text-align:left;background:var(--panel);box-shadow:var(--nm-out-sm);border-radius:12px;padding:10px 12px;margin:6px 0;font-size:14px;color:var(--tx)}
 #whoami-list button.sel{box-shadow:var(--nm-out-sm),0 0 0 2px var(--pri)}
 
@@ -268,7 +270,8 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--tx-3) 50%),l
 /* ---------- the KPI row (bigcard markup, kpi look) ---------- */
 .holiday-note{background:var(--panel);border-left:6px solid var(--pri);border-radius:var(--r);padding:var(--sp2);font-size:15px;font-weight:650;
   margin-bottom:var(--sp2);box-shadow:var(--nm-out)}
-.bigcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--sp2);margin-bottom:var(--sp3)}
+.bigcards{display:flex;flex-wrap:wrap;gap:var(--sp2);margin-bottom:var(--sp3)}
+.bigcards>.bigcard{flex:1 1 180px;max-width:440px}
 .bigcard{background:var(--panel);border-radius:var(--r);box-shadow:var(--nm-out);padding:var(--sp2);position:relative;min-height:112px;min-width:0;border-top:3px solid var(--acc,var(--pri))}
 .bigcard .k{font-size:12.5px;font-weight:650;color:var(--tx-2);overflow-wrap:anywhere}
 .bigcard .v{font-family:var(--mono);font-size:29px;font-weight:750;margin-top:7px;letter-spacing:-.01em;line-height:1.1;color:var(--acc,var(--tx))}
@@ -294,6 +297,7 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--tx-3) 50%),l
 
 /* ---- SVG ink ---- */
 svg{display:block;max-width:100%}
+.c-heat{width:100%;height:auto}
 .leaflet-container svg{width:auto;display:inline}
 .c-grid{stroke:var(--ch-grid);stroke-width:1}
 .c-tick{fill:var(--ch-muted);font-size:10.5px;font-family:var(--mono)}
@@ -350,6 +354,8 @@ svg{display:block;max-width:100%}
 
 /* ---------- the heat ramps ---------- */
 .hmwrap{overflow:auto;max-height:520px;border-radius:14px;box-shadow:var(--nm-in-sm);background:var(--well)}
+/* the staff-by-month map is as wide as its twelve months, so its well hugs it instead of running to the edge */
+.hmwrap:has(>.hm){width:fit-content;max-width:100%}
 .hm{border-collapse:separate;border-spacing:3px;font-size:12px;min-width:0;width:auto}
 .hm th{position:sticky;top:0;background:var(--well);color:var(--tx-3);font-weight:600;font-size:11px;text-align:center;padding:4px 2px;z-index:2;border:0;letter-spacing:0;text-transform:none}
 .hm th.who,.hm td.who{position:sticky;left:0;background:var(--well);text-align:left;z-index:3;min-width:180px;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;color:var(--tx);border:0}
@@ -546,9 +552,9 @@ tr.on td{background:var(--pri-2)}
 .skel{position:relative;overflow:hidden}
 .skel::after{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(100deg,transparent 30%,var(--shine) 50%,transparent 70%);animation:shine 1.6s infinite}
 @keyframes shine{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
-@media(min-width:1980px){
-  .bigcards{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+@media(min-width:1900px){
+  .bigcards>.bigcard{flex-basis:200px}
   .bigcard{min-height:124px}.bigcard .v{font-size:33px}
-  .charts{grid-template-columns:repeat(auto-fill,minmax(380px,1fr))}
-  .content{padding-left:40px;padding-right:40px}
+  .charts{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .content{padding-left:40px;padding-right:40px;padding-bottom:52px}
 }

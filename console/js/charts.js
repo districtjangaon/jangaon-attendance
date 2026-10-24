@@ -314,8 +314,8 @@ const Charts = (() => {
     });
     const scale = [0, 0.25, 0.5, 0.75, 1].map(v =>
       '<i style="background:' + color(v) + '"></i>').join('');
-    return '<div class="tablewrap"><svg width="' + W + '" height="' + H +
-      '" viewBox="0 0 ' + W + ' ' + H + '">' + s + '</svg></div>' +
+    return '<div class="tablewrap"><svg class="c-heat" style="min-width:' + W + 'px;max-width:' + Math.round(W * 1.5) +
+      'px" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">' + s + '</svg></div>' +
       '<div class="c-scale">0%' + scale + '100% attendance' +
       '<span class="c-scale-x"><i style="background:' + color(-1) +
       '"></i>leave / holiday<i style="background:var(--ch-grid)"></i>no data</span></div>';
