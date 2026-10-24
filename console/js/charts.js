@@ -294,9 +294,11 @@ const Charts = (() => {
     if (!rows.length) return empty();
     const cw = 20, ch = 20, PL = 130, PT = 20;
     const W = PL + colLabels.length * cw + 6, H = PT + rows.length * ch + 6;
+    // the shared heat ramp, pale teal up to indigo: darker is fuller. Leave and holiday sit on the
+    // primary tint; no data on the grid grey. Theme tokens, so the map follows light and dark.
     const color = v => v == null ? 'var(--ch-grid)'
-      : v < 0 ? '#dbe6fb'
-      : 'hsl(' + Math.round(v * 120) + ' 62% ' + Math.round(86 - v * 36) + '%)';
+      : v < 0 ? 'var(--pri-2)'
+      : 'var(--hm' + (v <= .2 ? 1 : v <= .4 ? 2 : v <= .6 ? 3 : v <= .8 ? 4 : 5) + ')';
     let s = '';
     colLabels.forEach((c, i) => {
       if (i % 2) return;

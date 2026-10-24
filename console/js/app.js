@@ -157,6 +157,7 @@ const App = (() => {
     fillVerifyControls();
     initNewUserForm();
     initPostings();
+    initScrollHints();
     fillAnalyticsControls();
     fillAwcPicker();
     await refreshAll();
@@ -2401,13 +2402,54 @@ const App = (() => {
   // outside the fence are not on one scale, and darker is simply MORE: the
   // map does not say whether more is good. A Sunday or holiday is off and
   // carries no not-marked figure; a nought is left blank.
+  // ---------- scroll hints ----------
+  // A table wider than its panel scrolls sideways, but an overlay scrollbar
+  // (Mac, touch, most laptops) shows nothing until you try; the cut-off right
+  // edge just looks like the end. So every .tablewrap / .hmwrap that overflows
+  // gets a line above it saying so, with a button for each direction, and the
+  // scrollbar itself is styled to stay visible. Re-checked on every render and
+  // resize; the hint hides again when the table fits.
+  function scrollHints() {
+    document.querySelectorAll('.tablewrap, .hmwrap').forEach(w => {
+      const wide = w.scrollWidth > w.clientWidth + 2;
+      let n = w.previousElementSibling && w.previousElementSibling.classList.contains('scrollnudge') ? w.previousElementSibling : null;
+      if (!wide) { if (n) n.hidden = true; return; }
+      if (!n) {
+        n = document.createElement('div');
+        n.className = 'scrollnudge';
+        n.innerHTML = '<span>Wider than the screen — scroll sideways</span>' +
+          '<button type="button" data-dir="-1" aria-label="Scroll left">&#9664;</button>' +
+          '<button type="button" data-dir="1" aria-label="Scroll right">&#9654;</button>';
+        n.querySelectorAll('button').forEach(b => b.onclick = () => w.scrollBy({ left: Number(b.dataset.dir) * Math.max(120, w.clientWidth * 0.7), behavior: 'smooth' }));
+        w.parentNode.insertBefore(n, w);
+        w.addEventListener('scroll', () => scrollEdges(w, n), { passive: true });
+      }
+      n.hidden = false;
+      scrollEdges(w, n);
+    });
+  }
+  function scrollEdges(w, n) {
+    const b = n.querySelectorAll('button');
+    b[0].disabled = w.scrollLeft <= 1;
+    b[1].disabled = w.scrollLeft + w.clientWidth >= w.scrollWidth - 1;
+  }
+  function initScrollHints() {
+    let due = 0;
+    const soon = () => { if (!due) due = requestAnimationFrame(() => { due = 0; scrollHints(); }); };
+    new MutationObserver(soon).observe($('main'), { childList: true, subtree: true });
+    window.addEventListener('resize', soon);
+    soon();
+  }
+
+  let fnDays = 21;
+  try { fnDays = [14, 21, 30].indexOf(Number(localStorage.getItem('an_fn_days'))) >= 0 ? Number(localStorage.getItem('an_fn_days')) : 21; } catch (e) { /* storage may be shut */ }
   async function loadFortnight() {
     const scope = $('an-scope').value;
     if (!scope || !names) return;
     const el = $('an-fortnight');
-    el.innerHTML = '<p class="info">Reading the last fortnight…</p>';
+    el.innerHTML = '<p class="info">Reading the last ' + fnDays + ' days…</p>';
     const now = new Date(), days = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < fnDays; i++) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       days.push(hmIso(d));
     }
@@ -2432,8 +2474,10 @@ const App = (() => {
     const today = hmIso(now);
     const across = rows.slice().reverse();   // oldest on the left, today on the right
     const dayHead = r => '<th class="' + (r.key === today ? 'today' : r.off ? 'off' : '') + '"' + (r.off ? ' title="' + esc(r.off) + '"' : '') + '>' +
-      esc(dm(r.key)) + '<small>' + (r.key === today ? 'today' : r.off ? esc(r.off.length > 8 ? 'holiday' : r.off) : WD3[new Date(r.key + 'T12:00:00').getDay()]) + '</small></th>';
-    let t = '<div class="tablewrap"><table class="dayhm"><thead><tr><th></th>' + across.map(dayHead).join('') + '</tr></thead><tbody>';
+      (r.key.slice(8, 10) === '01' ? esc(dm(r.key)) : Number(r.key.slice(8, 10))) + '<small>' + (r.key === today ? 'today' : r.off ? esc(r.off.length > 8 ? 'holiday' : r.off) : WD3[new Date(r.key + 'T12:00:00').getDay()]) + '</small></th>';
+    let t = '<div class="hmbar"><div class="segtabs" role="tablist" id="fn-days">' +
+      [14, 21, 30].map(n => '<button type="button" role="tab" data-fn="' + n + '" aria-selected="' + (fnDays === n) + '">' + n + ' days</button>').join('') + '</div></div>';
+    t += '<div class="tablewrap"><table class="dayhm' + (fnDays >= 30 ? ' n30' : '') + '"><thead><tr><th></th>' + across.map(dayHead).join('') + '</tr></thead><tbody>';
     cols.forEach(([k, label]) => {
       t += '<tr><td class="d">' + label + '</td>' +
         across.map(r => {
@@ -2447,7 +2491,12 @@ const App = (() => {
     t += '<div class="hmleg"><span>Darker is more, row by row; each measure is scaled to its own fortnight high:</span>' +
       [1, 2, 3, 4, 5].map(i => '<span><i style="background:var(--hm' + i + ')"></i></span>').join('') +
       '<span><i style="background:var(--well)"></i>Sunday or holiday: nobody is due</span><span>A dash is a nought. More is not better on every row; read the label.</span></div>';
-    el.innerHTML = hmPanel('Day by day · the last fortnight', staff.n + ' field staff in scope', t);
+    el.innerHTML = hmPanel('Day by day · the last ' + fnDays + ' days', dm(across[0].key) + ' – ' + dm(today) + ' · ' + staff.n + ' field staff in scope', t);
+    el.querySelectorAll('#fn-days button').forEach(b => b.onclick = () => {
+      fnDays = Number(b.dataset.fn);
+      try { localStorage.setItem('an_fn_days', String(fnDays)); } catch (e) { /* a preference, not a record */ }
+      loadFortnight();
+    });
   }
 
   // ATTENDANCE, DAY BY DAY, FOR A YEAR. Weeks across, Monday to Sunday down;
@@ -2925,7 +2974,7 @@ const App = (() => {
           '<td>' + r.late + '</td><td>' + r.outside + '</td><td>' + r.leave +
           '</td><td>' + Charts.spark(r.series) + '</td></tr>').join('') + '</table></div></div>';
 
-      html += '<div class="chartbox"><h3>Coverage heatmap — sector × day (greener = fuller attendance)</h3>' +
+      html += '<div class="chartbox"><h3>Coverage heatmap — sector × day (darker = fuller attendance)</h3>' +
         Charts.heatmap(rows.map(r => ({
           label: r.name,
           cells: workDds.map((dd, di) => ({

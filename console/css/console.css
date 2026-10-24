@@ -44,7 +44,8 @@
   --o1:#a3aaf1; --o2:#8b93ee; --o3:#6f7ae9; --o4:#5462d8; --o5:#3a46c4;
   /* the HEAT ramp: many hues, ONE order, because L* falls at every step
      (91 > 79 > 67 > 51 > 27). For density cells only; a bar stays on --o. */
-  --hm1:#F4E97A; --hm2:#8FD38B; --hm3:#2FB5A0; --hm4:#2E7FBF; --hm5:#3B2F8F;
+  /* the heat ramp walks the one gradient this screen has: pale teal glass up to the indigo of --pri */
+  --hm1:#DCEFF2; --hm2:#BFD9EE; --hm3:#9FB6EA; --hm4:#6D74DC; --hm5:#4A40CE;
   --hm-ink-lo:#1A2437; --hm-ink-hi:#FFFFFF;
   /* reserved: good / warning / bad, never series 4 */
   --st-ok:#15803D; --st-warn:#B45309; --st-bad:#B91C1C; --st-idle:#8E97AE;
@@ -76,8 +77,9 @@ body.dark{
   --s1:#6b78ea; --s2:#17a98f; --s3:#bf8718; --s4:#8f6ff0;
   --s5:#d9484c; --s6:#2f9fce; --s7:#8a9a20; --s8:#b8446a;
   --o1:#3a46c4; --o2:#5866e0; --o3:#7b87ec; --o4:#a0a9f3; --o5:#c3c9f9;
-  /* the heat ramp does not invert: a heat map's least is still its palest */
-  --hm1:#F6EB85; --hm2:#97D994; --hm3:#3CC1AC; --hm4:#4A95D1; --hm5:#7A6DD6;
+  /* the heat ramp: a heat map's least is still its faintest, deep teal up to the lifted indigo of --pri */
+  --hm1:#1F3B46; --hm2:#25476C; --hm3:#3B5C9E; --hm4:#6670CF; --hm5:#9AA0F5;
+  --hm-ink-lo:#E6E9F5; --hm-ink-hi:#0F1320;
   --st-ok:#5BD68A; --st-warn:#E9A93C; --st-bad:#F1737A; --st-idle:#8B93AB;
 }
 body.dark .leaflet-tile-pane{filter:brightness(.72) contrast(1.06) saturate(.85)}
@@ -396,6 +398,10 @@ svg{display:block;max-width:100%}
 .dayhm td.c.k5{background:var(--hm5);color:var(--hm-ink-hi);box-shadow:none}
 .dayhm td.c.off{background:var(--well);box-shadow:none}
 .dayhm tr:hover td{filter:brightness(.97)}
+.dayhm.n30{border-spacing:2px}
+.dayhm.n30 th{font-size:10.5px;padding:2px 1px 3px}
+.dayhm.n30 td{padding:4px 2px;font-size:11px}
+.dayhm.n30 td.d{padding-right:8px}
 
 .segtabs{display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:var(--well);box-shadow:var(--nm-in-sm)}
 .segtabs button{border:0;background:none;color:var(--tx-2);font:inherit;font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;cursor:pointer}
@@ -409,6 +415,18 @@ svg{display:block;max-width:100%}
 
 /* ---------- tables ---------- */
 .tablewrap{overflow:auto;border-radius:14px;box-shadow:var(--nm-in-sm);background:var(--well)}
+/* a scrollbar that stays visible: an overlay scrollbar hides the fact that a table goes on to the right */
+.tablewrap,.hmwrap{scrollbar-width:thin;scrollbar-color:var(--tx-3) transparent}
+.tablewrap::-webkit-scrollbar,.hmwrap::-webkit-scrollbar{height:10px;width:10px}
+.tablewrap::-webkit-scrollbar-track,.hmwrap::-webkit-scrollbar-track{background:transparent}
+.tablewrap::-webkit-scrollbar-thumb,.hmwrap::-webkit-scrollbar-thumb{background:var(--tx-3);border-radius:8px;border:2px solid var(--well)}
+/* the line above a sideways-scrolling table: what is happening, and a button for each direction */
+.scrollnudge{display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:11.5px;color:var(--tx-3)}
+.scrollnudge span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scrollnudge button{min-width:30px;height:26px;border:0;border-radius:8px;background:var(--panel);color:var(--tx-2);box-shadow:var(--nm-out-sm);font-size:10px;cursor:pointer}
+.scrollnudge button:hover{color:var(--pri)}
+.scrollnudge button:disabled{opacity:.35;cursor:default}
+.hmpanel .chartbox>.scrollnudge{padding:0 var(--sp2)}
 .tablewrap:empty{box-shadow:none;background:none}
 .tablewrap>p.info{padding:var(--sp2)}
 table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--panel)}
