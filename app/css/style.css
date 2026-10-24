@@ -69,7 +69,7 @@ html[data-sun="1"] {
   --shadow: none; --shadow-lift: 0 0 0 1px rgba(0,0,0,.28);
 }
 html[data-sun="1"] .card, html[data-sun="1"] .tcard, html[data-sun="1"] .stat,
-html[data-sun="1"] .st, html[data-sun="1"] .week-card, html[data-sun="1"] .time-chip,
+html[data-sun="1"] .st, html[data-sun="1"] .days, html[data-sun="1"] .wx, html[data-sun="1"] .time-chip,
 html[data-sun="1"] .btn.btn-plain, html[data-sun="1"] .whoami-btn,
 html[data-sun="1"] .history-list li, html[data-sun="1"] .drow, html[data-sun="1"] .dtile,
 html[data-sun="1"] .dash-bar-wrap, html[data-sun="1"] .report-chip,
@@ -132,7 +132,7 @@ body.cam .nav { position: static; }
 .screen { padding: 4px 0 calc(var(--tabh) + 24px); animation: fade .2s var(--ease); }
 @keyframes fade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 .screen > h2, .screen > label, .screen > input, .screen > select, .screen > .btn,
-.screen > .msg, .screen > .info, .screen > .hint, .screen > ul, .screen > div:not(.masthead):not(.tcard):not(.group):not(.brandband):not(.siwrap):not(.stats-row):not(.statusbar):not(.homerow):not(.week-card) {
+.screen > .msg, .screen > .info, .screen > .hint, .screen > ul, .screen > div:not(.masthead):not(.tcard):not(.group):not(.brandband):not(.siwrap):not(.stats-row):not(.statusbar):not(.homerow):not(.days):not(.wx) {
   margin-left: var(--pad); margin-right: var(--pad); }
 /* bare fields and buttons placed straight on a screen fill it between the
    side margins (a <button> shrink-wraps even as a flex container, so its
@@ -354,16 +354,62 @@ select { background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 
 .stat b { display: block; font-family: var(--mono); font-size: 24px; font-weight: 700; color: var(--seal-deep); font-variant-numeric: tabular-nums; }
 .stat span { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
 
-.week-card { background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow); padding: 14px 16px; margin: 14px var(--pad) 0; }
-.week-title { font-family: var(--mono); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; }
-.week-strip { display: flex; justify-content: space-between; }
-.wd { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-4); }
-.wd i { display: block; width: 36px; height: 36px; border-radius: 9px; margin: 5px auto 0; line-height: 36px;
-  font-style: normal; font-family: var(--mono); font-size: 13px; font-weight: 700; }
-.wd i.full { background: var(--ok); color: #fff; }
-.wd i.half { background: var(--gold-tint); color: var(--gold-ink); box-shadow: inset 0 0 0 1.5px var(--gold-2); }
-.wd i.none { background: var(--surface-3); color: var(--ink-4); }
-.wd i.sun { background: var(--surface-3); color: var(--ink-4); opacity: .6; }
+/* ---------- her own last fortnight ----------
+   Fourteen tiles in one row, two weeks parted by a wider gap, the weekday
+   letter above and the date on the tile. A colour on this card means one
+   thing: green is a mark the district holds, amber is a mark that is late or
+   still on the phone, indigo tint is sanctioned leave, grey is a day nothing
+   is asked on, and red is a working day the register holds no mark for.
+   Today is outlined, whatever it is, because it is running. */
+.days { margin: 14px var(--pad) 0; padding: 16px 18px; border-radius: var(--r-card); background: var(--surface); box-shadow: var(--shadow); }
+.days .k { font-family: var(--mono); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.days .t { font-family: var(--display); font-size: 21px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; margin-top: 6px; }
+.days .s { font-size: 13px; color: var(--ink-2); margin-top: 4px; line-height: 1.4; }
+.days .grid { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 3px; margin-top: 12px; }
+.days .d { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; background: none; border: 0; min-width: 0; cursor: pointer; font: inherit; color: inherit; }
+.days .d:nth-child(7) { margin-right: 5px; }
+.days .d i { font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--ink-4); line-height: 1; }
+.days .d b { display: grid; place-items: center; width: 100%; height: 30px; border-radius: 7px; font-family: var(--mono); font-size: 11px; font-weight: 700;
+  background: var(--surface-3); color: var(--ink-3); }
+.days .d.ok b { background: var(--ok); color: #fff; }
+.days .d.late b { background: var(--gold-tint); color: var(--gold-ink); box-shadow: inset 0 0 0 1.5px var(--gold-2); }
+.days .d.held b { background: var(--gold-tint); color: var(--gold-ink); border: 1.5px dashed var(--gold-2); }
+.days .d.lv b { background: var(--seal-tint); color: var(--seal-deep); }
+.days .d.off b, .days .d.none b { background: var(--surface-3); color: var(--ink-4); }
+.days .d.miss b { background: var(--flag-tint); color: var(--flag); }
+.days .d.today b { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+.days .d.now b { outline: 2px solid var(--ink); outline-offset: 1.5px; }
+.days .d.today.now b { outline: 0; }
+.days .d.sel b { box-shadow: 0 0 0 2px var(--seal); }
+.days .k2 { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-top: 12px; }
+.days .grid.sm { margin-top: 6px; }
+.days .d.sm b { height: 24px; font-size: 9.5px; border-radius: 6px; letter-spacing: -.04em; padding: 0 1px; }
+.days .d.pn b { background: var(--surface-3); color: var(--ink-4); }
+.days .d.t0 b { background: var(--t0); color: var(--ink); }
+.days .d.t1 b { background: var(--t1); color: var(--ink); }
+.days .d.t2 b { background: var(--t2); color: var(--ink); }
+.days .d.t3 b { background: var(--t3); color: #fff; }
+.days .d.t4 b { background: var(--t4); color: #fff; }
+.days .d:active b { transform: scale(.94); }
+.days .say { font-size: 13px; color: var(--ink-2); margin-top: 10px; line-height: 1.45; min-height: 1.45em; }
+.days .say b { color: var(--ink); }
+.days .nt { font-size: 12px; color: var(--ink-3); margin-top: 10px; line-height: 1.45; }
+
+/* ---------- the weather card ---------- */
+.wx { margin: 14px var(--pad) 0; padding: 16px 18px; border-radius: var(--r-card); background: var(--surface); box-shadow: var(--shadow); }
+.wx .now { display: flex; align-items: center; gap: 14px; }
+.wx .deg { font-family: var(--display); font-size: 30px; font-weight: 800; letter-spacing: -.05em; line-height: 1; flex: none; }
+.wx .now b { display: block; font-size: 15.5px; font-weight: 700; letter-spacing: -.01em; }
+.wx .now span { display: block; font-size: 13px; color: var(--ink-2); margin-top: 2px; line-height: 1.4; }
+.wx .fig { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.wx .fig div { background: var(--surface-3); border-radius: 12px; padding: 8px 6px; text-align: center; font-size: 12px; color: var(--ink-2); }
+.wx .fig div b { display: block; font-size: 15px; font-weight: 700; color: var(--ink); margin: 3px 0 1px; }
+.wx .fig div.wet { background: var(--seal-tint); color: var(--seal-deep); }
+.wx .fig div.wet b { color: inherit; }
+.wx .imd { font-size: 12.5px; color: var(--ink-2); margin-top: 12px; line-height: 1.45; }
+.wx .imd b { font-weight: 700; }
+.wx .imd b.w { color: var(--gold-ink); }
+.wx .imd b.s { color: var(--flag); }
 
 .statusbar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px var(--pad) 0; }
 .st { background: var(--surface); border-radius: 12px; box-shadow: var(--shadow); padding: 9px 6px; font-size: 11.5px; text-align: center; color: var(--ink-3); font-family: var(--mono); }

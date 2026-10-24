@@ -315,6 +315,13 @@ const App = (() => {
   }
 
   function bindEvents() {
+    $('days-card').addEventListener('click', e => {
+      const b = e.target.closest('.d');
+      if (!b || !b.dataset.say) return;
+      $('days-card').querySelectorAll('.d.sel').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+      $('days-card').querySelector('.say').innerHTML = '<b>' + escH(b.dataset.say.split(': ')[0]) + '</b>: ' + escH(b.dataset.say.split(': ').slice(1).join(': '));
+    });
     bindPrefs();
     $('btn-login').onclick = doLogin;
     ['in-phone', 'in-pin', 'in-newpin2'].forEach(id => {
@@ -1133,6 +1140,8 @@ const App = (() => {
       $('mark-done').hidden = false;
     }
     await renderHomeExtras(acc, rptDone);
+    refreshDays(false);
+    refreshWeather();
     renderMyIssues(acc); // fire-and-forget: renders when the server answers
     renderStatus();
   }
@@ -1207,6 +1216,176 @@ const App = (() => {
     return map;
   }
 
+  // ---------- her own last fortnight (action myDays) ----------
+  // The district reads every day and the phone overlays the two things it
+  // knows better: a mark still queued here ("held on this phone", never "not
+  // marked") and today, which is running and is never painted as a miss.
+  const DAY_LETTER = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const dayIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const dayWhen = d => d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  let daysTimer = null;
+
+  async function daysState(acc) {
+    const st = await DB.kvGet('days_' + acc.user.id);
+    return st && Array.isArray(st.days) && st.today === dayIso(new Date()) ? st : null;
+  }
+
+  async function refreshDays(force) {
+    const acc = active();
+    if (!acc || !navigator.onLine || window.APP_CONFIG.DEMO) return;
+    const st = await daysState(acc);
+    if (!force && st && Date.now() - (st.at || 0) < 10 * 60000) return;
+    // Not while marks are still queued: the record is about to change, and
+    // onSynced asks for it fresh the moment they are acknowledged.
+    if (!force && (await DB.count('queue')) > 0) return;
+    // A random 1–20 s pause so 300 phones opening at 09:00 do not read the
+    // register in the same second; the mark itself is never delayed by this.
+    clearTimeout(daysTimer);
+    daysTimer = setTimeout(async () => {
+      try {
+        const r = await Api.post({ action: 'myDays', token: acc.token, fresh: force ? '1' : undefined });
+        if (!r || !r.ok || !Array.isArray(r.days)) return;
+        await DB.kvSet('days_' + acc.user.id, { at: Date.now(), today: r.today, cutoff: r.cutoff || '',
+          days: r.days, totals: r.totals || {} });
+        if (!$('screen-home').hidden && active() === acc) await renderDays(acc);
+      } catch (e) { /* offline, or a backend without the module: the phone's own record stands */ }
+    }, force ? 300 : 1000 + Math.floor(Math.random() * 19000));
+  }
+
+  /** Called by Sync once a batch is acknowledged: the card is the first place she looks to see that it was. */
+  function onSynced() {
+    if (!$('screen-home').hidden) refreshDays(true);
+  }
+
+  const tile = (cls, letter, num, say, now) =>
+    '<button type="button" class="d ' + cls + (now ? ' now' : '') + '" data-say="' + escH(say) + '" aria-label="' + escH(say) + '">' +
+    (letter ? '<i>' + letter + '</i>' : '') + '<b>' + num + '</b></button>';
+
+  async function renderDays(acc, map) {
+    const card = $('days-card');
+    if (!map) map = await myMarkMap();
+    const held = {};
+    (await DB.all('queue')).forEach(r => {
+      const p = String(r.key).split('_');
+      if (p[0] === acc.user.id && p[2] === 'IN') held[p[1]] = true;
+    });
+    const st = await daysState(acc);
+    const by = {};
+    if (st) st.days.forEach(d => { by[d.date] = d; });
+    const lateAfter = (st && st.cutoff) || (acc.config && acc.config.schedule && acc.config.schedule.late_after) || '';
+    const now = new Date(), today = dayIso(now);
+    let marked = 0, late = 0, heldN = 0, fixed = 0, leaveN = 0, notMarked = 0;
+    const cells = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const iso = dayIso(d), key = fmtDate(d), sd = by[iso], loc = map[key] || {};
+      const when = dayWhen(d), isToday = iso === today;
+      let cls, word;
+      if (sd && sd.leave) { cls = 'lv'; word = 'on sanctioned leave (' + sd.leave + ')'; leaveN++; }
+      else if (sd && sd.in) {
+        cls = sd.late ? 'late' : 'ok'; marked++; if (sd.late) late++;
+        word = (sd.late ? 'IN at ' + sd.in + ', after ' + lateAfter : 'IN at ' + sd.in) + (sd.out ? ', OUT at ' + sd.out : ', no OUT');
+      }
+      else if (loc.IN && held[key]) { cls = 'held'; heldN++; if (sd && !sd.off && !isToday) fixed++; word = 'IN at ' + loc.IN + ', held on this phone, not yet received by the district'; }
+      else if (loc.IN) {
+        const isLate = !!(lateAfter && loc.IN > lateAfter);
+        cls = isLate ? 'late' : 'ok'; marked++; if (isLate) late++; if (sd && !sd.off && !isToday) fixed++;
+        word = 'IN at ' + loc.IN + (isLate ? ', after ' + lateAfter : '') + (loc.OUT ? ', OUT at ' + loc.OUT : ', no OUT');
+      }
+      else if (sd && sd.off) { cls = 'off'; word = sd.off; }
+      else if (!sd && d.getDay() === 0) { cls = 'off'; word = 'Sunday'; }
+      else if (isToday) { cls = 'today'; word = 'today, not marked yet'; }
+      else if (sd) { cls = 'miss'; word = 'not marked'; notMarked++; }
+      else { cls = 'none'; word = 'no record on this phone'; }
+      cells.push(tile(cls, DAY_LETTER[d.getDay()], d.getDate(), when + ': ' + word, isToday));
+    }
+    let head, sub;
+    if (st) {
+      const T = st.totals || {}, working = T.working || 0;
+      head = marked + ' of ' + working + ' working day' + (working === 1 ? '' : 's') + ' marked';
+      const bits = [];
+      if (late) bits.push(late + ' late');
+      if (leaveN) bits.push(leaveN + ' on leave');
+      if (heldN) bits.push(heldN + ' held on this phone');
+      if (notMarked) bits.push(notMarked + ' not marked');
+      sub = bits.join(' · ');
+    } else {
+      head = marked + ' day' + (marked === 1 ? '' : 's') + ' marked on this phone';
+      sub = heldN ? heldN + ' held on this phone · the district\'s record arrives when online' : 'The district\'s record arrives when online';
+    }
+    card.innerHTML = '<div class="k">Attendance · last 14 days</div><div class="t">' + escH(head) + '</div>' +
+      (sub ? '<div class="s">' + escH(sub) + '</div>' : '') +
+      '<div class="grid" role="list">' + cells.join('') + '</div>' +
+      (await tempRow(acc, now)) +
+      '<div class="say" aria-live="polite">Tap a day to read it.</div>';
+    card.hidden = false;
+  }
+
+  /** The day's highest temperature over her sector, under the fortnight, off the weather read. */
+  async function tempRow(acc, now) {
+    const wx = await DB.kvGet('wx_' + acc.user.id);
+    const days = (wx && wx.mine && wx.mine.days) || [];
+    if (!days.length) return '';
+    const by = {}; days.forEach(x => { if (x && x.date) by[x.date] = x; });
+    const today = dayIso(now);
+    const cells = [];
+    let any = false;
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const iso = dayIso(d), w = by[iso], when = dayWhen(d), isToday = iso === today;
+      if (!w || w.tmax == null) { cells.push(tile('sm pn', '', '·', when + ': no reading', isToday)); continue; }
+      any = true;
+      const t = Math.round(w.tmax);
+      const cls = t < 25 ? 't0' : t < 30 ? 't1' : t < 34 ? 't2' : t < 38 ? 't3' : 't4';
+      const say = when + ': max ' + t + '°' + (w.tmin != null ? ', min ' + Math.round(w.tmin) + '°' : '') + (w.rain >= 1 ? ', ' + Math.round(w.rain) + ' mm rain' : '');
+      cells.push(tile('sm ' + cls, '', String(t), say, isToday));
+    }
+    if (!any) return '';
+    return '<div class="k2">Temperature · max °C' + (wx.mine.name ? ' · ' + escH(wx.mine.name) : '') + '</div><div class="grid sm" role="list">' + cells.join('') + '</div>';
+  }
+
+  // ---------- the sky over her sector (action weather) ----------
+  const IMD_BAND = { 'light rain': '2.5 to 15.5 mm', 'moderate rain': '15.6 to 64.4 mm', 'heavy rain': '64.5 to 115.5 mm',
+    'very heavy rain': '115.6 to 204.4 mm', 'extremely heavy rain': 'above 204.4 mm' };
+
+  async function refreshWeather() {
+    const acc = active();
+    if (!acc || !navigator.onLine || window.APP_CONFIG.DEMO) return;
+    const wx = await DB.kvGet('wx_' + acc.user.id);
+    if (wx && Date.now() - (wx.at || 0) < 30 * 60000) return;
+    try {
+      const r = await Api.post({ action: 'weather', token: acc.token });
+      if (!r || !r.ok || !r.mine) return;
+      await DB.kvSet('wx_' + acc.user.id, { at: Date.now(), readAt: r.at, mine: r.mine, level: r.level || 'CALM', source: r.source || '' });
+      if (!$('screen-home').hidden && active() === acc) { await renderWeather(acc); await renderDays(acc); }
+    } catch (e) { /* offline, or a backend without the module */ }
+  }
+
+  async function renderWeather(acc) {
+    const card = $('wx-card');
+    const st = await DB.kvGet('wx_' + acc.user.id);
+    const w = st && st.mine;
+    if (!w) { card.hidden = true; return; }
+    const lvl = w.level || 'CALM';
+    const head = lvl === 'SEVERE' ? 'Severe weather expected' : lvl === 'WATCH' ? 'Watch the weather today' : (w.today || 'Weather today');
+    const sub = [escH(w.name || 'Your sector') + ' · forecast'];
+    if (w.now && lvl !== 'CALM') sub.push(escH(w.today || w.now));
+    if (st.readAt) sub.push('read at ' + escH(String(st.readAt).slice(11, 16)));
+    const rc = String(w.rainClass || '').toLowerCase();
+    const band = IMD_BAND[rc] || '';
+    const wet = w.rain != null && w.rain >= 2.5;
+    const fig = '<div class="fig">' +
+      '<div>Max<b>' + (w.tmax != null ? Math.round(w.tmax) + '°' : '–') + '</b>today</div>' +
+      '<div class="' + (wet ? 'wet' : '') + '">Rain<b>' + (w.rain != null ? Math.round(w.rain) + ' mm' : '–') + '</b>' +
+      (w.rainChance != null ? Math.round(w.rainChance) + '% chance' : 'today') + '</div>' +
+      '<div>Wind<b>' + (w.wind != null ? Math.round(w.wind) : '–') + '</b>km/h</div></div>';
+    const imd = (rc && band) ? '<div class="imd"><b class="' + (lvl === 'SEVERE' ? 's' : lvl === 'WATCH' ? 'w' : '') + '">' +
+      escH(rc.charAt(0).toUpperCase() + rc.slice(1)) + '</b> by the IMD scale (' + band + ')</div>' : '';
+    card.innerHTML = '<div class="now"><span class="deg">' + (w.temp != null ? Math.round(w.temp) + '°' : '') + '</span><div><b>' +
+      escH(head) + '</b><span>' + sub.join(' · ') + '</span></div></div>' + fig + imd;
+    card.hidden = false;
+  }
+
   function updateClock() {
     const d = new Date(), p = n => String(n).padStart(2, '0');
     $('home-clock').textContent = p(d.getHours()) + ':' + p(d.getMinutes());
@@ -1232,23 +1411,12 @@ const App = (() => {
     }
     $('tt-hrs').textContent = hrs;
 
-    // 7-day strip, today rightmost. Sundays shown neutral; a day with no mark
-    // is shown as '–' (could be leave/holiday — that data lives server-side).
-    const strip = $('week-strip');
-    strip.innerHTML = '';
+    // Her own last fortnight and the sky over her sector, drawn off what the
+    // phone holds now; the district's answers arrive through refreshDays /
+    // refreshWeather and redraw.
     const now = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const m = map[fmtDate(d)] || {};
-      let cls = 'none', sym = '–';
-      if (d.getDay() === 0) { cls = 'sun'; sym = 'S'; }
-      else if (m.IN && m.OUT) { cls = 'full'; sym = '✓'; }
-      else if (m.IN) { cls = 'half'; sym = 'IN'; }
-      const cell = document.createElement('div');
-      cell.className = 'wd';
-      cell.innerHTML = 'SMTWTFS'[d.getDay()] + '<i class="' + cls + '">' + sym + '</i>';
-      strip.appendChild(cell);
-    }
+    await renderDays(acc, map);
+    await renderWeather(acc);
 
     const monthPrefix = todayCompact().slice(0, 6);
     $('stat-month').textContent =
@@ -2275,6 +2443,7 @@ const App = (() => {
   return {
     renderStatus: renderStatus,
     onAuthLost: onAuthLost,
+    onSynced: onSynced,
     get accounts() { return accounts; },
     get activeConfig() { const a = active(); return a ? a.config : null; }
   };

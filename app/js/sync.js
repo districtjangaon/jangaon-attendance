@@ -138,6 +138,7 @@ const Sync = (() => {
       if (anyOk) {
         failCount = 0;
         await DB.kvSet('lastSync', Date.now());
+        if (App.onSynced) App.onSynced();
       }
       if (busy) backoff();
       else if ((await DB.count('queue')) > 0 && anyOk) schedule('drain');
