@@ -388,6 +388,7 @@ function apiDiag_(req) {
     monthMarksRows: marksRows,
     lastSummaryGen: PROPS.getProperty('LAST_GEN') || null,
     holidayToday: holidayFor_(today) || null,
+    features: featureReport_(),
     issues: issues.slice(0, 50), issueCount: issues.length
   };
 }

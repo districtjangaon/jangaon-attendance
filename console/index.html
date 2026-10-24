@@ -59,6 +59,7 @@
         <button id="tab-verify" class="tab" data-v="verify"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zm-3 9 2 2 4-4"/></svg><span class="lbl">Verification</span> <span id="vfy-count" class="pill" hidden></span></button>
         <button id="tab-admin" class="tab" data-v="admin" hidden><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 8c0-3.5 3-6 7-6s7 2.5 7 6"/></svg><span class="lbl">Users &amp; Admin</span></button>
         <button id="tab-perf" class="tab" data-v="perf" hidden><svg viewBox="0 0 24 24"><path d="M4 14a8 8 0 0 1 16 0M12 14l4-5"/></svg><span class="lbl">Performance</span></button>
+        <button id="tab-health" class="tab" data-v="health" hidden><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span class="lbl">Health</span></button>
       </nav>
       <div class="railfoot">Government of Telangana<br>Women Development &amp; Child Welfare</div>
     </aside>
@@ -446,6 +447,22 @@
       </div>
     </section>
 
+    <!-- Health: is the register fit to be changed? Triggers, backup, mail, roll -->
+    <section id="view-health" class="view" hidden>
+      <p class="info">The register's own pre-flight. A trigger that was never installed looks exactly
+        like one that is working &mdash; nothing arrives, and nothing says why &mdash; so this reads what
+        is actually installed, counts the backup off the calendar, and lists the feature modules
+        that are live.</p>
+      <div class="toolbar">
+        <button id="btn-health-run" class="btn btn-plain btn-inline">Read again</button>
+        <button id="btn-health-install" class="btn btn-primary btn-inline">Install the district's daily jobs</button>
+        <button id="btn-health-backup" class="btn btn-plain btn-inline">Run the backup now</button>
+        <span id="health-when" class="info"></span>
+      </div>
+      <p id="health-msg" class="msg"></p>
+      <div id="health-content"><p class="info">Open this tab to read the register.</p></div>
+    </section>
+
     <!-- Performance / SLA — visible only to the district admin's number -->
     <section id="view-perf" class="view" hidden>
       <div class="toolbar">
@@ -454,7 +471,7 @@
       </div>
       <div id="perf-content"><p class="info">Open this tab to run live checks.</p></div>
     </section>
-    <footer class="build-tag">BUILD: v5.0-20261024-1601</footer>
+    <footer class="build-tag">BUILD: v5.1-20261024-1614</footer>
     </div>
     <nav class="bottomnav" id="bottomnav">
       <button data-go="today" aria-current="page"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg>Dashboard</button>

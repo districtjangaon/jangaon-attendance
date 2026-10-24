@@ -501,6 +501,14 @@ td.reg-over{background:var(--red-2);color:var(--pill-bad-ink);font-weight:600}
 .map-chip.sel{box-shadow:var(--nm-in-sm);background:var(--pri-2);color:var(--pri);font-weight:700}
 .map-chip.sel b{color:var(--pri)}
 
+/* ---------- health ---------- */
+.hbody{padding:0 var(--sp2) var(--sp2);font-size:13px}
+.hlist{list-style:none;margin:0;padding:0}
+.hlist li{display:flex;gap:8px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line-2);flex-wrap:wrap}
+.hlist li:last-child{border-bottom:0}
+.hlist .mut{color:var(--tx-3);font-size:12px}
+.hbody .bigcards{margin-bottom:0}
+
 /* ---------- lightbox, footer ---------- */
 .lightbox{position:fixed;inset:0;z-index:90;background:rgba(10,12,26,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
 .lightbox img{max-width:min(90vw,480px);border-radius:10px}

@@ -146,6 +146,7 @@ const App = (() => {
     // file. Role is the right gate anyway now that the district has more than
     // one admin, and the server scopes what the tab can actually read.
     $('tab-perf').hidden = !(me.role === 'ADMIN' || window.CONSOLE_CONFIG.DEMO);
+    $('tab-health').hidden = me.role !== 'ADMIN';
     fillMonthControls();
     fillReportControls();
     fillRegisterControls();
@@ -3021,6 +3022,99 @@ const App = (() => {
    * (today.json perf block), this browser's own API reliability counters
    * (recorded by api.js), and page-load timing. Nothing is stored server-side.
    */
+  // ---------- Health: the register's pre-flight (Features.gs / FeatureHealth.gs) ----------
+  async function renderHealth() {
+    const el = $('health-content');
+    el.innerHTML = '<p class="info">Reading the register (a few seconds)&hellip;</p>';
+    $('health-msg').textContent = '';
+    let h;
+    try { h = await Api.post({ action: 'health', token: token }); }
+    catch (e) { h = { ok: false, code: String(e && e.message || e) }; }
+    if (!h || !h.ok) {
+      el.innerHTML = '<p class="info">The register could not be read: ' +
+        esc((h && (h.msg || h.code)) || 'no answer') + '</p>';
+      return;
+    }
+    $('health-when').textContent = 'Read at ' + new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) +
+      (h.build ? ' - backend ' + h.build : '');
+    const light = ok => '<span class="tag ' + (ok ? 'OK' : 'ERR') + '">' + (ok ? 'OK' : 'ATTENTION') + '</span>';
+    const panel = (title, ok, body) => '<div class="chartbox"><h3>' + esc(title) + ' ' + light(ok) +
+      '</h3><div class="hbody">' + body + '</div></div>';
+    const li = items => '<ul class="hlist">' + items.join('') + '</ul>';
+    const t = h.triggers || {};
+    const tb = t.error ? '<p class="info">' + esc(t.error) + '</p>' : li(Object.keys(t.wanted || {}).map(k =>
+      '<li>' + (t.missing.indexOf(k) < 0 ? '<span class="tag OK">installed</span>' : '<span class="tag ERR">missing</span>') +
+      ' <b>' + esc(k) + '</b> <span class="mut">' + esc(t.wanted[k]) + '</span></li>')) +
+      (t.missing.length ? '<p class="info">Press <b>Install the district\'s daily jobs</b> above. It is safe to press twice.</p>' : '');
+    const b = h.backup || {};
+    const bb = b.error ? '<p class="info">' + esc(b.error) + '</p>' :
+      '<p class="info">Newest copy <b>' + esc(b.newest || 'none') + '</b> - ' + esc(b.copies || 0) + ' dated copies kept' +
+      (b.keep ? ' (the last ' + esc(b.keep) + ' are retained)' : '') + (b.why ? ' - ' + esc(b.why) : '') + '</p>' +
+      ((b.missingLast14 || []).length
+        ? '<p class="info">Nights with no copy in the last 14: <b>' + esc(b.missingLast14.join(', ')) + '</b></p>'
+        : '<p class="info">Every night of the last fortnight has a copy.</p>');
+    const m = h.mail || {};
+    const mb = m.error ? '<p class="info">' + esc(m.error) + '</p>' :
+      '<div class="bigcard bc-blue"><div class="k">Messages left today</div><div class="v">' + esc(m.remaining) +
+      '</div><div class="sub">' + esc(m.looksLike) + '</div></div>';
+    const r = h.roll || {};
+    const rb = r.error ? '<p class="info">' + esc(r.error) + '</p>' :
+      '<div class="bigcards"><div class="bigcard bc-teal"><div class="k">Active accounts</div><div class="v">' + esc(r.active) + '</div><div class="sub">' +
+      esc(r.field) + ' field - ' + esc(r.console) + ' console</div></div>' +
+      '<div class="bigcard ' + (r.withoutPin ? 'bc-red' : 'bc-grey') + '"><div class="k">Never set a PIN</div><div class="v">' + esc(r.withoutPin) +
+      '</div><div class="sub">have not logged in once</div></div></div>';
+    const c = h.calendar || {};
+    const cb = c.error ? '<p class="info">' + esc(c.error) + '</p>' :
+      '<p class="info"><b>' + esc(c.holidays) + '</b> holidays declared for ' + esc(c.year) +
+      (c.nextYear ? ', ' + esc(c.nextYear) + ' for ' + esc(c.year + 1) : ', none yet for ' + esc(c.year + 1)) +
+      (c.today ? '. Today is <b>' + esc(c.today) + '</b>.' : '.') + '</p>';
+    const s = h.summary || {};
+    const sb = s.error ? '<p class="info">' + esc(s.error) + '</p>' :
+      '<p class="info">Last published <b>' + (s.generatedAt ? esc(s.generatedAt.replace('T', ' ').slice(0, 16)) : 'never') + '</b>' +
+      (s.ageMin != null ? ' (' + (s.ageMin < 60 ? s.ageMin + ' min' : Math.round(s.ageMin / 60) + ' h') + ' ago)' : '') + '</p>';
+    const f = h.features || {};
+    const fb = f.error ? '<p class="info">' + esc(f.error) + '</p>' :
+      li((f.live || []).map(x => '<li><span class="tag OK">live</span> <b>' + esc(x.name) + '</b> <span class="mut">' +
+        esc(x.title) + ' - answers ' + esc(x.actions.join(', ')) + (x.daily ? ' - has daily work' : '') + '</span></li>')
+        .concat((f.skipped || []).map(x => '<li><span class="tag WARN">off</span> <b>' + esc(x.name) + '</b> <span class="mut">' + esc(x.why) + '</span></li>')));
+    el.innerHTML =
+      '<div class="' + (h.allWell ? 'holiday-note' : 'dupe-bar') + '">' +
+      (h.allWell ? 'Every check passed. The register is fit to be changed.'
+        : 'Attention: ' + esc(h.concerns.join(', ')) + '. The panels below say what.') + '</div>' +
+      '<div class="charts">' +
+      panel('Daily jobs', t.ok, tb) + panel('Nightly backup', b.ok, bb) +
+      panel('Mail allowance', m.ok, mb) + panel('The roll', r.ok, rb) +
+      panel('Holiday calendar', c.ok, cb) + panel('Published summary', s.ok, sb) +
+      panel('Feature modules', !f.error, fb) + '</div>';
+  }
+
+  async function healthInstall() {
+    const btn = $('btn-health-install');
+    btn.disabled = true;
+    $('health-msg').textContent = 'Installing\u2026';
+    try {
+      const r = await Api.post({ action: 'installJobs', token: token });
+      $('health-msg').textContent = r.ok ? 'Installed: ' + r.installed.join(', ') : 'Not installed: ' + (r.msg || r.code);
+    } catch (e) { $('health-msg').textContent = 'Not installed: ' + (e.message || e); }
+    btn.disabled = false;
+    renderHealth();
+  }
+
+  async function healthBackup() {
+    if (!confirm('Run the nightly backup now? It copies the master and every monthly workbook into the backup folder (about a minute).')) return;
+    const btn = $('btn-health-backup');
+    btn.disabled = true;
+    $('health-msg').textContent = 'Backing up\u2026';
+    try {
+      const r = await Api.post({ action: 'runBackup', token: token });
+      $('health-msg').textContent = (r.ok ? 'Backup completed' : 'Backup FAILED: ' + (r.msg || r.code)) +
+        ' - ' + (r.made || 0) + ' dated copy made in ' + (r.seconds || 0) + ' s' +
+        (r.after && r.after.newest ? ' - newest now ' + r.after.newest : '');
+    } catch (e) { $('health-msg').textContent = 'Backup did not answer: ' + (e.message || e); }
+    btn.disabled = false;
+    renderHealth();
+  }
+
   async function renderPerf() {
     const el = $('perf-content');
     el.innerHTML = '<p class="info">Running live checks (a few seconds)…</p>';
@@ -3169,7 +3263,7 @@ const App = (() => {
   // ---------------- tabs & events ----------------
   function switchTab(name) {
     ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'register',
-      'map', 'verify', 'admin', 'perf'].forEach(t => {
+      'map', 'verify', 'admin', 'perf', 'health'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
@@ -3192,6 +3286,7 @@ const App = (() => {
     if (name === 'map') { if (!mapLoaded) loadMap(); else DistrictMap.invalidate(); }
     if (name === 'verify' && !vfyLoadedYm) loadVerify();
     if (name === 'perf') renderPerf();
+    if (name === 'health') renderHealth();
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
   }
 
@@ -3278,6 +3373,10 @@ const App = (() => {
     $('btn-reg-apps-csv').onclick = registerAppsCsv;
     $('tab-admin').onclick = () => switchTab('admin');
     $('tab-perf').onclick = () => switchTab('perf');
+    $('tab-health').onclick = () => switchTab('health');
+    $('btn-health-run').onclick = renderHealth;
+    $('btn-health-install').onclick = healthInstall;
+    $('btn-health-backup').onclick = healthBackup;
     $('btn-perf-run').onclick = () => renderPerf();
     $('btn-month-load').onclick = loadMonth;
     $('btn-month-csv').onclick = monthCsv;

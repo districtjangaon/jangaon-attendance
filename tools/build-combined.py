@@ -22,7 +22,8 @@ from pathlib import Path
 # const declarations do not, so order still matters here.
 ORDER = ['Util.gs', 'Auth.gs', 'Marks.gs', 'Admin.gs', 'Stock.gs', 'Devices.gs',
          'Leaves.gs', 'Map.gs', 'Reports.gs',
-         'Verify.gs', 'Summary.gs', 'DailyEmail.gs', 'Backup.gs', 'Maintenance.gs', 'Main.gs']
+         'Verify.gs', 'Summary.gs', 'DailyEmail.gs', 'Backup.gs', 'Maintenance.gs',
+         'Features.gs', 'FeatureHealth.gs', 'Main.gs']
 backend = Path(__file__).resolve().parent.parent / 'backend'
 
 # A hardcoded list silently drops any file that is not on it, and the only

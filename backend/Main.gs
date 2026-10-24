@@ -78,7 +78,12 @@ function doPost(e) {
       revoke: apiRevoke_
     };
     const fn = ROUTES[action];
-    if (!fn) return jsonOut_({ ok: false, code: 'NO_ACTION' });
+    if (!fn) {
+      // Feature modules (Features.gs) are offered the action only after the
+      // core has declined it and the token has been checked.
+      const fr = featurePost_(auth, req);
+      return jsonOut_(fr || { ok: false, code: 'NO_ACTION' });
+    }
     return jsonOut_(fn(auth, req));
   } catch (err) {
     return jsonOut_({ ok: false, code: 'ERR', msg: String((err && err.message) || err) });

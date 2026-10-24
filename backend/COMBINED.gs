@@ -4,8 +4,8 @@
  * Paste this whole file into Code.gs, and backend/appsscript.json
  * into the manifest (Project Settings -> show manifest).
  */
-const BACKEND_BUILD = 'e64ecca1e4ab';
-const APP_BUILD_SHIPPED = '20260901-2047';
+const BACKEND_BUILD = '3d75ea3a7496';
+const APP_BUILD_SHIPPED = '20261024-1601';
 
 ///////////////////////////////////////////////////////////////////////////
 //  Util.gs
@@ -1817,6 +1817,7 @@ function apiDiag_(req) {
     monthMarksRows: marksRows,
     lastSummaryGen: PROPS.getProperty('LAST_GEN') || null,
     holidayToday: holidayFor_(today) || null,
+    features: featureReport_(),
     issues: issues.slice(0, 50), issueCount: issues.length
   };
 }
@@ -6600,6 +6601,388 @@ function finishRelease() {
 }
 
 ///////////////////////////////////////////////////////////////////////////
+//  Features.gs
+///////////////////////////////////////////////////////////////////////////
+
+/**
+ * Features.gs — feature modules, ported from the SJGP register.
+ *
+ * How a new feature is added to a live register without touching the files
+ * that already work. Every feature so far has been cut into Main.gs's ROUTES
+ * and into whichever file it touched; each incision is a chance to break
+ * something that had nothing to do with the feature being added, and the
+ * thing it breaks is somebody's attendance record.
+ *
+ * SO A FEATURE IS A FILE, AND THE MAIN CODE CALLS IT. A module declares the
+ * actions it answers and nothing else reaches into it. Main.gs gains one
+ * line (the call to featurePost_ after ROUTES has declined the action), and
+ * this file gains one name per feature in FEATURE_MODULES.
+ *
+ * What the register guarantees a module cannot do:
+ *   - run before the token is checked: modules are dispatched inside doPost
+ *     AFTER verifyToken_, and are handed the authenticated session;
+ *   - take over something the core already answers: registration reads the
+ *     core's own dispatch out of doPost and REFUSES a module that claims an
+ *     action already in it;
+ *   - take the register down: every module is loaded and called inside its
+ *     own try/catch. One that throws is recorded in the Audit sheet and
+ *     answers its caller plainly; every other action is untouched;
+ *   - stay on when it misbehaves: the script property FEATURE_OFF is a
+ *     comma-separated list of module names, and anything on it is not
+ *     loaded. That is the rollback at four in the afternoon, without a deploy.
+ *
+ * A module is one function named feature_<name>:
+ *
+ *     function feature_example() {
+ *       return {
+ *         title: 'What it is, in the Collector's words',
+ *         actions: { exampleSave: function (auth, req) { return { ok: true }; } },
+ *         daily: function () { return 'done'; }   // optional, ~07:00
+ *       };
+ *     }
+ *
+ * Action handlers have the same signature as every ROUTES entry: (auth, req)
+ * in, a plain object out (doPost wraps it in jsonOut_).
+ *
+ * action=diag lists what is loaded, what was refused and why, so "is my
+ * feature live" is answered by reading rather than guessing.
+ */
+
+// The modules this register carries, in the order they are offered a request.
+// ADD A FEATURE BY ADDING ITS FILE AND ITS NAME HERE, and change nothing else.
+var FEATURE_MODULES = ['health'];
+
+/**
+ * The core's own actions, READ OFF THE RUNNING CODE and never a list typed
+ * here. A list would say what its author believed; this says what doPost
+ * actually answers, which is the only thing that can tell us a module is
+ * about to shadow something.
+ */
+function coreActions_() {
+  const out = {};
+  try {
+    const src = String(doPost);
+    let m;
+    const pre = /action === '([A-Za-z0-9_]+)'/g;        // ping, login, diag, deviceRequest
+    while ((m = pre.exec(src))) out[m[1]] = true;
+    const routed = /([A-Za-z0-9_]+):\s*api[A-Za-z0-9]+_/g; // the ROUTES map
+    while ((m = routed.exec(src))) out[m[1]] = true;
+  } catch (err) { /* an unreadable doPost refuses nothing; the clash check is advisory */ }
+  return out;
+}
+
+/** Names the district has switched off by hand, without waiting for a deploy. */
+function featuresOff_() {
+  const out = {};
+  try {
+    String(PROPS.getProperty('FEATURE_OFF') || '').split(/[,\s]+/).forEach(function (n) {
+      if (n) out[n.trim()] = true;
+    });
+  } catch (err) { /* no properties: nothing is off */ }
+  return out;
+}
+
+/**
+ * Every module this register should carry, with the reason for each one that
+ * is not carried. Nothing here throws: a module that cannot be loaded is a
+ * module that is skipped and reported, never an outage.
+ */
+function featureLoad_() {
+  const off = featuresOff_(), core = coreActions_();
+  const live = [], skipped = [];
+  const seen = {};
+  FEATURE_MODULES.forEach(function (name) {
+    if (off[name]) { skipped.push({ name: name, why: 'switched off by FEATURE_OFF' }); return; }
+    let def = null;
+    try {
+      const g = (typeof globalThis !== 'undefined') ? globalThis : this;
+      const fn = g ? g['feature_' + name] : null;
+      if (typeof fn !== 'function') { skipped.push({ name: name, why: 'no function feature_' + name }); return; }
+      def = fn();
+    } catch (err) { skipped.push({ name: name, why: 'threw while loading: ' + err }); return; }
+    if (!def || typeof def !== 'object') { skipped.push({ name: name, why: 'returned nothing' }); return; }
+
+    // It may not take over the core, or another module.
+    let clash = '';
+    Object.keys(def.actions || {}).forEach(function (a) {
+      if (core[a]) clash = clash || ('the register already answers action "' + a + '"');
+      if (seen[a]) clash = clash || ('module "' + seen[a] + '" already answers action "' + a + '"');
+    });
+    if (clash) { skipped.push({ name: name, why: 'refused: ' + clash }); return; }
+
+    Object.keys(def.actions || {}).forEach(function (a) { seen[a] = name; });
+    def.name = name;
+    live.push(def);
+  });
+  return { live: live, skipped: skipped };
+}
+
+/**
+ * Offered the request only after ROUTES has declined it and the session has
+ * been verified. Returns the handler's plain result, or null when no module
+ * answers the action. A module that throws answers its caller plainly and
+ * leaves every other part of the register untouched.
+ */
+function featurePost_(auth, req) {
+  const action = String((req && req.action) || '');
+  if (!action) return null;
+  let loaded;
+  try { loaded = featureLoad_(); } catch (err) { return null; }
+  for (let i = 0; i < loaded.live.length; i++) {
+    const f = loaded.live[i];
+    const fn = (f.actions || {})[action];
+    if (typeof fn !== 'function') continue;
+    try { return fn(auth, req); }
+    catch (err) {
+      try { audit_('system', 'FEATURE_FAILED', f.name, '', action + ' - ' + err); } catch (e) { /* the answer below still goes out */ }
+      return { ok: false, code: 'FEATURE_ERR', feature: f.name,
+        msg: 'That part of the register could not answer: ' + err };
+    }
+  }
+  return null;
+}
+
+/**
+ * ONE TRIGGER FOR ALL OF THEM. A feature that needs daily work declares a
+ * `daily` function; featureDaily() runs them, each inside its own try/catch.
+ * A trigger per feature means every new feature needs somebody to open the
+ * Apps Script editor, and the jobs that already needed that went uninstalled
+ * for weeks because nothing said they were missing. Runs at ~07:00, after
+ * the day it reports on has closed and before the field is out.
+ */
+function featureDaily() {
+  const out = [];
+  let loaded;
+  try { loaded = featureLoad_(); } catch (err) { return 'features could not be loaded: ' + err; }
+  loaded.live.forEach(function (f) {
+    if (typeof f.daily !== 'function') return;
+    try { out.push(f.name + ': ' + (f.daily() || 'done')); }
+    catch (err) {
+      out.push(f.name + ': FAILED - ' + err);
+      try { audit_('system', 'FEATURE_DAILY_FAILED', f.name, '', String(err)); } catch (e) { /* logged below */ }
+    }
+  });
+  const said = out.length ? out.join('\n') : 'no feature has daily work';
+  Logger.log(said);
+  return said;
+}
+
+/** Idempotent: deletes its own trigger before creating it. */
+function installFeatureTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'featureDaily') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('featureDaily').timeBased().everyDays(1).atHour(7).create();
+  Logger.log('featureDaily installed, ~07:00 ' + TZ + '.');
+}
+
+/** What diag and the Health screen report, so a feature's presence is read rather than assumed. */
+function featureReport_() {
+  try {
+    const l = featureLoad_();
+    return {
+      live: l.live.map(function (f) {
+        return { name: f.name, title: f.title || '', actions: Object.keys(f.actions || {}),
+          daily: typeof f.daily === 'function' };
+      }),
+      skipped: l.skipped
+    };
+  } catch (err) { return { error: String(err) }; }
+}
+
+///////////////////////////////////////////////////////////////////////////
+//  FeatureHealth.gs
+///////////////////////////////////////////////////////////////////////////
+
+/**
+ * FeatureHealth.gs — is this register fit to be changed?
+ *
+ * The pre-flight check, asked of the register itself before a new series of
+ * features goes near it. It answers the questions that have each cost a day:
+ *
+ *   - are the daily jobs actually installed? The summariser, the nightly
+ *     register build, the photo reaper, the backup and the Collector's daily
+ *     email all run from triggers, and a trigger that was never installed
+ *     looks exactly like one that is working: nothing arrives, and nothing
+ *     says why. (The daily email's trigger was missed exactly this way.)
+ *   - is the nightly backup running? Counted off the CALENDAR, not off the
+ *     folder: a job that has been failing for three weeks looks exactly like
+ *     one that is working if you only read the newest copy;
+ *   - how much mail is left today? One allowance is shared by every message
+ *     the script sends, and on a consumer account it is a hundred;
+ *   - and what the register holds: the roll, the holiday calendar, how fresh
+ *     the published summary is, and the feature modules it is carrying.
+ *
+ * READ-ONLY, except for two actions the district admin may take from the
+ * console: installing the daily jobs, and running the backup now. Both call
+ * the same functions the editor would, and both are idempotent.
+ */
+function feature_health() {
+  return {
+    title: 'Pre-flight: triggers, backup, mail allowance and what is loaded',
+
+    actions: {
+      // action: "health" (ADMIN)
+      health: function (auth, req) {
+        if (String(auth.user.role) !== 'ADMIN') return deny_();
+        const today = fmtDay_(Date.now());
+        const out = { ok: true, at: nowIso_(), today: today, build: backendBuild_() };
+
+        out.triggers = healthTriggers_();
+
+        // ---- the mail allowance ----
+        out.mail = (function () {
+          try {
+            const left = MailApp.getRemainingDailyQuota();
+            return { remaining: left,
+              // a consumer account is 100 a day, Workspace 1,500: the figure
+              // itself tells which, without guessing
+              looksLike: left > 200 ? 'a Workspace allowance' : 'a consumer allowance',
+              ok: left > 0 };
+          } catch (err) { return { error: String(err), ok: false }; }
+        })();
+
+        out.backup = healthBackup_(today);
+
+        // ---- the roll ----
+        out.roll = (function () {
+          try {
+            let active = 0, field = 0, noPin = 0, console = 0;
+            getUsersAll_().forEach(function (u) {
+              if (String(u.status) !== 'ACTIVE') return;
+              active++;
+              if (String(u.role) === 'FIELD') field++; else console++;
+              if (!u.pin_hash) noPin++;
+            });
+            return { active: active, field: field, console: console, withoutPin: noPin, ok: active > 0 };
+          } catch (err) { return { error: String(err), ok: false }; }
+        })();
+
+        // ---- the calendar ----
+        out.calendar = (function () {
+          try {
+            const y = today.slice(0, 4);
+            const all = getHolidays_();
+            const n = Object.keys(all).filter(function (k) { return k.slice(0, 4) === y; }).length;
+            const next = Object.keys(all).filter(function (k) { return k.slice(0, 4) === String(Number(y) + 1); }).length;
+            return { year: Number(y), holidays: n, nextYear: next, today: holidayFor_(today) || '', ok: n > 0 };
+          } catch (err) { return { error: String(err), ok: false }; }
+        })();
+
+        // ---- the published summary ----
+        out.summary = (function () {
+          try {
+            const gen = PROPS.getProperty('LAST_GEN') || '';
+            const ageMin = gen ? Math.round((Date.now() - new Date(gen).getTime()) / 60000) : null;
+            // Idle afternoons are normal; a day without a publish is not.
+            return { generatedAt: gen, ageMin: ageMin, ok: ageMin !== null && ageMin < 24 * 60 };
+          } catch (err) { return { error: String(err), ok: false }; }
+        })();
+
+        out.features = featureReport_();
+
+        // one word for the whole thing, so the console can show a light
+        const parts = ['triggers', 'mail', 'backup', 'roll', 'calendar', 'summary'];
+        out.allWell = parts.every(function (k) { return out[k] && out[k].ok === true; });
+        out.concerns = parts.filter(function (k) { return !(out[k] && out[k].ok === true); });
+        return out;
+      },
+
+      // action: "installJobs" (ADMIN). Every installer deletes its own trigger
+      // before creating it (installTriggers_ clears the lot first), so a
+      // nervous second press changes nothing.
+      installJobs: function (auth, req) {
+        if (String(auth.user.role) !== 'ADMIN') return deny_();
+        try {
+          installTriggers_();          // summaryTick, nightlyJob, reaperJob, monthPrep
+          installBackupTrigger();      // backupNow, 23:00
+          installDailyEmailTrigger();  // sendDailyAttendanceEmail, 17:00
+          installFeatureTrigger();     // featureDaily, 07:00
+          const have = [];
+          ScriptApp.getProjectTriggers().forEach(function (t) { have.push(t.getHandlerFunction()); });
+          have.sort();
+          audit_(String(auth.user.user_id), 'DAILY_JOBS_INSTALLED', 'triggers', '', have.join(', '));
+          return { ok: true, installed: have, triggers: healthTriggers_() };
+        } catch (err) {
+          return { ok: false, code: 'INSTALL_FAILED', msg: String((err && err.message) || err) };
+        }
+      },
+
+      // action: "runBackup" (ADMIN). Installing the trigger and knowing the
+      // backup WORKS are two different things; only running it tells a
+      // missing trigger from a job that throws every night. The folder is
+      // read before and after, so the answer is evidence and not a tick.
+      runBackup: function (auth, req) {
+        if (String(auth.user.role) !== 'ADMIN') return deny_();
+        const today = fmtDay_(Date.now());
+        const before = healthBackup_(today);
+        let threw = '';
+        const t0 = Date.now();
+        try { backupNow(); } catch (err) { threw = String((err && err.message) || err); }
+        const after = healthBackup_(today);
+        const made = (after.copies || 0) - (before.copies || 0);
+        audit_(String(auth.user.user_id), 'BACKUP_RUN_BY_HAND', 'backup', '',
+          (threw ? 'FAILED: ' + threw : 'completed') + ' - ' + made + ' dated copy(ies) made');
+        return { ok: !threw, code: threw ? 'BACKUP_FAILED' : undefined, msg: threw || '',
+          seconds: Math.round((Date.now() - t0) / 1000), made: made, before: before, after: after };
+      }
+    }
+  };
+}
+
+/** The daily jobs wanted, against the triggers actually installed. */
+function healthTriggers_() {
+  try {
+    const want = {
+      summaryTick: 'the summary publisher, every 5 min',
+      nightlyJob: 'the nightly summary and register build, 22:00',
+      reaperJob: 'the photo retention reaper, 02:00',
+      monthPrep: 'the next month workbook, 03:00',
+      backupNow: 'the nightly backup, 23:00',
+      sendDailyAttendanceEmail: 'the Collector daily email, 17:00',
+      featureDaily: 'the feature modules daily round, 07:00'
+    };
+    const have = {};
+    ScriptApp.getProjectTriggers().forEach(function (t) { have[t.getHandlerFunction()] = true; });
+    const missing = Object.keys(want).filter(function (k) { return !have[k]; });
+    return { wanted: want, installed: Object.keys(have).sort(), missing: missing, ok: missing.length === 0 };
+  } catch (err) { return { error: String(err), ok: false }; }
+}
+
+/**
+ * What the backup folder holds, counted off the calendar. The folder holds
+ * one dated sub-folder per run (yyyy-MM-dd_HHmm); a day with no folder in the
+ * last fourteen is a night the backup did not happen.
+ */
+function healthBackup_(today) {
+  try {
+    const it = DriveApp.getFoldersByName(BACKUP_FOLDER_NAME);
+    if (!it.hasNext()) return { ok: false, why: 'no "' + BACKUP_FOLDER_NAME + '" folder yet', copies: 0, missingLast14: [] };
+    const root = it.next();
+    const days = {};
+    let newest = '', n = 0;
+    const sub = root.getFolders();
+    while (sub.hasNext()) {
+      const f = sub.next();
+      const m = f.getName().match(/^(\d{4}-\d{2}-\d{2})_\d{4}$/);
+      if (!m) continue;
+      n++;
+      days[m[1]] = true;
+      if (m[1] > newest) newest = m[1];
+    }
+    const missing = [];
+    for (let i = 1; i <= 14; i++) {
+      const d = new Date(today + 'T12:00:00+05:30');
+      d.setDate(d.getDate() - i);
+      const key = Utilities.formatDate(d, TZ, 'yyyy-MM-dd');
+      if (!days[key]) missing.push(key);
+    }
+    return { copies: n, newest: newest, missingLast14: missing, keep: BACKUP_KEEP,
+      ok: missing.length === 0 && !!newest };
+  } catch (err) { return { error: String(err), copies: 0, missingLast14: [], ok: false }; }
+}
+
+///////////////////////////////////////////////////////////////////////////
 //  Main.gs
 ///////////////////////////////////////////////////////////////////////////
 
@@ -6683,7 +7066,12 @@ function doPost(e) {
       revoke: apiRevoke_
     };
     const fn = ROUTES[action];
-    if (!fn) return jsonOut_({ ok: false, code: 'NO_ACTION' });
+    if (!fn) {
+      // Feature modules (Features.gs) are offered the action only after the
+      // core has declined it and the token has been checked.
+      const fr = featurePost_(auth, req);
+      return jsonOut_(fr || { ok: false, code: 'NO_ACTION' });
+    }
     return jsonOut_(fn(auth, req));
   } catch (err) {
     return jsonOut_({ ok: false, code: 'ERR', msg: String((err && err.message) || err) });
