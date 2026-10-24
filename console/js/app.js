@@ -147,6 +147,7 @@ const App = (() => {
     // one admin, and the server scopes what the tab can actually read.
     $('tab-perf').hidden = !(me.role === 'ADMIN' || window.CONSOLE_CONFIG.DEMO);
     $('tab-health').hidden = me.role !== 'ADMIN';
+    $('tab-advisory').hidden = !(me.role === 'ADMIN' || me.role === 'CDPO');
     fillMonthControls();
     fillReportControls();
     fillRegisterControls();
@@ -3338,6 +3339,162 @@ const App = (() => {
    * (today.json perf block), this browser's own API reliability counters
    * (recorded by api.js), and page-load timing. Nothing is stored server-side.
    */
+  // ---------- Advisory: a circular from the district (FeatureAdvisory.gs) ----------
+  let ADV = null, advFilter = 'all', advBusy = false;
+  const advForm = { title: '', message: '', audience: 'ALL', sectors: [] };
+  const advWhen = iso => iso ? String(iso).slice(0, 10).split('-').reverse().join('.') + (String(iso).length > 15 ? ' ' + String(iso).slice(11, 16) : '') : '—';
+  async function loadAdvisory(id) {
+    const el = $('adv-content');
+    if (!ADV) el.innerHTML = '<p class="info">Reading the advisory register…</p>';
+    let r;
+    try { r = await Api.post({ action: 'advisory', token: token, id: id || undefined }); }
+    catch (e) { r = { ok: false, code: String(e && e.message || e) }; }
+    if (!r || !r.ok) {
+      if (r && ['AUTH', 'EXPIRED', 'REVOKED'].indexOf(r.code) >= 0) { authLost(); return; }
+      el.innerHTML = '<p class="info">The register could not be read: ' + esc((r && (r.msg || r.code)) || 'no answer') + '</p>';
+      return;
+    }
+    ADV = r;
+    const pend = r.advisory && r.standing && r.advisory.id === r.standing ? r.totals.pending : 0;
+    $('adv-count').hidden = !pend;
+    $('adv-count').textContent = pend;
+    renderAdvisory();
+  }
+  function advReachText() {
+    const C = (ADV && ADV.counts) || { total: 0, byAudience: {}, bySector: {} };
+    const aud = advForm.audience;
+    let n = 0;
+    if (!advForm.sectors.length) n = C.byAudience[aud] || 0;
+    else advForm.sectors.forEach(sc => { n += (C.bySector[sc] || {})[aud] || 0; });
+    const who = aud === 'ALL' ? 'staff' : aud === 'SUPERVISOR' ? 'supervisors' : aud + ' workers';
+    return 'This reaches ' + n + ' ' + who + (advForm.sectors.length ? ' in ' + advForm.sectors.length + ' sector' + (advForm.sectors.length === 1 ? '' : 's') : ' across the whole scope') + '.';
+  }
+  function renderAdvisory() {
+    const el = $('adv-content');
+    const a = ADV.advisory, T = ADV.totals || { due: 0, acknowledged: 0, pending: 0 };
+    const retired = !!(a && a.status !== 'ACTIVE');
+    const byOrder = !!(a && a.status === 'RETIRED');
+    const pct = (x, y) => y ? Math.round(100 * x / y) : 0;
+    let h = '';
+    if (a) {
+      const where = a.sectors && a.sectors.length ? (a.sectors.length > 2 ? a.sectors.length + ' sectors' : a.sectors.map(sectorName).join(', ')) : 'every sector';
+      h += '<div class="bigcards">' +
+        bigcard('bc-teal', 'Acknowledged', T.acknowledged, 'of ' + T.due + ' addressed') +
+        bigcard(T.pending ? 'bc-red' : 'bc-grey', 'Still pending', T.pending, T.pending ? 'see the names below' : 'everyone has read it') +
+        bigcard('bc-blue', 'Read', pct(T.acknowledged, T.due) + '%', 'of the staff addressed') +
+        bigcard('bc-grey', 'Issued', advWhen(a.publishedAt).slice(0, 10), a.publishedBy || 'the district') +
+        bigcard('bc-olive', 'Addressed to', a.audience === 'ALL' ? 'All staff' : a.audience, where) + '</div>';
+      h += '<div class="chartbox hmpanel"><h3>' + (retired ? 'A circular already retired' : 'The standing advisory') + ' <span class="mut" style="font-weight:500;font-size:12px">' + esc(a.id) + '</span></h3>' +
+        '<div class="toolbar" style="padding:0 var(--sp2)">' +
+        (retired ? '<button class="btn btn-plain btn-inline" id="adv-back">' + (ADV.standing ? 'Back to the circular now standing' : 'Back to the register') + '</button><span class="info">' +
+          (byOrder ? 'Retired by order on ' + esc(advWhen(a.retiredAt)) + (a.retiredBy ? ' by ' + esc(a.retiredBy) : '') + '. It no longer opens on any phone; every receipt below stands.' : 'Retired when a later circular was published. Every receipt below stands.') + '</span>'
+          : (ADV.canPublish ? '<button class="btn btn-plain btn-inline" id="adv-retire"' + (advBusy ? ' disabled' : '') + '>Retire this circular</button><span class="info">It stops opening on every phone. Nothing is deleted: the circular and every receipt stay here.</span>' : '')) + '</div>' +
+        '<div class="advhead"><div style="flex:1;min-width:280px"><div class="lab">Title</div><div class="ttl">' + esc(a.title) + '</div>' +
+        '<div class="lab">The line every worker is shown</div><div class="msg">' + esc(a.message) + '</div></div>' +
+        (a.url ? '<a class="btn btn-primary btn-inline" href="' + esc(a.url) + '" target="_blank" rel="noopener">Open the document</a>' : '') + '</div></div>';
+      h += '<div class="charts"><div class="chartbox"><h3>Sector by sector <span class="mut" style="font-weight:500;font-size:12px">read of addressed</span></h3><div class="tablewrap" style="margin:0 var(--sp2) var(--sp2)"><table>' +
+        (ADV.coverage || []).map(cv => '<tr><td>' + esc(cv.name) + '</td><td class="num">' + cv.acknowledged + '/' + cv.due + '</td><td style="width:40%"><div class="bar"><i style="width:' + pct(cv.acknowledged, cv.due) + '%;background:' + (cv.acknowledged >= cv.due ? 'var(--st-ok)' : 'var(--pri)') + '"></i></div></td></tr>').join('') + '</table></div></div>';
+      const rows = (ADV.roll || []).filter(r => advFilter === 'all' || (advFilter === 'ack' ? r.acknowledged : !r.acknowledged));
+      h += '<div class="chartbox"><h3>Staff member by staff member <span class="mut" style="font-weight:500;font-size:12px">' + T.acknowledged + ' acknowledged · ' + T.pending + ' pending</span></h3>' +
+        '<div class="toolbar" style="padding:0 var(--sp2)"><input id="adv-find" type="search" placeholder="Search name or sector"><div class="chips">' +
+        [['all', 'Everyone', (ADV.roll || []).length], ['ack', 'Acknowledged', T.acknowledged], ['pending', 'Pending', T.pending]].map(([k, n, c]) => '<button data-advf="' + k + '" aria-pressed="' + (advFilter === k) + '">' + n + ' <b>' + c + '</b></button>').join('') +
+        '</div><button class="btn btn-plain btn-inline" id="adv-csv">CSV of this register</button></div>' +
+        '<div class="tablewrap" style="margin:0 var(--sp2) var(--sp2);max-height:520px"><table><thead><tr><th>Name</th><th>Cadre</th><th>Sector</th><th>Status</th><th>Acknowledged at</th></tr></thead><tbody id="adv-body">' +
+        (rows.length ? rows.map(r => '<tr><td>' + esc(r.name) + '</td><td class="mut">' + esc(r.cadre || r.role) + '</td><td class="mut">' + esc(sectorName(r.sc)) + '</td><td>' +
+          (r.acknowledged ? '<span class="tag OK">read</span>' : '<span class="tag ERR">pending</span>') + '</td><td class="num mut">' + (r.acknowledged ? esc(advWhen(r.ackAt)) : '—') + '</td></tr>').join('')
+          : '<tr><td colspan="5" class="info">Nobody on the roll matches this filter.</td></tr>') + '</tbody></table></div></div></div>';
+    } else {
+      const issued = (ADV.list || []).length;
+      h += '<div class="bigcards">' + bigcard('bc-grey', 'Staff on the roll', T.due, 'who a circular would reach') + bigcard('bc-grey', 'Standing advisory', 'none', ADV.canPublish ? 'publish one below' : 'nothing standing') +
+        bigcard('bc-grey', 'Issued before', issued, issued ? 'every one retired' : 'nothing issued yet') + '</div>';
+      h += '<div class="chartbox hmpanel"><h3>No advisory is standing</h3><p class="info">' + (ADV.canPublish ? 'Publish one below. ' : '') + 'It opens on every addressed worker&rsquo;s home screen the next time the app is opened, and this screen then names who has read it and who has not.' + (issued ? ' The circulars already issued are kept in the history below, receipts and all.' : '') + '</p></div>';
+    }
+    const hist = ADV.list || [];
+    if (hist.length) {
+      h += '<div class="chartbox hmpanel"><h3>Every circular the district has issued <span class="mut" style="font-weight:500;font-size:12px">' + hist.length + ' on the record · nothing is deleted</span></h3>' +
+        '<div class="tablewrap" style="margin:0 var(--sp2) var(--sp2)"><table><thead><tr><th>Circular</th><th>Issued</th><th>Addressed to</th><th>Read</th><th></th><th>Status</th></tr></thead><tbody>' +
+        hist.map(x => {
+          const on = !!(a && x.id === a.id);
+          const where = x.sectors && x.sectors.length ? (x.sectors.length > 2 ? x.sectors.length + ' sectors' : x.sectors.map(sectorName).join(', ')) : 'every sector';
+          return '<tr class="click' + (on ? ' on' : '') + '" data-advopen="' + esc(x.id) + '"><td>' + esc(x.title) + (on ? ' <span class="tag">open</span>' : '') + '</td><td class="mut">' + esc(advWhen(x.publishedAt)) + '</td><td class="mut">' + esc(x.audience === 'ALL' ? 'All staff' : x.audience) + ' · ' + esc(where) + '</td>' +
+            '<td class="num">' + x.acknowledged + '/' + x.due + '</td><td><div class="bar"><i style="width:' + pct(x.acknowledged, x.due) + '%;background:var(--pri)"></i></div></td><td>' + (x.status === 'ACTIVE' ? '<span class="tag OK">standing</span>' : '<span class="tag">retired</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div><p class="info">Open any circular to read it and see, name by name, who has acknowledged it.</p></div>';
+    }
+    if (ADV.canPublish) {
+      const secs = names.sectors || [];
+      h += '<div class="chartbox hmpanel"><h3>Publish an advisory <span class="mut" style="font-weight:500;font-size:12px">it opens on every addressed phone and stays there until acknowledged</span></h3><div class="advform">' +
+        '<label>Title<input type="text" id="adv-title" value="' + esc(advForm.title) + '" placeholder="Health advisory for the monsoon"></label>' +
+        '<label>The line every worker is shown<textarea id="adv-message" placeholder="Boil drinking water at the centre for the next two weeks.">' + esc(advForm.message) + '</textarea></label>' +
+        '<label>Which staff<select id="adv-aud">' + [['ALL', 'Every staff member'], ['AWT', 'Teachers (AWT)'], ['AWH', 'Helpers (AWH)'], ['SUPERVISOR', 'Supervisors']].map(([k, n]) => '<option value="' + k + '"' + (advForm.audience === k ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
+        '<div><div style="font-size:12px;color:var(--tx-2);margin-bottom:6px">Which sectors</div><div class="chips" id="adv-sectors"><button data-advs="" aria-pressed="' + (advForm.sectors.length === 0) + '">Every sector</button>' +
+        secs.map(s => '<button data-advs="' + esc(s.code) + '" aria-pressed="' + (advForm.sectors.indexOf(s.code) >= 0) + '">' + esc(s.name) + '</button>').join('') + '</div><p class="info" id="adv-reach" style="margin-top:8px">' + esc(advReachText()) + '</p></div>' +
+        '<div><input type="file" id="adv-file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="font-size:13px"><p class="info" style="margin-top:6px">PDF, Word or an image of the signed page, up to 12 MB. The file is stored in Drive, shared view-only by link, and every addressed worker gets the link.</p></div>' +
+        '<div class="toolbar" style="padding:0"><button class="btn btn-primary btn-inline" id="adv-go"' + (advBusy ? ' disabled' : '') + '>' + (advBusy ? 'Publishing…' : 'Publish to the staff addressed') + '</button>' +
+        (a && !retired ? '<span class="info">Publishing a new advisory retires the one standing. Nothing is deleted.</span>' : '') + '</div></div></div>';
+    }
+    el.innerHTML = h;
+    // ---- wiring ----
+    const back = $('adv-back'); if (back) back.onclick = () => loadAdvisory('');
+    const ret = $('adv-retire'); if (ret) ret.onclick = advRetire;
+    el.querySelectorAll('[data-advf]').forEach(b => { b.onclick = () => { advFilter = b.dataset.advf; renderAdvisory(); }; });
+    el.querySelectorAll('[data-advopen]').forEach(tr => { tr.onclick = () => loadAdvisory(tr.dataset.advopen); });
+    const find = $('adv-find');
+    if (find) find.oninput = () => {
+      const q = find.value.trim().toLowerCase();
+      el.querySelectorAll('#adv-body tr').forEach(tr => { tr.hidden = !!q && tr.textContent.toLowerCase().indexOf(q) < 0; });
+    };
+    const csv = $('adv-csv');
+    if (csv) csv.onclick = () => downloadCsv('advisory-' + (a ? a.id : 'none') + '.csv', [['user_id', 'name', 'cadre', 'sector', 'status', 'acknowledged_at']]
+      .concat((ADV.roll || []).map(r => [r.u, r.name, r.cadre || r.role, sectorName(r.sc), r.acknowledged ? 'read' : 'pending', r.ackAt || ''])));
+    const t = $('adv-title'); if (t) t.oninput = () => { advForm.title = t.value; };
+    const m = $('adv-message'); if (m) m.oninput = () => { advForm.message = m.value; };
+    const au = $('adv-aud'); if (au) au.onchange = () => { advForm.audience = au.value; $('adv-reach').textContent = advReachText(); };
+    el.querySelectorAll('[data-advs]').forEach(b => {
+      b.onclick = () => {
+        const sc = b.dataset.advs;
+        if (!sc) advForm.sectors = [];
+        else { const i = advForm.sectors.indexOf(sc); if (i >= 0) advForm.sectors.splice(i, 1); else advForm.sectors.push(sc); }
+        el.querySelectorAll('[data-advs]').forEach(x => x.setAttribute('aria-pressed', x.dataset.advs ? advForm.sectors.indexOf(x.dataset.advs) >= 0 : advForm.sectors.length === 0));
+        $('adv-reach').textContent = advReachText();
+      };
+    });
+    const go = $('adv-go'); if (go) go.onclick = advPublish;
+  }
+  async function advPublish() {
+    if (advBusy) return;
+    const title = advForm.title.trim(), message = advForm.message.trim();
+    if (!title || !message) { $('adv-msg').textContent = 'A title and the one line every worker is shown are both needed.'; return; }
+    if (!confirm('Publish "' + title + '"?\n' + advReachText() + (ADV.advisory && ADV.advisory.status === 'ACTIVE' ? '\nThe circular now standing is retired.' : ''))) return;
+    const fi = $('adv-file');
+    let file = null;
+    if (fi && fi.files && fi.files[0]) {
+      const f0 = fi.files[0];
+      if (f0.size > 12 * 1024 * 1024) { $('adv-msg').textContent = 'That file is over 12 MB.'; return; }
+      file = { name: f0.name, b64: await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = () => rej(fr.error); fr.readAsDataURL(f0); }) };
+    }
+    advBusy = true; renderAdvisory();
+    $('adv-msg').textContent = 'Publishing…';
+    try {
+      const r = await Api.post({ action: 'advPublish', token: token, title: title, message: message, audience: advForm.audience, sectors: advForm.sectors, file: file || undefined });
+      if (r && r.ok) { $('adv-msg').textContent = 'Published ' + r.id + '.'; advForm.title = ''; advForm.message = ''; }
+      else $('adv-msg').textContent = 'Not published: ' + ((r && (r.msg || r.code)) || 'no answer');
+    } catch (e) { $('adv-msg').textContent = 'Not published: ' + (e.message || e); }
+    advBusy = false;
+    await loadAdvisory('');
+  }
+  async function advRetire() {
+    const a = ADV && ADV.advisory;
+    if (!a || advBusy) return;
+    if (!confirm('Retire "' + a.title + '"? It stops opening on every phone. The circular and every receipt stay on the register.')) return;
+    advBusy = true; renderAdvisory();
+    try {
+      const r = await Api.post({ action: 'advRetire', token: token, id: a.id });
+      $('adv-msg').textContent = r && r.ok ? 'Retired ' + r.id + (r.already ? ' (it was already ' + r.status.toLowerCase() + ')' : '') + '.' : 'Not retired: ' + ((r && (r.msg || r.code)) || 'no answer');
+    } catch (e) { $('adv-msg').textContent = 'Not retired: ' + (e.message || e); }
+    advBusy = false;
+    await loadAdvisory('');
+  }
+
   // ---------- Health: the register's pre-flight (Features.gs / FeatureHealth.gs) ----------
   async function renderHealth() {
     const el = $('health-content');
@@ -3579,7 +3736,7 @@ const App = (() => {
   // ---------------- tabs & events ----------------
   function switchTab(name) {
     ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'register',
-      'map', 'verify', 'admin', 'perf', 'health'].forEach(t => {
+      'map', 'verify', 'admin', 'perf', 'health', 'advisory'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
@@ -3603,6 +3760,7 @@ const App = (() => {
     if (name === 'verify' && !vfyLoadedYm) loadVerify();
     if (name === 'perf') renderPerf();
     if (name === 'health') renderHealth();
+    if (name === 'advisory' && !ADV) loadAdvisory('');
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
     if (name === 'analytics') { if (!$('an-fortnight').innerHTML) loadFortnight(); if (!$('an-year').innerHTML) loadYearCal(); }
   }
@@ -3692,6 +3850,8 @@ const App = (() => {
     $('tab-admin').onclick = () => switchTab('admin');
     $('tab-perf').onclick = () => switchTab('perf');
     $('tab-health').onclick = () => switchTab('health');
+    $('tab-advisory').onclick = () => switchTab('advisory');
+    $('btn-adv-reload').onclick = () => loadAdvisory(ADV ? ADV.viewing : '');
     $('btn-health-run').onclick = renderHealth;
     $('btn-health-install').onclick = healthInstall;
     $('btn-health-backup').onclick = healthBackup;

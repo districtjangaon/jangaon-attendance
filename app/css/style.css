@@ -395,6 +395,23 @@ select { background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 
 .days .say b { color: var(--ink); }
 .days .nt { font-size: 12px; color: var(--ink-3); margin-top: 10px; line-height: 1.45; }
 
+/* ---------- the advisory card: pinned while it is outstanding ---------- */
+.adv { margin: 14px var(--pad) 0; padding: 16px 18px; border-radius: var(--r-card); background: var(--gold-tint); box-shadow: var(--shadow); border-left: 5px solid var(--gold); }
+html[data-sun="1"] .adv { border: 1.5px solid var(--gold-2); border-left-width: 5px; }
+.adv .k { font-family: var(--mono); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--gold-ink); }
+.adv .t { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; margin-top: 6px; color: var(--ink); }
+.adv .m { font-size: 15px; font-weight: 600; color: var(--ink); margin-top: 8px; line-height: 1.5; }
+.adv .s { font-size: 12.5px; color: var(--ink-3); margin-top: 8px; line-height: 1.45; }
+.adv .btn { margin-top: 12px; width: 100%; }
+.adv .btn.gold { background: var(--gold); color: #20160A; }
+.adv .btn.quiet { background: var(--surface); color: var(--gold-ink); }
+.adv .nt { font-size: 12px; color: var(--ink-3); margin-top: 10px; line-height: 1.45; }
+#adv-list .row { display: block; }
+#adv-list .row b { display: block; }
+#adv-list .row span { display: block; font-size: 13px; color: var(--ink-2); margin-top: 3px; line-height: 1.45; }
+#adv-list .row small { display: block; font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+#adv-list .row a { color: var(--seal); font-weight: 600; }
+
 /* ---------- the weather card ---------- */
 .wx { margin: 14px var(--pad) 0; padding: 16px 18px; border-radius: var(--r-card); background: var(--surface); box-shadow: var(--shadow); }
 .wx .now { display: flex; align-items: center; gap: 14px; }

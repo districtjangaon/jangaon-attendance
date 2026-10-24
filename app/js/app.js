@@ -1140,8 +1140,10 @@ const App = (() => {
       $('mark-done').hidden = false;
     }
     await renderHomeExtras(acc, rptDone);
+    await renderAdvisory(acc);
     refreshDays(false);
     refreshWeather();
+    refreshAdvisory();
     renderMyIssues(acc); // fire-and-forget: renders when the server answers
     renderStatus();
   }
@@ -1255,6 +1257,92 @@ const App = (() => {
   /** Called by Sync once a batch is acknowledged: the card is the first place she looks to see that it was. */
   function onSynced() {
     if (!$('screen-home').hidden) refreshDays(true);
+    flushAdvQueue();
+  }
+
+  // ---------- advisories (action advisory / advAck) ----------
+  // A circular from the district is pinned on the home screen until she
+  // presses "I have read this". THE PHONE'S RECEIPT STANDS: it is written here
+  // before the wire is tried, so a dropped signal never makes the circular
+  // come back the next morning; the receipt goes up by itself later.
+  async function advState(acc) {
+    const st = await DB.kvGet('adv_' + acc.user.id);
+    return st && typeof st === 'object' ? st : null;
+  }
+  async function refreshAdvisory() {
+    const acc = active();
+    if (!acc || !navigator.onLine || window.APP_CONFIG.DEMO) return;
+    try {
+      const r = await Api.post({ action: 'advisory', token: acc.token });
+      if (!r || !r.ok) return;
+      const done = (await DB.kvGet('advDone_' + acc.user.id)) || {};
+      const id = (r.advisory && r.advisory.id) || '';
+      await DB.kvSet('adv_' + acc.user.id, { advisory: r.advisory || null,
+        acknowledged: !!r.acknowledged || !!done[id], ackAt: r.ackAt || done[id] || '',
+        recent: r.recent || [], at: Date.now() });
+      if (!$('screen-home').hidden && active() === acc) await renderAdvisory(acc);
+      flushAdvQueue();
+    } catch (e) { /* offline, or a backend without the module */ }
+  }
+  async function renderAdvisory(acc) {
+    const card = $('adv-card');
+    const st = await advState(acc);
+    const a = st && st.advisory;
+    if (!a || !a.id || st.acknowledged) { card.hidden = true; return; }
+    const when = a.publishedAt ? String(a.publishedAt).slice(0, 10).split('-').reverse().join('.') : '';
+    card.innerHTML = '<div class="k">Advisory from the district</div><div class="t">' + escH(a.title) + '</div>' +
+      '<div class="m">' + escH(a.message) + '</div>' +
+      (when ? '<div class="s">Issued ' + escH(when) + (a.publishedBy ? ' · ' + escH(a.publishedBy) : '') + '</div>' : '') +
+      (a.url ? '<a class="btn quiet" href="' + escH(a.url) + '" target="_blank" rel="noopener">Open the circular</a>' : '') +
+      '<button type="button" class="btn gold" id="btn-adv-ack">I have read this</button>' +
+      '<div class="nt">Pressing it tells the district you have seen the advisory. It is a receipt, not a report that the work is done.</div>';
+    card.hidden = false;
+    $('btn-adv-ack').onclick = () => ackAdvisory(acc, a.id);
+  }
+  async function ackAdvisory(acc, id) {
+    const at = new Date().toISOString();
+    const done = (await DB.kvGet('advDone_' + acc.user.id)) || {};
+    done[id] = at;
+    await DB.kvSet('advDone_' + acc.user.id, done);
+    const st = (await advState(acc)) || {};
+    await DB.kvSet('adv_' + acc.user.id, Object.assign({}, st, { acknowledged: true, ackAt: at }));
+    $('adv-card').hidden = true;
+    const q = (await DB.kvGet('advQ_' + acc.user.id)) || [];
+    if (q.indexOf(id) < 0) q.push(id);
+    await DB.kvSet('advQ_' + acc.user.id, q);
+    flushAdvQueue();
+  }
+  /** Receipts not yet received by the district go up whenever there is signal; a second send is harmless (the server keeps one). */
+  async function flushAdvQueue() {
+    const acc = active();
+    if (!acc || !navigator.onLine || window.APP_CONFIG.DEMO) return;
+    const q = (await DB.kvGet('advQ_' + acc.user.id)) || [];
+    if (!q.length) return;
+    const done = (await DB.kvGet('advDone_' + acc.user.id)) || {};
+    const left = [];
+    for (const id of q) {
+      try {
+        const r = await Api.post({ action: 'advAck', token: acc.token, id: id, at: done[id] || '' });
+        if (!r || r.ok === false) left.push(id);
+      } catch (e) { left.push(id); }
+    }
+    await DB.kvSet('advQ_' + acc.user.id, left);
+  }
+  /** Every circular she was addressed by, under the menu, so a message is not something she can only see once. */
+  async function renderAdvList(acc) {
+    const st = await advState(acc);
+    const done = (await DB.kvGet('advDone_' + acc.user.id)) || {};
+    const list = (st && st.recent) || [];
+    $('adv-group').hidden = !list.length;
+    if (!list.length) return;
+    $('adv-list').innerHTML = list.map(a => {
+      const read = a.acknowledged || !!done[a.id];
+      const when = a.publishedAt ? String(a.publishedAt).slice(0, 10).split('-').reverse().join('.') : '';
+      return '<div class="row"><b>' + escH(a.title) + (a.standing ? ' <span class="tag">standing</span>' : '') + '</b>' +
+        '<span>' + escH(a.message) + '</span>' +
+        '<small>' + (when ? 'Issued ' + escH(when) : '') + (read ? ' · read ✓' : ' · not yet acknowledged') +
+        (a.url ? ' · <a href="' + escH(a.url) + '" target="_blank" rel="noopener">open the circular</a>' : '') + '</small></div>';
+    }).join('');
   }
 
   const tile = (cls, letter, num, say, now) =>
@@ -2436,6 +2524,7 @@ const App = (() => {
     $('btn-demo-reset').hidden = !window.APP_CONFIG.DEMO;
     $('btn-test-reset').hidden = acc.user.role !== 'ADMIN';
     show('screen-menu');
+    renderAdvList(acc);
   }
 
   document.addEventListener('DOMContentLoaded', init);

@@ -154,6 +154,9 @@
 
     <div id="issues-card" hidden></div>
 
+    <!-- The standing advisory, pinned until she acknowledges it (renderAdvisory). -->
+    <div id="adv-card" class="adv" hidden></div>
+
     <!-- Her own last fortnight (myDays) and the sky over her sector (weather).
          Drawn by renderDays / renderWeather; hidden until there is something to draw. -->
     <div id="days-card" class="days" hidden></div>
@@ -326,6 +329,10 @@
         </div>
       </div>
     </div>
+    <div class="group" id="adv-group" hidden>
+      <div class="hdr">Advisories from the district</div>
+      <div class="card" id="adv-list"></div>
+    </div>
     <button id="btn-leave" class="btn btn-primary">Apply for leave</button>
     <button id="btn-test-reset" class="btn btn-plain" hidden>Reset my marks for today (admin test)</button>
     <button id="btn-logout" class="btn btn-danger">Logout this user</button>
@@ -333,7 +340,7 @@
     <button id="btn-menu-back" class="btn btn-plain">Back</button>
   </section>
 
-  <footer class="build-tag">BUILD: v6.1-20261024-1623</footer>
+  <footer class="build-tag">BUILD: v6.2-20261024-1640</footer>
 
   <nav id="bottom-nav" class="tabs" hidden>
     <button id="nav-home"><svg viewBox="0 0 24 24"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3z"/></svg><span>Home</span></button>

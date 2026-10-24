@@ -11,7 +11,7 @@
 // The shell is served cache-first and the browser only re-installs this worker
 // when its BYTES change, so a build that leaves this name alone never reaches
 // a phone that already has the old one. tools/test-build.js enforces the match.
-const CACHE = 'attendance-v6.1-20261024-1623';
+const CACHE = 'attendance-v6.2-20261024-1640';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/config.js', './js/db.js', './js/api.js', './js/geo.js',
