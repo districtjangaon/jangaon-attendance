@@ -1,0 +1,40 @@
+# The checks that run on every push and pull request. No deploy step: the
+# backend is pushed by hand (python tools/deploy-backend.py) and the pages are
+# served by GitHub Pages from the branch itself.
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Backend suites in the mocked Apps Script world
+        run: node tests/run.js
+
+      - name: Build integrity (service-worker cache name, shell files, build tags)
+        run: node tools/test-build.js
+
+      - name: Combined backend parses
+        run: |
+          python tools/build-combined.py
+          node -e "new Function(require('fs').readFileSync('backend/COMBINED.gs','utf8'))"
+
+      # This repository is public. A deployment URL, a script id or an
+      # instance config must never be committed; the tracked tree is checked,
+      # not the working copy, so a gitignored config.js cannot trip it.
+      - name: No deployment secrets in the tracked tree
+        run: |
+          set -e
+          if git ls-files | grep -E '^(app|console)/js/config\.js$|^\.clasp\.json$|^backend/clasp/'; then
+            echo 'an instance config is tracked'; exit 1; fi
+          if git grep -n -E 'script\.google\.com/macros/s/AKfycb' -- . ':!tools/deploy-backend.py' ; then
+            echo 'a deployment URL is tracked'; exit 1; fi
+          echo 'clean'

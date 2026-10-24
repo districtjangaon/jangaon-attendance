@@ -70,6 +70,7 @@ This system holds face photos, precise GPS, and phone numbers of identifiable go
 
 ## Verify before reporting done
 
+- `node tests/run.js` passes — the backend suites in a mocked Apps Script world (`tests/`)
 - `node tools/test-build.js` passes — an app change that does not rename the
   service-worker cache never reaches a phone that already has the old shell
 - `/app` and `/console` both load with no console errors on a cold cache

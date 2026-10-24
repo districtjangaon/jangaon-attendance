@@ -1,0 +1,13 @@
+{
+  "name": "field-attendance",
+  "private": true,
+  "description": "Zero-cost attendance system: PWA + static console on GitHub Pages, Google Apps Script backend. The backend runs in a mocked Apps Script world under tests/.",
+  "scripts": {
+    "test": "node tests/run.js && node tools/test-build.js",
+    "test:backend": "node tests/run.js",
+    "test:build": "node tools/test-build.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
