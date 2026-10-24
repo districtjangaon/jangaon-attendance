@@ -60,6 +60,7 @@
         <button id="tab-admin" class="tab" data-v="admin" hidden><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 8c0-3.5 3-6 7-6s7 2.5 7 6"/></svg><span class="lbl">Users &amp; Admin</span></button>
         <button id="tab-perf" class="tab" data-v="perf" hidden><svg viewBox="0 0 24 24"><path d="M4 14a8 8 0 0 1 16 0M12 14l4-5"/></svg><span class="lbl">Performance</span></button>
         <button id="tab-advisory" class="tab" data-v="advisory" hidden><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/><path d="M12 8v3M12 13.4v.2"/></svg><span class="lbl">Advisory</span> <span id="adv-count" class="pill" hidden></span></button>
+        <button id="tab-mockloc" class="tab" data-v="mockloc" hidden><svg viewBox="0 0 24 24"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10z"/><path d="M9 11l6-6M9 5l6 6"/></svg><span class="lbl">Mock GPS</span></button>
         <button id="tab-health" class="tab" data-v="health" hidden><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span class="lbl">Health</span></button>
       </nav>
       <div class="railfoot">Government of Telangana<br>Women Development &amp; Child Welfare</div>
@@ -507,6 +508,27 @@
       <div id="health-content"><p class="info">Open this tab to read the register.</p></div>
     </section>
 
+    <!-- Mock GPS (ADMIN): a month of morning fixes read as a series -->
+    <section id="view-mockloc" class="view" hidden>
+      <p class="info">A real phone standing in the same yard every morning scatters by tens of metres
+        and reports 5&ndash;30 m; a mock-location app hands back the same six decimals every day and
+        claims 0&ndash;1 m. This reads the morning IN fixes of the window as a series. It is a reading,
+        not a verdict: take a name to the Map and the photographs before anything is said to anyone.</p>
+      <div class="toolbar">
+        <select id="ml-days">
+          <option value="14">Last 14 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="60">Last 60 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
+        <button id="btn-ml-run" class="btn btn-primary btn-inline">Read</button>
+        <button id="btn-ml-csv" class="btn btn-plain btn-inline" hidden>Download CSV</button>
+        <span id="ml-when" class="info"></span>
+      </div>
+      <p id="ml-msg" class="msg"></p>
+      <div id="ml-content"><p class="info">Press Read. A 30-day window reads one or two month workbooks and takes a few seconds.</p></div>
+    </section>
+
     <!-- Performance / SLA — visible only to the district admin's number -->
     <section id="view-perf" class="view" hidden>
       <div class="toolbar">
@@ -515,7 +537,7 @@
       </div>
       <div id="perf-content"><p class="info">Open this tab to run live checks.</p></div>
     </section>
-    <footer class="build-tag">BUILD: v5.4-20261024-1653</footer>
+    <footer class="build-tag">BUILD: v5.5-20261024-1658</footer>
     </div>
     <nav class="bottomnav" id="bottomnav">
       <button data-go="today" aria-current="page"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg>Dashboard</button>

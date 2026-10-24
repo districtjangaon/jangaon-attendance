@@ -147,6 +147,7 @@ const App = (() => {
     // one admin, and the server scopes what the tab can actually read.
     $('tab-perf').hidden = !(me.role === 'ADMIN' || window.CONSOLE_CONFIG.DEMO);
     $('tab-health').hidden = me.role !== 'ADMIN';
+    $('tab-mockloc').hidden = me.role !== 'ADMIN';
     $('tab-advisory').hidden = !(me.role === 'ADMIN' || me.role === 'CDPO');
     fillMonthControls();
     fillReportControls();
@@ -3523,6 +3524,82 @@ const App = (() => {
       }).join('') + '</table>';
   }
 
+  // ---------------- Mock GPS (ADMIN; ported from the SJGP register) ----------------
+  let ML = null;   // the last reading
+
+  async function loadMockloc(fresh) {
+    const box = $('ml-content'), msg = $('ml-msg');
+    msg.textContent = '';
+    box.innerHTML = '<p class="info">Reading the morning fixes\u2026</p>';
+    $('btn-ml-run').disabled = true;
+    try {
+      const res = await Api.post({ action: 'mockloc', token: token, days: $('ml-days').value, fresh: fresh ? '1' : '0' });
+      if (!res || !res.ok) { box.innerHTML = ''; msg.textContent = 'Failed: ' + ((res && res.code) || 'ERR'); return; }
+      ML = res;
+      renderMockloc();
+    } catch (e) {
+      box.innerHTML = '';
+      msg.textContent = 'Could not reach the server \u2014 try again.';
+    } finally {
+      $('btn-ml-run').disabled = false;
+    }
+  }
+
+  function mlWho(w) {
+    return esc(w.name) + ' <span class="muted">' + esc(w.cadre) + (w.awcName ? ' \u00b7 ' + esc(w.awcName) : '') + (w.sector ? ' \u00b7 ' + esc(w.sector) : '') + '</span>';
+  }
+  function mlDates(d) {
+    const a = (d || []).map(x => x.slice(5).replace('-', '/'));
+    return a.length > 6 ? a.slice(0, 6).join(', ') + ' +' + (a.length - 6) : a.join(', ');
+  }
+  function mlAcc(v) { return v == null ? '\u2014' : Math.round(v) + ' m'; }
+
+  function renderMockloc() {
+    const r = ML, box = $('ml-content');
+    $('ml-when').textContent = 'Read ' + String(r.at).slice(0, 16).replace('T', ' ') + ' \u00b7 ' + r.from + ' to ' + r.to;
+    $('btn-ml-csv').hidden = !(r.findings.length || r.leads.length);
+    const s = r.scanned;
+    let html = '<div class="bigcards">' +
+      bigcard(r.findings.length ? 'bc-red' : 'bc-olive', 'findings', r.findings.length, 'same point, two or more mornings') +
+      bigcard(r.leads.length ? 'bc-maroon' : 'bc-olive', 'leads', r.leads.length, 'claimed 0\u20131 m') +
+      bigcard(r.shared.length ? 'bc-maroon' : 'bc-olive', 'shared points', r.shared.length, 'two centres, one fix') +
+      bigcard('bc-grey', 'people read', s.judged, s.notJudged + ' not judged (under ' + r.thresholds.minDays + ' mornings)') +
+      bigcard('bc-blue', 'located mornings', s.located, s.marks + ' IN marks in the window') +
+      '</div>';
+
+    html += '<h3>Findings</h3><p class="info">The same coordinate to six decimals on two or more mornings, each claimed at ' + r.thresholds.fineM +
+      ' m or better. Scatter is the median distance of her mornings from their centre: a real phone shows tens of metres, a pinned one shows 0.</p>';
+    html += r.findings.length
+      ? '<div class="tablewrap"><table><tr><th>Person</th><th>Mornings</th><th>Pinned</th><th>Coordinate</th><th>Scatter</th><th>Accuracy (median / best)</th><th>Dates</th></tr>' +
+        r.findings.map(f => '<tr><td>' + mlWho(f) + '</td><td>' + f.located + '</td><td><b>' + f.pinnedDays + '</b></td><td style="font-family:var(--mono)">' + esc(f.coord) +
+          '</td><td>' + f.scatterM + ' m</td><td>' + mlAcc(f.accMedian) + ' / ' + mlAcc(f.accMin) + '</td><td>' + esc(mlDates(f.dates)) + '</td></tr>').join('') + '</table></div>'
+      : '<p class="info">None in this window.</p>';
+
+    html += '<h3>Leads</h3><p class="info">A claimed accuracy of ' + r.thresholds.perfectM + ' m or better on some morning, from a phone that is not pinned. A cached fix can do this once; a pattern cannot.</p>';
+    html += r.leads.length
+      ? '<div class="tablewrap"><table><tr><th>Person</th><th>Mornings</th><th>Perfect</th><th>Scatter</th><th>Accuracy (median / best)</th><th>Dates</th></tr>' +
+        r.leads.map(f => '<tr><td>' + mlWho(f) + '</td><td>' + f.located + '</td><td><b>' + f.perfectDays + '</b></td><td>' + f.scatterM + ' m</td><td>' +
+          mlAcc(f.accMedian) + ' / ' + mlAcc(f.accMin) + '</td><td>' + esc(mlDates(f.dates)) + '</td></tr>').join('') + '</table></div>'
+      : '<p class="info">None in this window.</p>';
+
+    html += '<h3>Shared points</h3><p class="info">One fine fix under two people of different centres on the same morning. An AWT and her AWH share the centre phone and stand in one spot, so a pair of the same centre is not read here.</p>';
+    html += r.shared.length
+      ? '<div class="tablewrap"><table><tr><th>Date</th><th>Coordinate</th><th>Under</th></tr>' +
+        r.shared.map(g => '<tr><td>' + esc(g.date) + '</td><td style="font-family:var(--mono)">' + esc(g.coord) + '</td><td>' +
+          g.users.map(w => mlWho(w) + ' <span class="muted">' + esc(w.at) + ' \u00b7 ' + mlAcc(w.acc) + '</span>').join('<br>') + '</td></tr>').join('') + '</table></div>'
+      : '<p class="info">None in this window.</p>';
+    html += '<p class="info">' + esc(r.note) + '</p>';
+    box.innerHTML = html;
+  }
+
+  function mocklocCsv() {
+    if (!ML) return;
+    const rows = [['kind', 'user_id', 'name', 'cadre', 'awc_id', 'awc', 'sector', 'mornings_located', 'days', 'coordinate', 'scatter_m', 'acc_median_m', 'acc_best_m', 'dates']];
+    ML.findings.forEach(f => rows.push(['FINDING', f.uid, f.name, f.cadre, f.awc, f.awcName, f.sector, f.located, f.pinnedDays, f.coord, f.scatterM, f.accMedian == null ? '' : f.accMedian, f.accMin == null ? '' : f.accMin, (f.dates || []).join(' ')]));
+    ML.leads.forEach(f => rows.push(['LEAD', f.uid, f.name, f.cadre, f.awc, f.awcName, f.sector, f.located, f.perfectDays, '', f.scatterM, f.accMedian == null ? '' : f.accMedian, f.accMin == null ? '' : f.accMin, (f.dates || []).join(' ')]));
+    downloadCsv('mock-gps-' + ML.from + '-to-' + ML.to + '.csv', rows);
+  }
+
   // ---------------- Performance / SLA (district admin only) ----------------
   /**
    * Live diagnostics run on demand: timed probes to both API deployments,
@@ -3927,7 +4004,7 @@ const App = (() => {
   // ---------------- tabs & events ----------------
   function switchTab(name) {
     ['today', 'analytics', 'exceptions', 'rpts', 'monthly', 'reports', 'leaves', 'register',
-      'map', 'verify', 'admin', 'perf', 'health', 'advisory'].forEach(t => {
+      'map', 'verify', 'admin', 'perf', 'health', 'advisory', 'mockloc'].forEach(t => {
       $('tab-' + t).classList.toggle('sel', t === name);
       $('view-' + t).hidden = t !== name;
     });
@@ -3951,6 +4028,7 @@ const App = (() => {
     if (name === 'verify' && !vfyLoadedYm) loadVerify();
     if (name === 'perf') renderPerf();
     if (name === 'health') renderHealth();
+    if (name === 'mockloc' && !ML) loadMockloc(false);
     if (name === 'advisory' && !ADV) loadAdvisory('');
     if (name === 'analytics' && $('an-content').querySelector('p')) runAnalytics();
     if (name === 'analytics') { if (!$('an-fortnight').innerHTML) loadFortnight(); if (!$('an-year').innerHTML) loadYearCal(); }
@@ -4041,6 +4119,9 @@ const App = (() => {
     $('tab-admin').onclick = () => switchTab('admin');
     $('tab-perf').onclick = () => switchTab('perf');
     $('tab-health').onclick = () => switchTab('health');
+    $('tab-mockloc').onclick = () => switchTab('mockloc');
+    $('btn-ml-run').onclick = () => loadMockloc(true);
+    $('btn-ml-csv').onclick = mocklocCsv;
     $('tab-advisory').onclick = () => switchTab('advisory');
     $('btn-adv-reload').onclick = () => loadAdvisory(ADV ? ADV.viewing : '');
     $('btn-health-run').onclick = renderHealth;

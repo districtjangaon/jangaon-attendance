@@ -44,7 +44,7 @@
 
 // The modules this register carries, in the order they are offered a request.
 // ADD A FEATURE BY ADDING ITS FILE AND ITS NAME HERE, and change nothing else.
-var FEATURE_MODULES = ['health', 'mydays', 'weather', 'advisory', 'posting'];
+var FEATURE_MODULES = ['health', 'mydays', 'weather', 'advisory', 'posting', 'mockloc'];
 
 /**
  * The core's own actions, READ OFF THE RUNNING CODE and never a list typed
