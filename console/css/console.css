@@ -415,6 +415,15 @@ svg{display:block;max-width:100%}
 
 /* ---------- tables ---------- */
 .tablewrap{overflow:auto;border-radius:14px;box-shadow:var(--nm-in-sm);background:var(--well)}
+/* a well never taller than the window: the sideways scrollbar is always in view and the sticky header row has something to stick to */
+.tablewrap{max-height:max(320px,calc(100vh - 210px));max-height:max(320px,calc(100dvh - 210px))}
+/* column grips: drag a heading's right edge to resize that column, double-click it to reset the table; drag the heading itself to pan */
+.colgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;touch-action:none;user-select:none;z-index:2}
+.colgrip::after{content:"";position:absolute;top:25%;bottom:25%;left:4px;width:2px;border-radius:1px;background:var(--line)}
+.colgrip:hover::after,.colgrip.on::after{background:var(--pri);top:0;bottom:0}
+table.resized{table-layout:fixed}
+table.resized th,table.resized td{overflow:hidden;text-overflow:ellipsis}
+table.wide th{cursor:grab;user-select:none}table.wide th:active{cursor:grabbing}
 /* a scrollbar that stays visible: an overlay scrollbar hides the fact that a table goes on to the right */
 .tablewrap,.hmwrap{scrollbar-width:thin;scrollbar-color:var(--tx-3) transparent}
 .tablewrap::-webkit-scrollbar,.hmwrap::-webkit-scrollbar{height:10px;width:10px}

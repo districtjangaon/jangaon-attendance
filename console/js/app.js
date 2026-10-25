@@ -1512,7 +1512,7 @@ const App = (() => {
       rows.map((l, i) =>
         '<tr>' + pickCell(l, i) + '<td>' + esc(userName(l.u)) + '</td><td>' + esc(l.from) + '</td><td>' + esc(l.to) +
         '</td><td>' + dayCount(l) + '</td><td>' + esc(LEAVE_LABEL[l.type] || l.type) +
-        '</td><td>' + esc(l.reason || '') + '</td><td>' + certCell(l) +
+        '</td><td class="remark">' + esc(l.reason || '') + '</td><td>' + certCell(l) +
         '</td><td><span class="tag ' + (l.status === 'APPROVED' ? 'OK'
           : l.status === 'REJECTED' ? 'ERR' : l.status === 'SUPERSEDED' ? '' : 'WARN') +
         '">' + esc(l.status === 'SUPERSEDED' ? 'DUPLICATE' : l.status) +
@@ -2412,12 +2412,14 @@ const App = (() => {
   function scrollHints() {
     document.querySelectorAll('.tablewrap, .hmwrap').forEach(w => {
       const wide = w.scrollWidth > w.clientWidth + 2;
+      const t = w.firstElementChild;
+      if (t && t.tagName === 'TABLE' && !/(dayhm|hm|lvcal)/.test(t.className)) { t.classList.toggle('wide', wide); colGrips(w, t); }
       let n = w.previousElementSibling && w.previousElementSibling.classList.contains('scrollnudge') ? w.previousElementSibling : null;
       if (!wide) { if (n) n.hidden = true; return; }
       if (!n) {
         n = document.createElement('div');
         n.className = 'scrollnudge';
-        n.innerHTML = '<span>Wider than the screen — scroll sideways</span>' +
+        n.innerHTML = '<span>Wider than the screen — scroll sideways, drag the header row, or drag a column edge to resize</span>' +
           '<button type="button" data-dir="-1" aria-label="Scroll left">&#9664;</button>' +
           '<button type="button" data-dir="1" aria-label="Scroll right">&#9654;</button>';
         n.querySelectorAll('button').forEach(b => b.onclick = () => w.scrollBy({ left: Number(b.dataset.dir) * Math.max(120, w.clientWidth * 0.7), behavior: 'smooth' }));
@@ -2426,6 +2428,52 @@ const App = (() => {
       }
       n.hidden = false;
       scrollEdges(w, n);
+    });
+  }
+  // ---------- column grips ----------
+  // Every heading of a list table carries a grip on its right edge. Drag it
+  // to widen or narrow that column; double-click it to put the table back.
+  // The first drag freezes every column at its present width and switches the
+  // table to fixed layout, so only the dragged column moves and text that no
+  // longer fits is cut with an ellipsis instead of pushing its neighbours.
+  // Dragging a heading itself pans the table sideways - the natural gesture
+  // when the right-hand columns are out of view. Heat maps keep their own
+  // cell sizes and are left alone.
+  function colGrips(w, t) {
+    const row = t.rows[0];
+    if (!row || t.dataset.grips) return;
+    t.dataset.grips = '1';
+    const widths = () => Array.from(row.cells).forEach(c => { c.style.width = c.getBoundingClientRect().width + 'px'; });
+    Array.from(row.cells).forEach(th => {
+      if (th.tagName !== 'TH') return;
+      const g = document.createElement('span');
+      g.className = 'colgrip';
+      g.title = 'Drag to resize this column; double-click to reset the table';
+      th.appendChild(g);
+      g.onpointerdown = e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        if (!t.classList.contains('resized')) {
+          const tw = t.getBoundingClientRect().width;
+          widths(); t.style.width = tw + 'px'; t.classList.add('resized');
+        }
+        const x0 = e.clientX, w0 = th.getBoundingClientRect().width, tw0 = t.getBoundingClientRect().width;
+        g.classList.add('on'); g.setPointerCapture(e.pointerId);
+        g.onpointermove = ev => { const nw = Math.max(40, w0 + ev.clientX - x0); th.style.width = nw + 'px'; t.style.width = (tw0 - w0 + nw) + 'px'; };
+        g.onpointerup = g.onpointercancel = () => { g.onpointermove = g.onpointerup = g.onpointercancel = null; g.classList.remove('on'); scrollHints(); };
+      };
+      g.ondblclick = e => {
+        e.stopPropagation();
+        Array.from(row.cells).forEach(c => { c.style.width = ''; });
+        t.style.width = ''; t.classList.remove('resized'); scrollHints();
+      };
+      th.onpointerdown = e => {
+        if (e.button !== 0 || !t.classList.contains('wide') || e.target.closest('.colgrip, input, button, a, select, label')) return;
+        const x0 = e.clientX, s0 = w.scrollLeft; let moved = false;
+        th.setPointerCapture(e.pointerId);
+        th.onpointermove = ev => { const dx = ev.clientX - x0; if (!moved && Math.abs(dx) < 5) return; moved = true; w.scrollLeft = s0 - dx; };
+        th.onpointerup = th.onpointercancel = () => { th.onpointermove = th.onpointerup = th.onpointercancel = null; };
+      };
     });
   }
   function scrollEdges(w, n) {
